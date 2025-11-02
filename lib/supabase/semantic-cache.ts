@@ -28,6 +28,12 @@ export async function findCachedResponse(
 
   const cached = data[0] as QueryCache
 
+  // Verifica che la risposta cached non sia vuota
+  if (!cached.response_text || cached.response_text.trim().length === 0) {
+    console.warn('[semantic-cache] Found cached response but it is empty, ignoring')
+    return null
+  }
+
   // Aggiorna hit_count
   await supabaseAdmin
     .from('query_cache')
@@ -48,6 +54,12 @@ export async function saveCachedResponse(
   responseText: string,
   ttlDays: number = 7
 ): Promise<void> {
+  // Non salvare cache vuote
+  if (!responseText || responseText.trim().length === 0) {
+    console.warn('[semantic-cache] Skipping cache save: response text is empty')
+    return
+  }
+
   const expiresAt = new Date()
   expiresAt.setDate(expiresAt.getDate() + ttlDays)
 
@@ -56,7 +68,7 @@ export async function saveCachedResponse(
     .insert({
       query_text: queryText,
       query_embedding: queryEmbedding,
-      response_text: responseText,
+      response_text: responseText.trim(),
       expires_at: expiresAt.toISOString(),
     })
 
