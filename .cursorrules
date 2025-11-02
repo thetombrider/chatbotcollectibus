@@ -1,0 +1,447 @@
+# Consulting RAG Chatbot - Cursor Rules
+
+## Project Overview
+This is a Next.js 14 RAG-based chatbot for consulting knowledge base (40GB+ of documents).
+Internal tool for team to query industry reports, insights, and accumulated domain knowledge.
+
+## Tech Stack
+- **Framework**: Next.js 14 (App Router) + TypeScript
+- **RAG Orchestration**: Mastra
+- **Database & Vector Store**: Supabase (Postgres + pgvector)
+- **Embeddings**: OpenAI (text-embeddings-3-large)
+- **LLM**: OpenRouter (google/gemini 2.5 pro)
+- **Background Jobs**: Supabase Edge Functions (document processing)
+- **UI**: shadcn/ui + Tailwind CSS
+- **Deployment**: Vercel
+
+## Project Structure
+```
+/app
+  /api
+    /chat          # Main chat endpoint with streaming
+    /upload        # Document upload handler
+    /inngest       # Inngest webhook endpoint
+  /chat            # Chat UI page
+  /(auth)          # Authentication pages (future)
+/mastra
+  /agents          # Mastra agent definitions
+    consulting-agent.ts
+  /tools           # Custom tools (optional)
+  index.ts         # Mastra instance
+/lib
+  /supabase        # Supabase client and operations
+    client.ts      # Supabase clients (anon + admin)
+    database.types.ts  # TypeScript database types
+    vector-operations.ts  # Vector search functions
+    semantic-cache.ts  # Query caching with pgvector
+    document-operations.ts  # Document CRUD
+  /embeddings      # Embedding generation
+    openai.ts      # OpenAI integration
+  /processing      # Document processing
+    document-processor.ts  # Extract + chunk documents
+  /edge-functions        # Background jobs (Supabase Edge Functions)
+    client.ts            # Edge Function client
+    /functions           # Edge Function definitions
+/scripts
+  seed-knowledge-base.ts  # One-time 40GB seed script
+/components
+  /ui              # shadcn/ui components
+/supabase
+  /migrations      # Database migration files
+  seed.sql         # Initial schema and functions
+```
+
+## Supabase Database Schema
+
+### Core Tables
+- **documents**: Original uploaded documents with metadata
+- **document_chunks**: Text chunks with embeddings (vector)
+- **query_cache**: Semantic cache for responses
+- **conversations**: Chat conversation history
+- **messages**: Individual messages in conversations
+
+### Key Features
+- **pgvector**: Vector similarity search with HNSW index
+- **Full-text search**: GIN index for keyword search
+- **Hybrid search**: SQL function combining vector + text search
+- **Semantic cache**: Find similar cached queries with pgvector
+- **Row Level Security**: Ready for multi-user setup (future)
+
+## Coding Standards
+
+### TypeScript
+- Use strict mode (tsconfig.json: "strict": true)
+- Explicit return types for all exported functions
+- No implicit `any` - use proper types or `unknown`
+- Use Supabase generated types from database.types.ts
+- Prefer interfaces for object shapes, types for unions/intersections
+- Use Zod for runtime validation at API boundaries
+
+### Naming Conventions
+- **Files**: kebab-case (e.g., `vector-operations.ts`)
+- **Components**: PascalCase files and exports (e.g., `ChatInterface.tsx`)
+- **Functions**: camelCase (e.g., `embedQuery`, `searchSimilarChunks`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_FILE_SIZE`, `SIMILARITY_THRESHOLD`)
+- **Types/Interfaces**: PascalCase (e.g., `ChatMessage`, `DocumentChunk`)
+- **Database tables**: snake_case (e.g., `document_chunks`, `query_cache`)
+
+### Supabase Patterns
+
+#### Client Selection
+```typescript
+// Use supabaseClient (anon key) for:
+// - Client-side operations
+// - User-scoped queries (with RLS)
+// - Public read operations
+
+// Use supabaseAdmin (service role) for:
+// - Server-side operations
+// - Bypassing RLS when needed
+// - Background jobs (Inngest)
+// - Admin operations
+```
+
+#### Error Handling
+```typescript
+const { data, error } = await supabase
+  .from('documents')
+  .select('*');
+
+if (error) {
+  console.error('[supabase] Query failed:', error.message, error.details);
+  throw new Error(`Database error: ${error.message}`);
+}
+
+return data;
+```
+
+#### Vector Search Pattern
+```typescript
+// Use RPC for complex queries with pgvector
+const { data, error } = await supabase.rpc('hybrid_search', {
+  query_embedding: embedding,
+  query_text: searchText,
+  match_threshold: 0.7,
+  match_count: 5
+});
+```
+
+### Async Patterns
+- Prefer `async/await` over `.then()` chains
+- Always use try-catch for async operations
+- Include meaningful error messages
+- Log errors with context: `console.error('[vector-operations] Search failed:', error)`
+
+### Error Handling
+- API routes: Return proper HTTP status codes (400, 429, 500)
+- Include user-friendly error messages
+- Log detailed errors for debugging
+- Supabase errors: Check error.code and error.message
+- Use custom error types when helpful:
+  ```typescript
+  class VectorSearchError extends Error {
+    constructor(message: string, public code: string) {
+      super(message);
+      this.name = 'VectorSearchError';
+    }
+  }
+  ```
+
+### Environment Variables
+- All secrets in `.env.local` (never commit)
+- Provide `.env.example` with placeholders
+- Use NEXT_PUBLIC_ prefix for client-side vars
+- Validate env vars at startup:
+  ```typescript
+  const envSchema = z.object({
+    NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+    SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
+  });
+  const env = envSchema.parse(process.env);
+  ```
+
+### Function Documentation
+- Add JSDoc comments for all exported functions
+- Include @param and @returns tags
+- Document Supabase RPC functions separately
+- Example usage in complex cases:
+  ```typescript
+  /**
+   * Searches for similar document chunks using hybrid search (vector + text).
+   * 
+   * @param queryEmbedding - Vector embedding of the search query
+   * @param queryText - Original query text for full-text search
+   * @param limit - Maximum number of results to return
+   * @returns Array of matching chunks with similarity scores
+   * 
+   * @example
+   * const chunks = await hybridSearch(embedding, "fintech trends", 5);
+   */
+  ```
+
+### API Route Patterns
+```typescript
+export async function POST(req: Request) {
+  try {
+    // 1. Validate input with Zod
+    const body = await req.json();
+    const validated = inputSchema.parse(body);
+    
+    // 2. Use Supabase admin for server-side operations
+    const { data, error } = await supabaseAdmin
+      .from('documents')
+      .insert(validated);
+    
+    if (error) throw error;
+    
+    // 3. Return response
+    return Response.json({ success: true, data });
+    
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return Response.json({ error: 'Invalid input', details: error.errors }, { status: 400 });
+    }
+    console.error('[api/endpoint] Error:', error);
+    return Response.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+```
+
+### React/UI Patterns
+- Use 'use client' directive for client components
+- Prefer server components when possible
+- Extract reusable logic to custom hooks
+- Use shadcn/ui components as base, customize as needed
+- Tailwind classes: utility-first, no custom CSS unless necessary
+- Loading states: Show skeletons or spinners, never blank screens
+- Error states: Display user-friendly messages with retry options
+
+### Performance
+- Batch operations when possible (embeddings, Supabase inserts)
+- Use Supabase RPC functions for complex queries (avoid N+1)
+- Use streaming for LLM responses
+- Implement semantic caching to reduce LLM calls
+- Index optimization: HNSW for vectors, GIN for full-text
+- Use SELECT only needed columns, not SELECT *
+- Lazy load heavy components
+- Optimize images with next/image
+
+### Security
+- Validate all user input with Zod
+- Sanitize file uploads (check size, type, content)
+- Use Supabase RLS for row-level security (when adding auth)
+- Never expose service role key in client code
+- Use anon key for client-side, service role for server-side only
+- Use Vercel's built-in CSRF protection
+
+## RAG-Specific Guidelines
+
+### Document Processing
+- Chunk size: ~500 tokens with 50 token overlap
+- Preserve metadata: source, title, page number, creation date
+- Handle failures gracefully: log and continue with next document
+- Progress tracking: Update document.processing_status
+- Store in Supabase Storage, reference URL in documents table
+
+### Vector Search
+- Use hybrid_search() function for best results (combines vector + text)
+- Retrieve top 5 documents (configurable via match_count)
+- Minimum similarity score: 0.7 (configurable via match_threshold)
+- Include document metadata and page numbers for citations
+- Join with documents table for title and source info
+
+### Embeddings
+- Batch size: 100 chunks per API call (OpenAI limit)
+- Don't re-embed identical text (check if chunk already exists)
+- Model: OpenAI text-embeddings-3-large (1536 dimensions)
+- Input type: 'document' for knowledge base, 'query' for user queries
+- Store embeddings as vector(1536) in Postgres
+
+### Caching Strategy
+- Semantic similarity threshold: 0.95 for cache hits
+- Use find_cached_response() RPC function
+- TTL: 7 days (set expires_at)
+- Update hit_count and last_accessed_at on cache hits
+- Cache key: Store both query_text and query_embedding
+- Cleanup: Run clean_expired_cache() periodically
+
+### Supabase Indexes
+- HNSW index on document_chunks.embedding (vector similarity)
+- GIN index on document_chunks.content (full-text search)
+- B-tree indexes on foreign keys and frequently filtered columns
+- Analyze tables after bulk inserts: ANALYZE document_chunks
+
+## Common Patterns
+
+### Retry Logic with Exponential Backoff
+```typescript
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 1000
+): Promise<T> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      const delay = baseDelay * Math.pow(2, i);
+      console.log(`Retry ${i + 1}/${maxRetries} after ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+```
+
+### Streaming Response
+```typescript
+export async function POST(req: Request) {
+  const stream = new ReadableStream({
+    async start(controller) {
+      const response = await agent.stream({ message });
+      for await (const chunk of response) {
+        controller.enqueue(new TextEncoder().encode(chunk));
+      }
+      controller.close();
+    }
+  });
+  
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream' }
+  });
+}
+```
+
+### Batch Insert with Supabase
+```typescript
+// Insert in batches of 1000 to avoid query size limits
+const BATCH_SIZE = 1000;
+
+for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+  const batch = chunks.slice(i, i + BATCH_SIZE);
+  const { error } = await supabaseAdmin
+    .from('document_chunks')
+    .insert(batch);
+  
+  if (error) {
+    console.error(`Batch ${i / BATCH_SIZE} failed:`, error);
+    throw error;
+  }
+  console.log(`Inserted batch ${i / BATCH_SIZE + 1}/${Math.ceil(chunks.length / BATCH_SIZE)}`);
+}
+```
+
+## SQL Best Practices
+
+### Use RPC for Complex Queries
+```typescript
+// Instead of multiple queries, use Postgres functions
+const { data } = await supabase.rpc('hybrid_search', params);
+
+// Define functions in supabase/migrations/
+```
+
+### Optimize Vector Queries
+```sql
+-- Set search accuracy at runtime
+SET hnsw.ef_search = 100;
+
+-- Use appropriate distance operator
+-- <=> for cosine distance (most common)
+-- <-> for L2 distance
+-- <#> for inner product
+```
+
+### Transaction Pattern
+```typescript
+// For operations that must be atomic
+const { data, error } = await supabaseAdmin.rpc('atomic_operation', {
+  // params
+});
+```
+
+## Testing Approach
+- Manual testing for MVP (we can add automated tests later)
+- Test error paths explicitly (failed uploads, etc.)
+- Verify streaming works in browser
+- Test with various document formats (PDF, DOCX, TXT)
+- Check cache hit rates in Supabase dashboard
+- Monitor query performance with pg_stat_statements
+- Test vector search accuracy with known queries
+
+## Git Workflow
+- Commit frequently with descriptive messages
+- Format: `feat: add semantic caching` or `fix: handle PDF extraction errors`
+- Branch naming: `feature/semantic-cache`, `fix/upload-validation`
+- Commit migrations separately: `db: add query_cache table`
+
+## Performance Targets
+- Query response time: < 3s (with cache: < 100ms)
+- Vector search: < 200ms for 10M vectors
+- Document processing: < 2 min per document
+- UI interactions: Feels instant (< 100ms perceived)
+- Streaming: First token < 500ms
+
+## Supabase-Specific Guidelines
+
+### Migrations
+- Create migration files for schema changes
+- Use supabase migration new <name>
+- Test migrations locally before deploying
+- Never modify production database directly
+
+### RLS (Future)
+- Enable RLS on all tables when adding auth
+- Create policies for user-scoped access
+- Use auth.uid() in policies
+- Test policies with different user roles
+
+### Storage
+- **Note:** Original documents are already stored in SharePoint; avoid duplicating them in Supabase Storage.
+- For now, do not integrate with SharePoint directly—review storage/integration plans before uploading or storing any files in Supabase.
+- If temporary storage is needed for processing, ensure that files are deleted immediately after processing is complete.
+- Do not persist uploaded files in Supabase Storage long-term.
+
+### Edge Functions (Alternative to Inngest)
+- Consider Supabase Edge Functions for simple jobs
+- Deploy with supabase functions deploy
+- Use for webhooks, scheduled tasks
+- Access Supabase directly without extra auth
+
+## Future Considerations (Don't implement yet)
+- Multi-tenancy for client documents (use RLS)
+- Fine-grained access control (Supabase Auth + RLS)
+- Advanced analytics dashboard (Supabase Realtime)
+- Custom embeddings fine-tuned on domain
+- Graph RAG for relationship extraction
+- Real-time collaboration (Supabase Realtime subscriptions)
+
+## When in Doubt
+- Keep it simple (KISS principle)
+- Favor readability over cleverness
+- Use SQL for complex queries (Postgres is powerful)
+- Add TODO comments for future optimizations
+- Check Supabase docs for best practices
+- Ask for clarification rather than assume
+
+## Helpful Commands
+- `npm run dev` - Start development server
+- `npx supabase start` - Start local Supabase (Docker required)
+- `npx supabase db reset` - Reset local database
+- `npx supabase migration new <name>` - Create new migration
+- `npx supabase db push` - Apply migrations to remote
+- `npx inngest-cli dev` - Run Inngest locally
+- `tsx scripts/seed-knowledge-base.ts` - Seed 40GB documents
+
+## Supabase Dashboard
+- Use Supabase Studio (local or cloud) to:
+  - Browse tables and data
+  - Test SQL queries
+  - Monitor performance
+  - View logs
+  - Manage storage buckets
+
+---
+
+Remember: This is an internal tool for consultants. Prioritize reliability and good UX over bleeding-edge features. Supabase gives us a powerful, unified platform - use it to our advantage. Make it work, make it right, make it fast - in that order.

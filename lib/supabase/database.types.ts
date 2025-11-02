@@ -1,0 +1,55 @@
+/**
+ * Database types per Supabase
+ * Questi tipi verranno generati automaticamente da Supabase CLI
+ * Per ora definiamo i tipi base manualmente
+ */
+
+export interface Document {
+  id: string
+  filename: string
+  file_type: string
+  file_size: number
+  storage_path: string
+  metadata?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface DocumentChunk {
+  id: string
+  document_id: string
+  content: string
+  embedding?: number[]
+  chunk_index: number
+  metadata?: Record<string, unknown>
+  created_at: string
+}
+
+export interface Conversation {
+  id: string
+  user_id?: string
+  title?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Message {
+  id: string
+  conversation_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  metadata?: Record<string, unknown>
+  created_at: string
+}
+
+export interface QueryCache {
+  id: string
+  query_text: string
+  query_embedding?: number[]
+  response_text: string
+  similarity_threshold: number
+  hit_count: number
+  created_at: string
+  expires_at: string
+}
+
