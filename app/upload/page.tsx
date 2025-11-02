@@ -8,6 +8,8 @@ interface UploadStatus {
   error?: string
   documentId?: string
   chunksCount?: number
+  stageMessage?: string
+  retryCount?: number
 }
 
 export default function UploadPage() {
@@ -56,54 +58,209 @@ export default function UploadPage() {
     }
   }, [])
 
-  const handleUpload = async () => {
-    if (files.length === 0) return
+  /**
+   * Helper per retry con exponential backoff
+   */
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-    setUploading(true)
+  const uploadFileWithRetry = async (
+    file: File,
+    maxRetries: number = 3,
+    baseDelay: number = 1000
+  ): Promise<void> => {
+    let retryCount = 0
 
-    for (const file of files) {
+    while (retryCount <= maxRetries) {
       try {
         setUploadStatuses((prev) => ({
           ...prev,
-          [file.name]: { status: 'uploading', progress: 0 },
+          [file.name]: {
+            ...prev[file.name],
+            status: retryCount > 0 ? 'processing' : 'uploading',
+            progress: 0,
+            stageMessage: retryCount > 0 ? `Retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` : undefined,
+            retryCount,
+          },
         }))
 
         const formData = new FormData()
         formData.append('file', file)
 
-        const res = await fetch('/api/upload', {
+        // Usa streaming per progress real-time
+        const res = await fetch('/api/upload?stream=true', {
           method: 'POST',
           body: formData,
         })
 
-        const data = await res.json()
-
         if (!res.ok) {
-          throw new Error(data.error || `Upload failed for ${file.name}`)
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }))
+          throw new Error(errorData.error || `Upload failed for ${file.name}`)
         }
 
-        setUploadStatuses((prev) => ({
-          ...prev,
-          [file.name]: {
-            status: 'completed',
-            progress: 100,
-            documentId: data.documentId,
-            chunksCount: data.chunksCount,
-          },
-        }))
+        // Leggi Server-Sent Events
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+
+        if (!reader) {
+          throw new Error('Response body is not readable')
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+
+                if (data.stage === 'error') {
+                  throw new Error(data.message || 'Processing failed')
+                }
+
+                setUploadStatuses((prev) => ({
+                  ...prev,
+                  [file.name]: {
+                    status: data.stage === 'completed' ? 'completed' : data.stage === 'uploading' ? 'uploading' : 'processing',
+                    progress: data.progress || 0,
+                    stageMessage: data.message,
+                    documentId: data.documentId,
+                    chunksCount: data.chunksCount,
+                    retryCount,
+                  },
+                }))
+
+                // Se completato, esci dal loop
+                if (data.stage === 'completed') {
+                  return
+                }
+              } catch (parseError) {
+                console.warn('Failed to parse SSE data:', parseError)
+              }
+            }
+          }
+        }
+
+        // Se arriviamo qui, l'upload è completato con successo
+        return
       } catch (error) {
-        console.error(`Error uploading ${file.name}:`, error)
+        console.error(`Error uploading ${file.name} (attempt ${retryCount + 1}):`, error)
+
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
+        // Se abbiamo ancora tentativi disponibili e l'errore è retryable
+        if (retryCount < maxRetries && isRetryableError(errorMessage)) {
+          retryCount++
+          const delay = baseDelay * Math.pow(2, retryCount - 1)
+          
+          setUploadStatuses((prev) => ({
+            ...prev,
+            [file.name]: {
+              ...prev[file.name],
+              status: 'error',
+              error: `${errorMessage} - Retrying in ${delay / 1000}s...`,
+              retryCount,
+            },
+          }))
+
+          await sleep(delay)
+          continue
+        }
+
+        // Nessun retry disponibile o errore non retryable
         setUploadStatuses((prev) => ({
           ...prev,
           [file.name]: {
             status: 'error',
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: errorMessage,
+            retryCount,
           },
         }))
+        throw error
+      }
+    }
+  }
+
+  /**
+   * Determina se un errore è retryable
+   */
+  const isRetryableError = (errorMessage: string): boolean => {
+    const retryablePatterns = [
+      /network/i,
+      /timeout/i,
+      /connection/i,
+      /temporary/i,
+      /rate limit/i,
+      /429/i,
+      /503/i,
+      /502/i,
+      /500/i,
+    ]
+
+    // Non retry per errori di validazione o configurazione
+    const nonRetryablePatterns = [
+      /file size/i,
+      /file type/i,
+      /unsupported/i,
+      /bucket not found/i,
+      /invalid/i,
+      /required/i,
+    ]
+
+    if (nonRetryablePatterns.some((pattern) => pattern.test(errorMessage))) {
+      return false
+    }
+
+    return retryablePatterns.some((pattern) => pattern.test(errorMessage))
+  }
+
+  const handleUpload = async () => {
+    if (files.length === 0) return
+
+    setUploading(true)
+
+    // Upload file uno alla volta per mostrare progress individuale
+    for (const file of files) {
+      // Salta file già completati o in processing
+      const currentStatus = uploadStatuses[file.name]
+      if (currentStatus?.status === 'completed' || currentStatus?.status === 'processing') {
+        continue
+      }
+
+      try {
+        await uploadFileWithRetry(file)
+      } catch (error) {
+        // Errore già gestito in uploadFileWithRetry con retry logic
+        console.error(`Final error for ${file.name}:`, error)
       }
     }
 
     setUploading(false)
+  }
+
+  const handleRetry = async (fileName: string) => {
+    const file = files.find((f) => f.name === fileName)
+    if (!file) return
+
+    setUploadStatuses((prev) => ({
+      ...prev,
+      [fileName]: {
+        ...prev[fileName],
+        status: 'pending',
+        error: undefined,
+        retryCount: (prev[fileName]?.retryCount || 0) + 1,
+      },
+    }))
+
+    try {
+      await uploadFileWithRetry(file)
+    } catch (error) {
+      console.error(`Retry failed for ${fileName}:`, error)
+    }
   }
 
   const removeFile = (fileName: string) => {
@@ -206,14 +363,44 @@ export default function UploadPage() {
                       )}
                     </div>
                     {status.error && (
-                      <p className="text-sm text-red-600 mt-2">{status.error}</p>
+                      <div className="mt-2">
+                        <p className="text-sm text-red-600 mb-2">{status.error}</p>
+                        {status.status === 'error' && (
+                          <button
+                            onClick={() => handleRetry(file.name)}
+                            className="text-sm text-blue-600 hover:text-blue-700 font-medium underline"
+                          >
+                            Riprova
+                          </button>
+                        )}
+                      </div>
                     )}
-                    {status.status === 'processing' && (
+                    {(status.status === 'uploading' || status.status === 'processing') && (
                       <div className="mt-3">
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                        <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
-                            className="bg-blue-600 h-1.5 rounded-full animate-pulse"
-                            style={{ width: '50%' }}
+                            className={`h-2 rounded-full transition-all duration-300 ${
+                              status.status === 'uploading'
+                                ? 'bg-yellow-500'
+                                : 'bg-blue-600'
+                            }`}
+                            style={{ width: `${status.progress || 0}%` }}
+                          />
+                        </div>
+                        {status.stageMessage && (
+                          <p className="text-xs text-gray-600 mt-1.5">{status.stageMessage}</p>
+                        )}
+                        {status.progress !== undefined && (
+                          <p className="text-xs text-gray-500 mt-1">{Math.round(status.progress)}%</p>
+                        )}
+                      </div>
+                    )}
+                    {status.status === 'completed' && status.progress === 100 && (
+                      <div className="mt-3">
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: '100%' }}
                           />
                         </div>
                       </div>
