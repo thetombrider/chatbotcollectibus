@@ -92,9 +92,11 @@ CREATE INDEX ON query_cache USING hnsw (query_embedding vector_cosine_ops);
 - [x] Supporto per PDF, DOCX, TXT
 - [x] Preview file caricati
 - [x] Validazione file size e tipo
-- [ ] Migliorare progress tracking real-time
-- [ ] Aggiungere gestione errori con retry
-- [ ] Mostrare stato processing (pending, processing, completed, error)
+- [x] Migliorare progress tracking real-time (Server-Sent Events)
+- [x] Aggiungere gestione errori con retry (exponential backoff)
+- [x] Mostrare stato processing (pending, processing, completed, error)
+- [x] Progress bar dinamica con percentuali e stage messages
+- [x] Retry button per file in errore
 
 ### 2.2 Document Processing
 - [x] API route `/api/upload` per ricevere file
@@ -197,10 +199,15 @@ Store in Cache + Save Message
 
 ### 4.4 Stato Attuale (Nov 2025)
 - ✅ Chat funzionante
-- ✅ Streaming implementato
+- ✅ Streaming implementato (con fallback a generate() se stream() fallisce)
 - ✅ Vector search funzionante
-- ✅ Semantic cache funzionante
+- ✅ Semantic cache funzionante (con validazione per evitare cache vuote)
 - ✅ Conversazioni e history funzionanti
+- ✅ Salvataggio messaggi nel database corretto (user e assistant)
+- ✅ Gestione errori migliorata con logging dettagliato
+- ✅ Validazione per evitare messaggi vuoti
+- ✅ Ricarica automatica messaggi dopo completamento stream
+- ✅ Fix API routes per Next.js 14.1.0 (params sincroni nelle API routes)
 
 ## Fase 5: Chat History (Giorno 8) - ✅ COMPLETATO
 
@@ -227,7 +234,7 @@ Store in Cache + Save Message
 - [ ] Lazy loading per chat history
 
 ### 6.2 UX Improvements
-- [ ] Error handling e retry logic
+- [x] Error handling e retry logic (implementato per upload e chat)
 - [ ] Loading skeletons
 - [ ] Toast notifications
 - [ ] Keyboard shortcuts
@@ -365,12 +372,52 @@ types/
 
 ## Deployment Checklist
 
-- [ ] Setup Vercel project
-- [ ] Configurare environment variables su Vercel
-- [ ] Setup Supabase production database
-- [ ] Applicare migrations su produzione
+- [x] Setup Vercel project
+- [x] Configurare environment variables su Vercel
+- [x] Setup Supabase production database
+- [x] Applicare migrations su produzione
+- [x] Deploy su Vercel completato
+- [x] Fix ESLint errors per build production
 - [ ] Testare Edge Functions su produzione
-- [ ] Configurare CORS per API
+- [x] Configurare CORS per API (in next.config.js)
 - [ ] Setup monitoring e logging
 - [ ] Configurare backup database
+
+## Fix Recenti (Nov 2025)
+
+### Problemi Risolti
+1. **Messaggi vuoti nel database**
+   - ✅ Identificato problema: cache entries vuote causavano salvataggio messaggi vuoti
+   - ✅ Eliminati cache e messaggi vuoti dal database
+   - ✅ Aggiunta validazione in `findCachedResponse()` per ignorare cache vuote
+   - ✅ Aggiunta validazione in `saveCachedResponse()` per non salvare cache vuote
+   - ✅ Aggiunto controllo pre-salvataggio per evitare messaggi assistant vuoti
+
+2. **Progress tracking upload**
+   - ✅ Implementato Server-Sent Events (SSE) per progress real-time
+   - ✅ Progress bar dinamica con percentuali e stage messages
+   - ✅ Retry logic con exponential backoff per errori transienti
+   - ✅ Gestione errori migliorata con messaggi chiari
+
+3. **API Routes Next.js 14.1.0**
+   - ✅ Fix params nelle API routes (sincroni invece di Promise)
+   - ✅ Fix gestione errori 404 per conversazioni non trovate
+
+4. **Chat streaming**
+   - ✅ Migliorato fallback da `stream()` a `generate()` se necessario
+   - ✅ Aggiunto logging dettagliato per debugging
+   - ✅ Fix salvataggio messaggi durante streaming
+   - ✅ Ricarica automatica messaggi dopo completamento
+
+5. **Deployment**
+   - ✅ Fix ESLint errors per build production
+   - ✅ Deploy su Vercel completato con successo
+   - ✅ Configurazione CORS e headers corretta
+
+### Miglioramenti Implementati
+- ✅ Logging dettagliato per debugging (console.log con prefisso `[api/chat]`)
+- ✅ Validazione contenuto prima di salvare (cache e messaggi)
+- ✅ Gestione errori migliorata con try-catch e messaggi chiari
+- ✅ Retry automatico per errori transienti
+- ✅ UI feedback migliorato (progress bar, errori, retry buttons)
 
