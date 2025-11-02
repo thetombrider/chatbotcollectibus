@@ -21,11 +21,28 @@ export async function POST(req: NextRequest) {
     // Save user message first (before any processing)
     if (conversationId) {
       try {
+        // Conta i messaggi esistenti per verificare se è il primo messaggio
+        const { count: messageCount } = await supabaseAdmin
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('conversation_id', conversationId)
+        
+        const isFirstMessage = (messageCount || 0) === 0
+        
         await supabaseAdmin.from('messages').insert({
           conversation_id: conversationId,
           role: 'user',
           content: message,
         })
+        
+        // Aggiorna il titolo della conversazione se è il primo messaggio
+        if (isFirstMessage) {
+          const title = message.substring(0, 50).trim() || 'Nuova conversazione'
+          await supabaseAdmin
+            .from('conversations')
+            .update({ title, updated_at: new Date().toISOString() })
+            .eq('id', conversationId)
+        }
       } catch (err) {
         console.error('[api/chat] Failed to save user message:', err)
         // Continue anyway, don't fail the request
@@ -104,20 +121,28 @@ export async function POST(req: NextRequest) {
     }
 
     // Vector search per context
-    const searchResults = await hybridSearch(queryEmbedding, message, 5)
+    const searchResults = await hybridSearch(queryEmbedding, message, 5, 0.7)
+    
+    // Filtra solo risultati con similarity >= 0.3 per evitare citazioni a documenti non rilevanti
+    const RELEVANCE_THRESHOLD = 0.3
+    const relevantResults = searchResults.filter(r => r.similarity >= RELEVANCE_THRESHOLD)
 
-    // Build context from chunks con numerazione per citazioni
-    const context = searchResults
-      .map((r, index) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
-      .join('\n\n')
+    // Build context solo se ci sono risultati rilevanti
+    const context = relevantResults.length > 0
+      ? relevantResults
+          .map((r, index) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
+          .join('\n\n')
+      : null
 
-    // Crea mappa delle fonti per il frontend
-    const sources = searchResults.map((r, index) => ({
-      index: index + 1,
-      documentId: r.document_id,
-      filename: r.document_filename || 'Documento sconosciuto',
-      similarity: r.similarity,
-    }))
+    // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
+    const sources = relevantResults.length > 0
+      ? relevantResults.map((r, index) => ({
+          index: index + 1,
+          documentId: r.document_id,
+          filename: r.document_filename || 'Documento sconosciuto',
+          similarity: r.similarity,
+        }))
+      : []
 
     // Stream response from agent
     const stream = new ReadableStream({
@@ -126,15 +151,20 @@ export async function POST(req: NextRequest) {
 
         try {
           console.log('[api/chat] Starting agent stream...')
-          console.log('[api/chat] Context length:', context.length)
+          console.log('[api/chat] Context available:', context !== null)
+          console.log('[api/chat] Relevant results count:', relevantResults.length)
           console.log('[api/chat] Message:', message)
           
           // Prova prima con stream(), se fallisce usa generate()
           try {
+            const systemPrompt = context
+              ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
+              : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            
             const result = await ragAgent.stream([
               {
                 role: 'system',
-                content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
+                content: systemPrompt,
               },
               {
                 role: 'user',
@@ -170,10 +200,14 @@ export async function POST(req: NextRequest) {
           } catch (streamError) {
             console.error('[api/chat] Stream failed, trying generate():', streamError)
             // Fallback a generate() se stream() non funziona
+            const systemPrompt = context
+              ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
+              : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            
             const generated = await ragAgent.generate([
               {
                 role: 'system',
-                content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
+                content: systemPrompt,
               },
               {
                 role: 'user',

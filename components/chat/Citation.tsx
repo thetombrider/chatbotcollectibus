@@ -223,7 +223,9 @@ interface MessageWithCitationsProps {
  */
 export function MessageWithCitations({ content, sources = [] }: MessageWithCitationsProps) {
   if (!sources || sources.length === 0) {
-    return <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
+    // Rimuovi tutte le citazioni dal testo se non ci sono sources
+    const cleanedContent = content.replace(/\[cit:\d+(?:,\d+)*\]/g, '')
+    return <p className="whitespace-pre-wrap leading-relaxed">{cleanedContent}</p>
   }
 
   // Regex per trovare citazioni [cit:N] o [cit:N,M,...]
@@ -243,12 +245,22 @@ export function MessageWithCitations({ content, sources = [] }: MessageWithCitat
 
     // Parse indici citazione
     const indices = match[1].split(',').map((n) => parseInt(n, 10))
+    
+    // Verifica che tutti gli indici esistano nelle sources disponibili
+    const validIndices = indices.filter(idx => sources.some(s => s.index === idx))
+    
+    // Se nessun indice è valido, ignora questa citazione (sarà rimossa dal testo)
+    if (validIndices.length === 0) {
+      // Aggiorna lastIndex per saltare questa citazione invalida
+      lastIndex = match.index + match[0].length
+      continue
+    }
 
-    // Aggiungi citazione
+    // Aggiungi citazione solo se ci sono indici validi
     parts.push({
       type: 'citation',
       content: match[0],
-      indices,
+      indices: validIndices,
     })
 
     lastIndex = match.index + match[0].length
