@@ -5,8 +5,21 @@ import { createReactAgent } from '@mastra/react'
  * Mastra Agent configuration per RAG
  */
 
+// Validazione OpenRouter API key
+const openrouterApiKey = process.env.OPENROUTER_API_KEY
+
+if (!openrouterApiKey) {
+  throw new Error(
+    'OPENROUTER_API_KEY is not set. Please add it to your .env.local file.'
+  )
+}
+
 // Tool per vector search
 async function vectorSearchTool(query: string) {
+  if (!query || query.trim().length === 0) {
+    throw new Error('Query cannot be empty')
+  }
+
   // Import dinamico per evitare problemi di SSR
   const { generateEmbedding } = await import('@/lib/embeddings/openai')
   const { hybridSearch } = await import('@/lib/supabase/vector-operations')
@@ -26,6 +39,10 @@ async function vectorSearchTool(query: string) {
 
 // Tool per semantic cache lookup
 async function semanticCacheTool(query: string) {
+  if (!query || query.trim().length === 0) {
+    throw new Error('Query cannot be empty')
+  }
+
   const { generateEmbedding } = await import('@/lib/embeddings/openai')
   const { findCachedResponse } = await import('@/lib/supabase/semantic-cache')
 
@@ -44,7 +61,7 @@ Cita sempre le fonti quando possibile.`,
   model: {
     provider: 'openrouter',
     name: 'google/gemini-2.0-flash-exp',
-    apiKey: process.env.OPENROUTER_API_KEY!,
+    apiKey: openrouterApiKey,
   },
   tools: [
     {

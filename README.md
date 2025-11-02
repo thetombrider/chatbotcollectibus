@@ -49,26 +49,40 @@ npm install
 
 2. **Configura environment variables**:
 ```bash
+# Crea file .env.local (vedi ENV_SETUP.md per dettagli)
 cp .env.example .env.local
 # Compila .env.local con le tue chiavi API
 ```
 
-3. **Setup Supabase**:
+3. **Valida configurazione**:
 ```bash
-# Installa Supabase CLI
-npm install -g supabase
-
-# Inizializza Supabase (se non già fatto)
-supabase init
-
-# Applica migrations
-supabase db push
+npm run validate-env
 ```
 
-4. **Avvia sviluppo**:
+4. **Setup Supabase**:
+```bash
+# Le migrations sono già applicate tramite Supabase MCP
+# Se necessario, puoi applicarle manualmente:
+# supabase db push
+```
+
+5. **Avvia sviluppo**:
 ```bash
 npm run dev
 ```
+
+## Configurazione Environment Variables
+
+⚠️ **IMPORTANTE**: Assicurati di configurare tutte le variabili d'ambiente prima di avviare l'applicazione.
+
+Vedi [ENV_SETUP.md](./ENV_SETUP.md) e [docs/SETUP_ENV.md](./docs/SETUP_ENV.md) per istruzioni dettagliate.
+
+**Variabili richieste**:
+- `NEXT_PUBLIC_SUPABASE_URL` - URL progetto Supabase
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` - Chiave anon Supabase
+- `SUPABASE_SERVICE_ROLE_KEY` - Chiave service role Supabase
+- `OPENAI_API_KEY` - Chiave API OpenAI per embeddings
+- `OPENROUTER_API_KEY` - Chiave API OpenRouter per LLM
 
 ## Piano di Implementazione
 
@@ -88,8 +102,10 @@ Vedi [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) per i dettagli completi.
 
 - `npm run dev` - Avvia server di sviluppo
 - `npm run build` - Build per produzione
+- `npm run start` - Avvia server produzione
 - `npm run lint` - Linting
 - `npm run type-check` - Type checking
+- `npm run validate-env` - Valida configurazione environment variables
 
 ## Deployment
 
