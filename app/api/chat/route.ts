@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
                 try {
                   console.log('[api/chat] Saving cached assistant message to database')
                   console.log('[api/chat] Cached content length:', cached.response_text.length)
-                  const { data, error } = await supabaseAdmin.from('messages').insert({
+                  const { error } = await supabaseAdmin.from('messages').insert({
                     conversation_id: conversationId,
                     role: 'assistant',
                     content: cached.response_text.trim(),
@@ -147,12 +147,14 @@ export async function POST(req: NextRequest) {
             console.log('[api/chat] Result keys:', Object.keys(result || {}))
 
             // Prova diverse proprietà possibili
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
             
             if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
               console.log('[api/chat] Found async iterable stream')
               // Mastra stream restituisce un oggetto con textStream
               for await (const chunk of streamSource) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
                 if (content) {
                   fullResponse += content
@@ -180,6 +182,7 @@ export async function POST(req: NextRequest) {
             ])
             
             console.log('[api/chat] Generated result:', generated)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
             fullResponse = generatedText
             console.log('[api/chat] Generated text length:', generatedText.length)
@@ -265,6 +268,7 @@ export async function POST(req: NextRequest) {
               } else {
                 console.log('[api/chat] Assistant message saved successfully')
                 if (data) {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const savedData = data as any[]
                   if (Array.isArray(savedData) && savedData.length > 0) {
                     const savedMessage = savedData[0]
