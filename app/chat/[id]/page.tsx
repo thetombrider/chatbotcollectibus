@@ -85,9 +85,10 @@ export default function ChatPageWithId({
   const handleSend = async () => {
     if (!input.trim() || loading || !conversationId) return
 
+    const messageContent = input.trim()
     const userMessage: Message = {
       role: 'user',
-      content: input,
+      content: messageContent,
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -100,10 +101,14 @@ export default function ChatPageWithId({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input,
+          message: messageContent,
           conversationId,
         }),
       })
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch: ${res.status}`)
+      }
 
       if (!res.body) {
         throw new Error('No response body')
@@ -128,23 +133,46 @@ export default function ChatPageWithId({
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
+            try {
+              const data = JSON.parse(line.slice(6))
 
-            if (data.type === 'text') {
-              assistantMessage.content += data.content
-              if (data.sources) {
-                assistantMessage.sources = data.sources
+              if (data.type === 'text') {
+                assistantMessage.content += data.content
+                if (data.sources) {
+                  assistantMessage.sources = data.sources
+                }
+                setMessages((prev) => {
+                  const newMessages = [...prev]
+                  newMessages[newMessages.length - 1] = { ...assistantMessage }
+                  return newMessages
+                })
+              } else if (data.type === 'done') {
+                setLoading(false)
+                // Ricarica i messaggi dal database per ottenere gli ID
+                try {
+                  const reloadRes = await fetch(`/api/conversations/${conversationId}`)
+                  if (reloadRes.ok) {
+                    const reloadData = await reloadRes.json()
+                    const reloadedMessages = (reloadData.messages || []).map((msg: Message) => {
+                      const sources = msg.metadata?.sources as Array<{ index: number; filename: string; documentId: string; similarity: number }> | undefined
+                      return {
+                        ...msg,
+                        sources: sources && Array.isArray(sources) && sources.length > 0 ? sources : undefined,
+                      }
+                    })
+                    setMessages(reloadedMessages)
+                  }
+                } catch (reloadError) {
+                  console.error('Failed to reload messages:', reloadError)
+                }
+              } else if (data.type === 'error') {
+                console.error('Stream error:', data.error)
+                setLoading(false)
+                // Rimuovi il messaggio assistant vuoto in caso di errore
+                setMessages((prev) => prev.slice(0, -1))
               }
-              setMessages((prev) => {
-                const newMessages = [...prev]
-                newMessages[newMessages.length - 1] = { ...assistantMessage }
-                return newMessages
-              })
-            } else if (data.type === 'done') {
-              setLoading(false)
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error)
-              setLoading(false)
+            } catch (parseError) {
+              console.warn('Failed to parse SSE data:', parseError)
             }
           }
         }
@@ -152,6 +180,9 @@ export default function ChatPageWithId({
     } catch (error) {
       console.error('Chat error:', error)
       setLoading(false)
+      // Rimuovi il messaggio assistant vuoto in caso di errore
+      setMessages((prev) => prev.slice(0, -1))
+      alert('Errore durante l\'invio del messaggio. Riprova.')
     }
   }
 

@@ -18,6 +18,20 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Save user message first (before any processing)
+    if (conversationId) {
+      try {
+        await supabaseAdmin.from('messages').insert({
+          conversation_id: conversationId,
+          role: 'user',
+          content: message,
+        })
+      } catch (err) {
+        console.error('[api/chat] Failed to save user message:', err)
+        // Continue anyway, don't fail the request
+      }
+    }
+
     // Check semantic cache
     const queryEmbedding = await generateEmbedding(message)
     const cached = await findCachedResponse(queryEmbedding)
@@ -25,14 +39,42 @@ export async function POST(req: NextRequest) {
     if (cached) {
       // Return cached response
       const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: cached.response_text })}\n\n`)
-          )
-          controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
-          )
-          controller.close()
+        async start(controller) {
+          try {
+            // Send cached response
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: cached.response_text })}\n\n`)
+            )
+            
+            // Save assistant message to database
+            if (conversationId) {
+              try {
+                await supabaseAdmin.from('messages').insert({
+                  conversation_id: conversationId,
+                  role: 'assistant',
+                  content: cached.response_text,
+                  metadata: {
+                    cached: true,
+                  },
+                })
+              } catch (err) {
+                console.error('[api/chat] Failed to save cached assistant message:', err)
+              }
+            }
+
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+            )
+            controller.close()
+          } catch (error) {
+            console.error('[api/chat] Error in cached response:', error)
+            controller.enqueue(
+              new TextEncoder().encode(
+                `data: ${JSON.stringify({ type: 'error', error: 'Failed to process cached response' })}\n\n`
+              )
+            )
+            controller.close()
+          }
         },
       })
 
@@ -90,17 +132,16 @@ export async function POST(req: NextRequest) {
           }
 
           // Save to cache
-          await saveCachedResponse(message, queryEmbedding, fullResponse)
+          try {
+            await saveCachedResponse(message, queryEmbedding, fullResponse)
+          } catch (err) {
+            console.error('[api/chat] Failed to save cache:', err)
+          }
 
-          // Save message to database
+          // Save assistant message to database
           if (conversationId) {
-            await supabaseAdmin.from('messages').insert([
-              {
-                conversation_id: conversationId,
-                role: 'user',
-                content: message,
-              },
-              {
+            try {
+              await supabaseAdmin.from('messages').insert({
                 conversation_id: conversationId,
                 role: 'assistant',
                 content: fullResponse,
@@ -111,8 +152,10 @@ export async function POST(req: NextRequest) {
                   })),
                   sources: sources,
                 },
-              },
-            ])
+              })
+            } catch (err) {
+              console.error('[api/chat] Failed to save assistant message:', err)
+            }
           }
 
           controller.enqueue(
@@ -120,7 +163,7 @@ export async function POST(req: NextRequest) {
           )
           controller.close()
         } catch (error) {
-          console.error('[api/chat] Error:', error)
+          console.error('[api/chat] Stream error:', error)
           controller.enqueue(
             new TextEncoder().encode(
               `data: ${JSON.stringify({ type: 'error', error: 'Failed to generate response' })}\n\n`

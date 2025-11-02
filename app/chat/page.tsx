@@ -30,9 +30,10 @@ export default function ChatPage() {
   const handleSend = async () => {
     if (!input.trim() || loading) return
 
+    const messageContent = input.trim()
     const userMessage: Message = {
       role: 'user',
-      content: input,
+      content: messageContent,
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -45,12 +46,19 @@ export default function ChatPage() {
         const res = await fetch('/api/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: input.substring(0, 50) }),
+          body: JSON.stringify({ title: messageContent.substring(0, 50) }),
         })
         const { conversation } = await res.json()
         setConversationId(conversation.id)
+        // Redirect alla pagina con ID dopo la creazione
+        window.location.href = `/chat/${conversation.id}`
+        return
       } catch (error) {
         console.error('Failed to create conversation:', error)
+        setLoading(false)
+        setMessages((prev) => prev.slice(0, -1))
+        alert('Errore durante la creazione della conversazione. Riprova.')
+        return
       }
     }
 
@@ -60,10 +68,14 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input,
+          message: messageContent,
           conversationId,
         }),
       })
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch: ${res.status}`)
+      }
 
       if (!res.body) {
         throw new Error('No response body')
@@ -88,23 +100,28 @@ export default function ChatPage() {
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
+            try {
+              const data = JSON.parse(line.slice(6))
 
-            if (data.type === 'text') {
-              assistantMessage.content += data.content
-              if (data.sources) {
-                assistantMessage.sources = data.sources
+              if (data.type === 'text') {
+                assistantMessage.content += data.content
+                if (data.sources) {
+                  assistantMessage.sources = data.sources
+                }
+                setMessages((prev) => {
+                  const newMessages = [...prev]
+                  newMessages[newMessages.length - 1] = { ...assistantMessage }
+                  return newMessages
+                })
+              } else if (data.type === 'done') {
+                setLoading(false)
+              } else if (data.type === 'error') {
+                console.error('Stream error:', data.error)
+                setLoading(false)
+                setMessages((prev) => prev.slice(0, -1))
               }
-              setMessages((prev) => {
-                const newMessages = [...prev]
-                newMessages[newMessages.length - 1] = { ...assistantMessage }
-                return newMessages
-              })
-            } else if (data.type === 'done') {
-              setLoading(false)
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error)
-              setLoading(false)
+            } catch (parseError) {
+              console.warn('Failed to parse SSE data:', parseError)
             }
           }
         }
@@ -112,6 +129,8 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Chat error:', error)
       setLoading(false)
+      setMessages((prev) => prev.slice(0, -1))
+      alert('Errore durante l\'invio del messaggio. Riprova.')
     }
   }
 
