@@ -10,12 +10,41 @@ interface Message {
   metadata?: Record<string, unknown>
 }
 
-export default function ChatPage() {
+interface Conversation {
+  id: string
+  title: string | null
+  messages: Message[]
+}
+
+export default function ChatPageWithId({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const loadConversation = async () => {
+      const { id } = await params
+      setConversationId(id)
+
+      try {
+        const res = await fetch(`/api/conversations/${id}`)
+        const data = await res.json()
+        setConversation(data.conversation)
+        setMessages(data.messages || [])
+      } catch (error) {
+        console.error('Failed to load conversation:', error)
+      }
+    }
+
+    loadConversation()
+  }, [params])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -26,7 +55,7 @@ export default function ChatPage() {
   }, [messages])
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return
+    if (!input.trim() || loading || !conversationId) return
 
     const userMessage: Message = {
       role: 'user',
@@ -36,21 +65,6 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
-
-    // Crea conversazione se non esiste
-    if (!conversationId) {
-      try {
-        const res = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: input.substring(0, 50) }),
-        })
-        const { conversation } = await res.json()
-        setConversationId(conversation.id)
-      } catch (error) {
-        console.error('Failed to create conversation:', error)
-      }
-    }
 
     // Streaming response
     try {
@@ -150,11 +164,11 @@ export default function ChatPage() {
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
             placeholder="Scrivi un messaggio..."
             className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={loading}
+            disabled={loading || !conversationId}
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim()}
+            disabled={loading || !input.trim() || !conversationId}
             className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Invia
@@ -164,3 +178,4 @@ export default function ChatPage() {
     </div>
   )
 }
+
