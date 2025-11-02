@@ -124,55 +124,109 @@ export default function ChatPageWithId({
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-white">
       <ConversationSidebar />
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto p-4">
-        <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-          {messages.map((msg, idx) => (
-            <div
-              key={idx}
-              className={`flex ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg p-3 ${
-                  msg.role === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-200 text-gray-900'
-                }`}
-              >
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-4 py-8">
+            {messages.length === 0 ? (
+              <div className="text-center mt-20">
+                <h1 className="text-4xl font-semibold text-gray-900 mb-4">
+                  {conversation?.title || 'Conversazione'}
+                </h1>
+                <p className="text-gray-600">
+                  Fai una domanda per iniziare la conversazione
+                </p>
               </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-200 rounded-lg p-3">
-                <div className="animate-pulse">...</div>
+            ) : (
+              <div className="space-y-6">
+                {messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex gap-4 ${
+                      msg.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    {msg.role === 'assistant' && (
+                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                      </div>
+                    )}
+                    <div
+                      className={`max-w-[85%] ${
+                        msg.role === 'user'
+                          ? 'bg-gray-100 text-gray-900 rounded-2xl rounded-tr-sm'
+                          : 'bg-white text-gray-900 rounded-2xl rounded-tl-sm border border-gray-200'
+                      } px-4 py-3`}
+                    >
+                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                    </div>
+                    {msg.role === 'user' && (
+                      <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0">
+                        <span className="text-white text-sm font-medium">U</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {loading && (
+                  <div className="flex gap-4 justify-start">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3">
+                      <div className="flex gap-1">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            )}
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Scrivi un messaggio..."
-            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={loading || !conversationId}
-          />
-          <button
-            onClick={handleSend}
-            disabled={loading || !input.trim() || !conversationId}
-            className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Invia
-          </button>
+        <div className="border-t border-gray-200 bg-white">
+          <div className="max-w-3xl mx-auto px-4 py-4">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSend()
+                    }
+                  }}
+                  placeholder="Scrivi un messaggio..."
+                  rows={1}
+                  className="w-full resize-none border border-gray-300 rounded-lg px-4 py-3 pr-12 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
+                  disabled={loading || !conversationId}
+                  style={{ minHeight: '52px', maxHeight: '200px' }}
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={loading || !input.trim() || !conversationId}
+                  className="absolute right-2 bottom-2 p-2 rounded-lg bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  title="Invia messaggio"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2 text-center">
+              Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
+            </p>
+          </div>
         </div>
       </div>
     </div>

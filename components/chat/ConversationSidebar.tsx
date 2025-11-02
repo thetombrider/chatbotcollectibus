@@ -64,21 +64,21 @@ export function ConversationSidebar() {
   }
 
   return (
-    <div className="w-64 bg-gray-100 border-r border-gray-300 h-screen flex flex-col">
-      <div className="p-4 border-b border-gray-300">
+    <div className="w-64 bg-gray-50 border-r border-gray-200 h-screen flex flex-col">
+      <div className="p-3 border-b border-gray-200">
         <button
           onClick={createNewConversation}
-          className="w-full bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+          className="w-full bg-transparent border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
         >
-          Nuova Conversazione
+          + Nuova Conversazione
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
         {loading ? (
-          <div className="text-center text-gray-500 mt-4">Caricamento...</div>
+          <div className="text-center text-gray-500 mt-4 text-sm">Caricamento...</div>
         ) : conversations.length === 0 ? (
-          <div className="text-center text-gray-500 mt-4">
+          <div className="text-center text-gray-500 mt-4 text-sm">
             Nessuna conversazione
           </div>
         ) : (
@@ -86,27 +86,32 @@ export function ConversationSidebar() {
             {conversations.map((conv) => (
               <div
                 key={conv.id}
-                className={`group flex items-center justify-between p-2 rounded-lg hover:bg-gray-200 transition-colors ${
-                  pathname === `/chat/${conv.id}` ? 'bg-blue-100' : ''
+                className={`group flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-100 transition-colors ${
+                  pathname === `/chat/${conv.id}` ? 'bg-gray-100' : ''
                 }`}
               >
                 <Link
                   href={`/chat/${conv.id}`}
                   className="flex-1 min-w-0 truncate"
                 >
-                  <div className="text-sm font-medium truncate">
+                  <div className="text-sm font-medium text-gray-900 truncate">
                     {conv.title || 'Senza titolo'}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 mt-0.5">
                     {new Date(conv.updated_at).toLocaleDateString('it-IT')}
                   </div>
                 </Link>
                 <button
-                  onClick={() => deleteConversation(conv.id)}
-                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 ml-2 p-1"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    deleteConversation(conv.id)
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 ml-2 p-1 rounded hover:bg-gray-200 transition-colors"
                   title="Elimina conversazione"
                 >
-                  ×
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                 </button>
               </div>
             ))}
