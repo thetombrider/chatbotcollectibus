@@ -172,11 +172,11 @@ Store in Cache + Save Message
 ## Fase 5: Chat History (Giorno 8)
 
 ### 5.1 History UI
-- [ ] Sidebar con lista conversazioni - da implementare
-- [x] Load conversazione esistente - API pronta
-- [x] Nuova conversazione - implementato
-- [x] Delete conversazione - API pronta
-- [x] Rename conversazione - API pronta
+- [x] Sidebar con lista conversazioni
+- [x] Load conversazione esistente
+- [x] Nuova conversazione
+- [x] Delete conversazione
+- [x] Rename conversazione
 
 ### 5.2 History API
 - [x] GET `/api/conversations` - Lista conversazioni
