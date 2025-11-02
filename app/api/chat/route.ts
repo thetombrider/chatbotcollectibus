@@ -59,22 +59,21 @@ export async function POST(req: NextRequest) {
         let fullResponse = ''
 
         try {
-          const response = await ragAgent.generate({
-            messages: [
-              {
-                role: 'system',
-                content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
-              },
-              {
-                role: 'user',
-                content: message,
-              },
-            ],
-            stream: true,
-          })
+          // Usa il metodo stream() di Mastra
+          const result = await ragAgent.stream([
+            {
+              role: 'system',
+              content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
+            },
+            {
+              role: 'user',
+              content: message,
+            },
+          ])
 
-          for await (const chunk of response) {
-            const content = chunk.content || ''
+          // Mastra stream restituisce un oggetto con textStream
+          for await (const chunk of result.textStream) {
+            const content = chunk || ''
             fullResponse += content
 
             controller.enqueue(

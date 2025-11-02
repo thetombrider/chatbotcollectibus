@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       service: 'OpenAI',
       message: 'Connected successfully',
       embeddingLength: embedding.length,
-      model: 'text-embeddings-3-large'
+      model: 'text-embedding-3-large'
     })
   } catch (error) {
     return NextResponse.json(

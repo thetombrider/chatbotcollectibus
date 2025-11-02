@@ -8,11 +8,12 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "validate-env": "tsx scripts/validate-env.ts"
+    "validate-env": "tsx scripts/validate-env.ts",
+    "test-connections": "tsx scripts/test-connections.ts"
   },
   "dependencies": {
-    "@mastra/core": "^0.0.13",
-    "@mastra/react": "^0.0.13",
+    "@mastra/core": "^0.23.3",
+    "@mastra/react": "^0.0.14",
     "@supabase/supabase-js": "^2.39.3",
     "@supabase/ssr": "^0.1.0",
     "next": "14.1.0",
@@ -22,7 +23,6 @@
     "zod": "^3.22.4",
     "pdf-parse": "^1.1.1",
     "mammoth": "^1.6.0",
-    "langchain": "^0.1.13",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

@@ -1,8 +1,8 @@
-import { createAgent } from '@mastra/core'
-import { createReactAgent } from '@mastra/react'
+import { Agent } from '@mastra/core/agent'
 
 /**
  * Mastra Agent configuration per RAG
+ * Versione 0.23.3
  */
 
 // Validazione OpenRouter API key
@@ -15,7 +15,7 @@ if (!openrouterApiKey) {
 }
 
 // Tool per vector search
-async function vectorSearchTool(query: string) {
+async function vectorSearchTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
   }
@@ -38,7 +38,7 @@ async function vectorSearchTool(query: string) {
 }
 
 // Tool per semantic cache lookup
-async function semanticCacheTool(query: string) {
+async function semanticCacheTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
   }
@@ -52,19 +52,18 @@ async function semanticCacheTool(query: string) {
   return cached ? { cached: true, response: cached.response_text } : { cached: false }
 }
 
-// Configurazione agent
-export const ragAgent = createAgent({
-  name: 'RAG Consulting Agent',
+// Configurazione agent con Mastra
+// Per OpenRouter, usa il formato: openrouter/provider/model
+// Mastra legge automaticamente OPENROUTER_API_KEY quando usa il prefisso openrouter/
+export const ragAgent = new Agent({
+  name: 'rag-consulting-agent',
   instructions: `Sei un assistente AI specializzato nell'analisi di documenti aziendali e consulenza.
 Usa i documenti forniti per rispondere alle domande dell'utente in modo accurato e professionale.
 Cita sempre le fonti quando possibile.`,
-  model: {
-    provider: 'openrouter',
-    name: 'google/gemini-2.0-flash-exp',
-    apiKey: openrouterApiKey,
-  },
-  tools: [
-    {
+  model: `openrouter/anthropic/claude-3-haiku`,
+  tools: {
+    vector_search: {
+      id: 'vector_search',
       name: 'vector_search',
       description: 'Cerca informazioni rilevanti nei documenti caricati',
       parameters: {
@@ -79,7 +78,8 @@ Cita sempre le fonti quando possibile.`,
       },
       execute: vectorSearchTool,
     },
-    {
+    semantic_cache: {
+      id: 'semantic_cache',
       name: 'semantic_cache',
       description: 'Verifica se esiste una risposta cached per questa query',
       parameters: {
@@ -94,9 +94,8 @@ Cita sempre le fonti quando possibile.`,
       },
       execute: semanticCacheTool,
     },
-  ],
+  },
 })
 
-// React agent per uso nel frontend
-export const reactRagAgent = createReactAgent(ragAgent)
-
+// React agent - per ora usiamo l'agent stesso
+export const reactRagAgent = ragAgent

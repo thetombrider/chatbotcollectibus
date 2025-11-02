@@ -18,7 +18,7 @@ const openai = new OpenAI({
  */
 export async function generateEmbedding(
   text: string,
-  model: string = 'text-embeddings-3-large'
+  model: string = 'text-embedding-3-large'
 ): Promise<number[]> {
   if (!text || text.trim().length === 0) {
     throw new Error('Text cannot be empty')
@@ -29,6 +29,7 @@ export async function generateEmbedding(
       model,
       input: text,
       encoding_format: 'float',
+      dimensions: 1536,
     })
 
     if (!response.data || response.data.length === 0) {
@@ -54,7 +55,7 @@ export async function generateEmbedding(
  */
 export async function generateEmbeddings(
   texts: string[],
-  model: string = 'text-embeddings-3-large'
+  model: string = 'text-embedding-3-large'
 ): Promise<number[][]> {
   if (!texts || texts.length === 0) {
     throw new Error('Texts array cannot be empty')
@@ -71,6 +72,7 @@ export async function generateEmbeddings(
         model,
         input: batch,
         encoding_format: 'float',
+        dimensions: 1536,
       })
 
       const batchEmbeddings = response.data.map((item) => item.embedding)

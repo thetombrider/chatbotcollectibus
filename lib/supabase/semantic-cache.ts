@@ -12,12 +12,26 @@ export async function findCachedResponse(
   queryEmbedding: number[],
   threshold: number = 0.95
 ): Promise<QueryCache | null> {
-  const { data, error } = await supabaseAdmin.rpc('match_cached_query', {
-    query_embedding: queryEmbedding,
+  // Prova prima con il nuovo formato, poi fallback al vecchio
+  let { data, error } = await supabaseAdmin.rpc('match_cached_query', {
+    p_query_embedding: queryEmbedding,
     match_threshold: threshold,
   })
 
-  if (error) {
+  // Se fallisce, prova con il vecchio formato (per compatibilità durante la migration)
+  if (error && error.code === 'PGRST202') {
+    const { data: oldData, error: oldError } = await supabaseAdmin.rpc('match_cached_query', {
+      query_embedding: queryEmbedding,
+      match_threshold: threshold,
+    })
+    
+    if (oldError) {
+      console.error('[semantic-cache] Cache lookup failed:', oldError)
+      return null
+    }
+    
+    data = oldData
+  } else if (error) {
     console.error('[semantic-cache] Cache lookup failed:', error)
     return null
   }
