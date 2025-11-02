@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/client'
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     // Test connessione Supabase
-    const { data, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('documents')
       .select('id')
       .limit(1)

@@ -18,10 +18,6 @@ export function Citation({ index, sources }: CitationProps) {
   const tooltipRef = useRef<HTMLDivElement>(null)
   const citationSources = sources.filter((s) => s.index === index)
 
-  if (citationSources.length === 0) {
-    return null
-  }
-
   useEffect(() => {
     const updatePosition = () => {
       if (citationRef.current && showTooltip) {
@@ -61,6 +57,10 @@ export function Citation({ index, sources }: CitationProps) {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showTooltip])
+
+  if (citationSources.length === 0) {
+    return null
+  }
 
   return (
     <>
@@ -123,10 +123,6 @@ export function CitationMultiple({ indices, sources }: CitationMultipleProps) {
   const tooltipRef = useRef<HTMLDivElement>(null)
   const citationSources = sources.filter((s) => indices.includes(s.index))
 
-  if (citationSources.length === 0) {
-    return null
-  }
-
   useEffect(() => {
     const updatePosition = () => {
       if (citationRef.current && showTooltip) {
@@ -166,6 +162,10 @@ export function CitationMultiple({ indices, sources }: CitationMultipleProps) {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showTooltip])
+
+  if (citationSources.length === 0) {
+    return null
+  }
 
   return (
     <>

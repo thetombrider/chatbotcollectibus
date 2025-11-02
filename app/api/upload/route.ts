@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
           const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
           const filePath = `documents/${fileName}`
 
-          const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+          const { error: uploadError } = await supabaseAdmin.storage
             .from('documents')
             .upload(filePath, file, {
               contentType: file.type,
@@ -268,7 +268,7 @@ export async function POST(req: NextRequest) {
     const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
     const filePath = `documents/${fileName}`
 
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+    const { error: uploadError } = await supabaseAdmin.storage
       .from('documents')
       .upload(filePath, file, {
         contentType: file.type,

@@ -17,7 +17,6 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [currentSources, setCurrentSources] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -39,7 +38,6 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
-    setCurrentSources([])
 
     // Crea conversazione se non esiste
     if (!conversationId) {
@@ -73,7 +71,7 @@ export default function ChatPage() {
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
-      let assistantMessage: Message = {
+      const assistantMessage: Message = {
         role: 'assistant',
         content: '',
         sources: [],
@@ -96,7 +94,6 @@ export default function ChatPage() {
               assistantMessage.content += data.content
               if (data.sources) {
                 assistantMessage.sources = data.sources
-                setCurrentSources(data.sources)
               }
               setMessages((prev) => {
                 const newMessages = [...prev]

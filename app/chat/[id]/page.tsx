@@ -102,7 +102,7 @@ export default function ChatPageWithId({
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
-      let assistantMessage: Message = {
+      const assistantMessage: Message = {
         role: 'assistant',
         content: '',
         sources: [],

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     // Test connessione OpenAI
     const embedding = await generateEmbedding('test connection')

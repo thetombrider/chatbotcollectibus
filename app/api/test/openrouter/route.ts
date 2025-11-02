@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     // Verifica che la chiave OpenRouter sia configurata
     const apiKey = process.env.OPENROUTER_API_KEY

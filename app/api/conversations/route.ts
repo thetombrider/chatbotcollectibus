@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/client'
-import type { Conversation, Message } from '@/lib/supabase/database.types'
 
 export async function GET(req: NextRequest) {
   try {
