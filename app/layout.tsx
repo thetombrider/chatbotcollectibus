@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { NavigationBar } from '@/components/NavigationBar'
 
 export const metadata: Metadata = {
   title: 'RAG Chatbot - Collectibus',
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="it">
-      <body>{children}</body>
+      <body>
+        <NavigationBar />
+        {children}
+      </body>
     </html>
   )
 }

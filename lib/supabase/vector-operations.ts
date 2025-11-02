@@ -57,6 +57,7 @@ export async function hybridSearch(
 
 /**
  * Inserisce chunks con embeddings nel database
+ * Gestisce automaticamente batch di 1000 elementi per evitare errori di dimensione query
  */
 export async function insertDocumentChunks(
   chunks: Array<{
@@ -67,13 +68,34 @@ export async function insertDocumentChunks(
     metadata?: Record<string, unknown>
   }>
 ): Promise<void> {
-  const { error } = await supabaseAdmin
-    .from('document_chunks')
-    .insert(chunks)
+  const BATCH_SIZE = 1000
+  
+  // Se ci sono pochi chunks, inserisci tutto insieme
+  if (chunks.length <= BATCH_SIZE) {
+    const { error } = await supabaseAdmin
+      .from('document_chunks')
+      .insert(chunks)
 
-  if (error) {
-    console.error('[vector-operations] Insert failed:', error)
-    throw new Error(`Failed to insert chunks: ${error.message}`)
+    if (error) {
+      console.error('[vector-operations] Insert failed:', error)
+      throw new Error(`Failed to insert chunks: ${error.message}`)
+    }
+    return
+  }
+
+  // Per molti chunks, inserisci in batch
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE)
+    const { error } = await supabaseAdmin
+      .from('document_chunks')
+      .insert(batch)
+
+    if (error) {
+      console.error(`[vector-operations] Insert failed for batch ${i / BATCH_SIZE + 1}:`, error)
+      throw new Error(`Failed to insert chunks batch ${i / BATCH_SIZE + 1}: ${error.message}`)
+    }
+    
+    console.log(`[vector-operations] Inserted batch ${i / BATCH_SIZE + 1}/${Math.ceil(chunks.length / BATCH_SIZE)}`)
   }
 }
 

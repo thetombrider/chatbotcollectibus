@@ -92,47 +92,73 @@ CREATE INDEX ON query_cache USING hnsw (query_embedding vector_cosine_ops);
 - [x] Supporto per PDF, DOCX, TXT
 - [x] Preview file caricati
 - [x] Validazione file size e tipo
+- [ ] Migliorare progress tracking real-time
+- [ ] Aggiungere gestione errori con retry
+- [ ] Mostrare stato processing (pending, processing, completed, error)
 
 ### 2.2 Document Processing
 - [x] API route `/api/upload` per ricevere file
 - [x] Upload file su Supabase Storage
-- [x] Trigger Supabase Edge Function per processing (template creato)
-- [x] Edge Function per:
-  - Estrazione testo (PDF, DOCX) - implementato
-  - OCR con Mistral (se necessario per immagini) - da implementare quando necessario
+- [x] Processing sincrono implementato (funziona per file piccoli/medi)
+- [x] Edge Function template creato (da implementare per file grandi)
+- [x] Funzioni di processing:
+  - Estrazione testo (PDF, DOCX, TXT) - implementato ma usa require() (da fixare)
   - Chunking testo (500 tokens con overlap 50) - implementato
-  - Generazione embeddings con OpenAI - implementato
+  - Generazione embeddings con OpenAI - implementato con dimensions: 1536
   - Inserimento chunks nel database - implementato
+- [ ] Fixare require() in document-processor.ts (usare import dinamici)
+- [ ] Aggiungere processing_status alla tabella documents
+- [ ] Implementare processing asincrono per file grandi (>10MB)
+- [ ] OCR con Mistral (se necessario per immagini) - da implementare quando necessario
 
 ### 2.3 Processing Logic
 ```typescript
 // lib/processing/document-processor.ts
-- extractText(file: File) -> string
-- chunkText(text: string, chunkSize: number) -> Chunk[]
-- generateEmbeddings(chunks: Chunk[]) -> Embedding[]
-- storeChunks(documentId: string, chunks: Chunk[]) -> void
+- extractText(file: File) -> string ✅ (da fixare require)
+- chunkText(text: string, chunkSize: number) -> Chunk[] ✅
+- generateEmbeddings(chunks: Chunk[]) -> Embedding[] ✅
+- storeChunks(documentId: string, chunks: Chunk[]) -> void ✅
 ```
 
-## Fase 3: Mastra Agent Setup (Giorno 5)
+### 2.4 Stato Attuale (Nov 2025)
+- ✅ Upload UI funzionante con progress tracking migliorato
+- ✅ API route `/api/upload` funzionante con gestione errori
+- ✅ Processing sincrono implementato con batch processing
+- ✅ document-processor.ts fixato (usa import dinamici invece di require)
+- ✅ Processing status tracking implementato (pending, processing, completed, error)
+- ✅ Batch insertion per chunks (gestisce automaticamente fino a 1000+ chunks)
+- ✅ Gestione errori migliorata con messaggi dettagliati
+- ✅ Migration SQL per processing_status creata
+- ⚠️ Processing asincrono non implementato (Edge Function template solo)
+- ⚠️ Migration SQL processing_status da applicare manualmente
+- ⚠️ Bucket Storage "documents" deve essere creato manualmente su Supabase
+
+## Fase 3: Mastra Agent Setup (Giorno 5) - ✅ COMPLETATO
 
 ### 3.1 Mastra Configuration
 - [x] Installare e configurare Mastra
 - [x] Creare agent per RAG
-- [x] Configurare OpenRouter come LLM provider
+- [x] Configurare OpenRouter come LLM provider (openrouter/anthropic/claude-3-haiku)
 - [x] Setup tools per:
   - Vector search in Supabase
-  - Semantic cache lookup
+  - Semantic cache lookup (con fallback per compatibilità)
   - Document retrieval
 
 ### 3.2 RAG Tool
 ```typescript
-// lib/mastra/tools/vector-search.ts
-- searchSimilarChunks(query: string, limit: number) -> Chunk[]
-- hybridSearch(query: string, limit: number) -> Chunk[]
-- getCachedResponse(query: string) -> string | null
+// Integrato in lib/mastra/agent.ts
+- vector_search tool ✅
+- semantic_cache tool ✅
 ```
 
-## Fase 4: Chat Interface (Giorno 6-7)
+### 3.3 Stato Attuale (Nov 2025)
+- ✅ Mastra configurato correttamente
+- ✅ OpenRouter funzionante con Claude-3-Haiku
+- ✅ Embeddings OpenAI configurati (text-embedding-3-large con dimensions: 1536)
+- ✅ Semantic cache funzionante (con fallback per migration)
+- ⚠️ Migration SQL match_cached_query da applicare manualmente
+
+## Fase 4: Chat Interface (Giorno 6-7) - ✅ COMPLETATO
 
 ### 4.1 Chat UI
 - [x] Creare pagina `/app/chat`
@@ -169,7 +195,14 @@ Stream Response
 Store in Cache + Save Message
 ```
 
-## Fase 5: Chat History (Giorno 8)
+### 4.4 Stato Attuale (Nov 2025)
+- ✅ Chat funzionante
+- ✅ Streaming implementato
+- ✅ Vector search funzionante
+- ✅ Semantic cache funzionante
+- ✅ Conversazioni e history funzionanti
+
+## Fase 5: Chat History (Giorno 8) - ✅ COMPLETATO
 
 ### 5.1 History UI
 - [x] Sidebar con lista conversazioni

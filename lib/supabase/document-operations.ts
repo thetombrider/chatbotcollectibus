@@ -20,6 +20,7 @@ export async function createDocument(
       file_size: fileSize,
       storage_path: storagePath,
       metadata,
+      processing_status: 'pending',
     })
     .select()
     .single()

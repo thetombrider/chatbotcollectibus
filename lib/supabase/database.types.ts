@@ -11,6 +11,9 @@ export interface Document {
   file_size: number
   storage_path: string
   metadata?: Record<string, unknown>
+  processing_status?: 'pending' | 'processing' | 'completed' | 'error'
+  error_message?: string
+  chunks_count?: number
   created_at: string
   updated_at: string
 }

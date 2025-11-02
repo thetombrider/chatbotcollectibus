@@ -1,5 +1,6 @@
 /**
  * Document processing utilities
+ * Usa import dinamici per compatibilità con Next.js
  */
 
 export interface Chunk {
@@ -60,11 +61,11 @@ export function chunkText(
 }
 
 /**
- * Estrae testo da PDF
+ * Estrae testo da PDF usando pdf-parse (import dinamico)
  */
 export async function extractTextFromPDF(file: File): Promise<string> {
-  // Per ora placeholder - implementare con pdf-parse
-  const pdfParse = require('pdf-parse')
+  // Import dinamico per evitare problemi di SSR
+  const pdfParse = (await import('pdf-parse')).default
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
   const data = await pdfParse(buffer)
@@ -72,11 +73,11 @@ export async function extractTextFromPDF(file: File): Promise<string> {
 }
 
 /**
- * Estrae testo da DOCX
+ * Estrae testo da DOCX usando mammoth (import dinamico)
  */
 export async function extractTextFromDOCX(file: File): Promise<string> {
-  // Per ora placeholder - implementare con mammoth
-  const mammoth = require('mammoth')
+  // Import dinamico per evitare problemi di SSR
+  const mammoth = await import('mammoth')
   const arrayBuffer = await file.arrayBuffer()
   const buffer = Buffer.from(arrayBuffer)
   const result = await mammoth.extractRawText({ buffer })
