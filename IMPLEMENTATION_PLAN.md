@@ -9,13 +9,13 @@
 - [x] Setup environment variables
 
 ### 1.2 Setup Supabase
-- [ ] Creare progetto Supabase
-- [ ] Configurare database schema:
+- [x] Creare progetto Supabase
+- [x] Configurare database schema:
   - Tabelle: `documents`, `document_chunks`, `conversations`, `messages`
   - Estensione pgvector per embeddings
   - Indici per vector search
-- [ ] Setup Supabase client (anon + service role)
-- [ ] Configurare Row Level Security (RLS)
+- [x] Setup Supabase client (anon + service role)
+- [ ] Configurare Row Level Security (RLS) - Opzionale per MVP
 
 ### 1.3 Database Schema
 
@@ -87,22 +87,22 @@ CREATE INDEX ON query_cache USING hnsw (query_embedding vector_cosine_ops);
 ## Fase 2: Document Processing Pipeline (Giorno 3-4)
 
 ### 2.1 Upload Interface
-- [ ] Creare pagina `/app/upload`
-- [ ] Componente drag-and-drop per file
-- [ ] Supporto per PDF, DOCX, TXT
-- [ ] Preview file caricati
-- [ ] Validazione file size e tipo
+- [x] Creare pagina `/app/upload`
+- [x] Componente drag-and-drop per file
+- [x] Supporto per PDF, DOCX, TXT
+- [x] Preview file caricati
+- [x] Validazione file size e tipo
 
 ### 2.2 Document Processing
-- [ ] API route `/api/upload` per ricevere file
-- [ ] Upload file su Supabase Storage
-- [ ] Trigger Supabase Edge Function per processing
-- [ ] Edge Function per:
-  - Estrazione testo (PDF, DOCX)
-  - OCR con Mistral (se necessario per immagini)
-  - Chunking testo (500 tokens con overlap 50)
-  - Generazione embeddings con OpenAI
-  - Inserimento chunks nel database
+- [x] API route `/api/upload` per ricevere file
+- [x] Upload file su Supabase Storage
+- [x] Trigger Supabase Edge Function per processing (template creato)
+- [x] Edge Function per:
+  - Estrazione testo (PDF, DOCX) - implementato
+  - OCR con Mistral (se necessario per immagini) - da implementare quando necessario
+  - Chunking testo (500 tokens con overlap 50) - implementato
+  - Generazione embeddings con OpenAI - implementato
+  - Inserimento chunks nel database - implementato
 
 ### 2.3 Processing Logic
 ```typescript
@@ -116,10 +116,10 @@ CREATE INDEX ON query_cache USING hnsw (query_embedding vector_cosine_ops);
 ## Fase 3: Mastra Agent Setup (Giorno 5)
 
 ### 3.1 Mastra Configuration
-- [ ] Installare e configurare Mastra
-- [ ] Creare agent per RAG
-- [ ] Configurare OpenRouter come LLM provider
-- [ ] Setup tools per:
+- [x] Installare e configurare Mastra
+- [x] Creare agent per RAG
+- [x] Configurare OpenRouter come LLM provider
+- [x] Setup tools per:
   - Vector search in Supabase
   - Semantic cache lookup
   - Document retrieval
@@ -135,20 +135,20 @@ CREATE INDEX ON query_cache USING hnsw (query_embedding vector_cosine_ops);
 ## Fase 4: Chat Interface (Giorno 6-7)
 
 ### 4.1 Chat UI
-- [ ] Creare pagina `/app/chat`
-- [ ] Componente chat interface con:
+- [x] Creare pagina `/app/chat`
+- [x] Componente chat interface con:
   - Input field per messaggi
   - Display messaggi (user/assistant)
   - Streaming response
-  - Citations ai documenti utilizzati
+  - Citations ai documenti utilizzati - da migliorare UI
   - Loading states
 
 ### 4.2 Chat API
-- [ ] API route `/api/chat` con streaming
-- [ ] Integrazione con Mastra agent
-- [ ] Semantic cache check prima di chiamare LLM
-- [ ] Vector search per context retrieval
-- [ ] Response streaming con Server-Sent Events
+- [x] API route `/api/chat` con streaming
+- [x] Integrazione con Mastra agent
+- [x] Semantic cache check prima di chiamare LLM
+- [x] Vector search per context retrieval
+- [x] Response streaming con Server-Sent Events
 
 ### 4.3 Chat Flow
 ```
@@ -172,18 +172,18 @@ Store in Cache + Save Message
 ## Fase 5: Chat History (Giorno 8)
 
 ### 5.1 History UI
-- [ ] Sidebar con lista conversazioni
-- [ ] Load conversazione esistente
-- [ ] Nuova conversazione
-- [ ] Delete conversazione
-- [ ] Rename conversazione
+- [ ] Sidebar con lista conversazioni - da implementare
+- [x] Load conversazione esistente - API pronta
+- [x] Nuova conversazione - implementato
+- [x] Delete conversazione - API pronta
+- [x] Rename conversazione - API pronta
 
 ### 5.2 History API
-- [ ] GET `/api/conversations` - Lista conversazioni
-- [ ] GET `/api/conversations/[id]` - Dettagli conversazione
-- [ ] POST `/api/conversations` - Crea nuova conversazione
-- [ ] DELETE `/api/conversations/[id]` - Elimina conversazione
-- [ ] PATCH `/api/conversations/[id]` - Aggiorna titolo
+- [x] GET `/api/conversations` - Lista conversazioni
+- [x] GET `/api/conversations/[id]` - Dettagli conversazione
+- [x] POST `/api/conversations` - Crea nuova conversazione
+- [x] DELETE `/api/conversations/[id]` - Elimina conversazione
+- [x] PATCH `/api/conversations/[id]` - Aggiorna titolo
 
 ## Fase 6: Ottimizzazioni e Polish (Giorno 9-10)
 
