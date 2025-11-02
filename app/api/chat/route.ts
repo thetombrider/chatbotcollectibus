@@ -109,27 +109,79 @@ export async function POST(req: NextRequest) {
         let fullResponse = ''
 
         try {
-          // Usa il metodo stream() di Mastra
-          const result = await ragAgent.stream([
-            {
-              role: 'system',
-              content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
-            },
-            {
-              role: 'user',
-              content: message,
-            },
-          ])
+          console.log('[api/chat] Starting agent stream...')
+          console.log('[api/chat] Context length:', context.length)
+          console.log('[api/chat] Message:', message)
+          
+          // Prova prima con stream(), se fallisce usa generate()
+          try {
+            const result = await ragAgent.stream([
+              {
+                role: 'system',
+                content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
+              },
+              {
+                role: 'user',
+                content: message,
+              },
+            ])
 
-          // Mastra stream restituisce un oggetto con textStream
-          for await (const chunk of result.textStream) {
-            const content = chunk || ''
-            fullResponse += content
+            console.log('[api/chat] Agent stream result:', result)
+            console.log('[api/chat] Result type:', typeof result)
+            console.log('[api/chat] Result keys:', Object.keys(result || {}))
 
-            controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content, sources })}\n\n`)
-            )
+            // Prova diverse proprietà possibili
+            const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
+            
+            if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
+              console.log('[api/chat] Found async iterable stream')
+              // Mastra stream restituisce un oggetto con textStream
+              for await (const chunk of streamSource) {
+                const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
+                if (content) {
+                  fullResponse += content
+
+                  controller.enqueue(
+                    new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content, sources })}\n\n`)
+                  )
+                }
+              }
+            } else {
+              throw new Error('No valid stream source found')
+            }
+          } catch (streamError) {
+            console.error('[api/chat] Stream failed, trying generate():', streamError)
+            // Fallback a generate() se stream() non funziona
+            const generated = await ragAgent.generate([
+              {
+                role: 'system',
+                content: `Usa il seguente contesto dai documenti per rispondere:\n\n${context}`,
+              },
+              {
+                role: 'user',
+                content: message,
+              },
+            ])
+            
+            console.log('[api/chat] Generated result:', generated)
+            const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
+            fullResponse = generatedText
+            
+            // Stream la risposta completa in chunks per simulare lo streaming
+            if (fullResponse) {
+              const words = fullResponse.split(/\s+/)
+              for (const word of words) {
+                const chunk = word + ' '
+                controller.enqueue(
+                  new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: chunk, sources })}\n\n`)
+                )
+                // Piccolo delay per simulare streaming
+                await new Promise(resolve => setTimeout(resolve, 10))
+              }
+            }
           }
+
+          console.log('[api/chat] Stream completed, full response length:', fullResponse.length)
 
           // Save to cache
           try {
@@ -164,9 +216,14 @@ export async function POST(req: NextRequest) {
           controller.close()
         } catch (error) {
           console.error('[api/chat] Stream error:', error)
+          console.error('[api/chat] Error details:', {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            name: error instanceof Error ? error.name : undefined,
+          })
           controller.enqueue(
             new TextEncoder().encode(
-              `data: ${JSON.stringify({ type: 'error', error: 'Failed to generate response' })}\n\n`
+              `data: ${JSON.stringify({ type: 'error', error: error instanceof Error ? error.message : 'Failed to generate response' })}\n\n`
             )
           )
           controller.close()
