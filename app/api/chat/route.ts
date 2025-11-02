@@ -48,10 +48,18 @@ export async function POST(req: NextRequest) {
     // Vector search per context
     const searchResults = await hybridSearch(queryEmbedding, message, 5)
 
-    // Build context from chunks
+    // Build context from chunks con numerazione per citazioni
     const context = searchResults
-      .map((r) => `[Documento ${r.document_id}]\n${r.content}`)
+      .map((r, index) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
       .join('\n\n')
+
+    // Crea mappa delle fonti per il frontend
+    const sources = searchResults.map((r, index) => ({
+      index: index + 1,
+      documentId: r.document_id,
+      filename: r.document_filename || 'Documento sconosciuto',
+      similarity: r.similarity,
+    }))
 
     // Stream response from agent
     const stream = new ReadableStream({
@@ -77,7 +85,7 @@ export async function POST(req: NextRequest) {
             fullResponse += content
 
             controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content })}\n\n`)
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content, sources })}\n\n`)
             )
           }
 
@@ -101,6 +109,7 @@ export async function POST(req: NextRequest) {
                     id: r.id,
                     similarity: r.similarity,
                   })),
+                  sources: sources,
                 },
               },
             ])

@@ -1,13 +1,9 @@
 import { supabaseAdmin } from './client'
-import type { DocumentChunk } from './database.types'
+import type { SearchResult } from './database.types'
 
 /**
  * Vector search operations usando pgvector
  */
-
-export interface SearchResult extends DocumentChunk {
-  similarity: number
-}
 
 /**
  * Cerca chunks simili usando vector similarity

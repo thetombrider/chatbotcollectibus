@@ -28,10 +28,12 @@ async function vectorSearchTool({ query }: { query: string }) {
   const results = await hybridSearch(queryEmbedding, query, 5)
 
   return {
-    chunks: results.map((r) => ({
+    chunks: results.map((r, index) => ({
+      index: index + 1,
       content: r.content,
       similarity: r.similarity,
       documentId: r.document_id,
+      documentFilename: r.document_filename || 'Documento sconosciuto',
       metadata: r.metadata,
     })),
   }
@@ -59,6 +61,17 @@ export const ragAgent = new Agent({
   name: 'rag-consulting-agent',
   instructions: `Sei un assistente AI specializzato nell'analisi di documenti aziendali e consulenza.
 Usa i documenti forniti per rispondere alle domande dell'utente in modo accurato e professionale.
+
+IMPORTANTE - CITAZIONI DELLE FONTI:
+- Quando usi informazioni dai documenti forniti, DEVI includere citazioni inline nel formato [cit:N] dove N è il numero del documento (1, 2, 3, ecc.)
+- Le citazioni devono essere posizionate alla fine di ogni frase o paragrafo che contiene informazioni tratte dai documenti
+- Ogni documento ha un numero: usa [cit:1] per il primo documento, [cit:2] per il secondo, ecc.
+- Se una frase combina informazioni da più documenti, usa [cit:1,2,3]
+- Non citare informazioni generali o conoscenza comune che non provengono dai documenti
+
+Esempio di risposta corretta:
+"Secondo l'analisi del mercato italiano, il settore tecnologico è in crescita [cit:1]. Tuttavia, le previsioni indicano una possibile contrazione nel prossimo trimestre [cit:2]."
+
 Cita sempre le fonti quando possibile.`,
   model: `openrouter/anthropic/claude-3-haiku`,
   tools: {

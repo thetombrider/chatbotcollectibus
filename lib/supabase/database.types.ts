@@ -28,6 +28,12 @@ export interface DocumentChunk {
   created_at: string
 }
 
+export interface SearchResult extends DocumentChunk {
+  similarity: number
+  document_filename?: string
+  document_metadata?: Record<string, unknown>
+}
+
 export interface Conversation {
   id: string
   user_id?: string

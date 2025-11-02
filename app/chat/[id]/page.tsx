@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
+import { MessageWithCitations } from '@/components/chat/Citation'
 
 interface Message {
   id?: string
   role: 'user' | 'assistant'
   content: string
   metadata?: Record<string, unknown>
+  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number }>
 }
 
 interface Conversation {
@@ -25,6 +27,7 @@ export default function ChatPageWithId({
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingConversation, setLoadingConversation] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -32,14 +35,30 @@ export default function ChatPageWithId({
     const loadConversation = async () => {
       const { id } = await params
       setConversationId(id)
+      setLoadingConversation(true)
 
       try {
         const res = await fetch(`/api/conversations/${id}`)
+        if (!res.ok) {
+          throw new Error(`Failed to fetch: ${res.status}`)
+        }
         const data = await res.json()
+        console.log('[chat/[id]] Loaded conversation:', data)
         setConversation(data.conversation)
-        setMessages(data.messages || [])
+        // Estrai sources dai metadata se presenti
+        const loadedMessages = (data.messages || []).map((msg: Message) => {
+          const sources = msg.metadata?.sources as Array<{ index: number; filename: string; documentId: string; similarity: number }> | undefined
+          return {
+            ...msg,
+            sources: sources && Array.isArray(sources) && sources.length > 0 ? sources : undefined,
+          }
+        })
+        console.log('[chat/[id]] Loaded messages:', loadedMessages)
+        setMessages(loadedMessages)
       } catch (error) {
         console.error('Failed to load conversation:', error)
+      } finally {
+        setLoadingConversation(false)
       }
     }
 
@@ -86,6 +105,7 @@ export default function ChatPageWithId({
       let assistantMessage: Message = {
         role: 'assistant',
         content: '',
+        sources: [],
       }
 
       setMessages((prev) => [...prev, assistantMessage])
@@ -103,6 +123,9 @@ export default function ChatPageWithId({
 
             if (data.type === 'text') {
               assistantMessage.content += data.content
+              if (data.sources) {
+                assistantMessage.sources = data.sources
+              }
               setMessages((prev) => {
                 const newMessages = [...prev]
                 newMessages[newMessages.length - 1] = { ...assistantMessage }
@@ -129,7 +152,11 @@ export default function ChatPageWithId({
       <div className="flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-8">
-            {messages.length === 0 ? (
+            {loadingConversation ? (
+              <div className="text-center mt-20">
+                <div className="animate-pulse text-gray-500">Caricamento conversazione...</div>
+              </div>
+            ) : messages.length === 0 ? (
               <div className="text-center mt-20">
                 <h1 className="text-4xl font-semibold text-gray-900 mb-4">
                   {conversation?.title || 'Conversazione'}
@@ -142,7 +169,7 @@ export default function ChatPageWithId({
               <div className="space-y-6">
                 {messages.map((msg, idx) => (
                   <div
-                    key={idx}
+                    key={msg.id || `msg-${idx}`}
                     className={`flex gap-4 ${
                       msg.role === 'user' ? 'justify-end' : 'justify-start'
                     }`}
@@ -160,8 +187,13 @@ export default function ChatPageWithId({
                           ? 'bg-gray-100 text-gray-900 rounded-2xl rounded-tr-sm'
                           : 'bg-white text-gray-900 rounded-2xl rounded-tl-sm border border-gray-200'
                       } px-4 py-3`}
+                      style={{ overflow: 'visible' }}
                     >
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 ? (
+                        <MessageWithCitations content={msg.content} sources={msg.sources} />
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      )}
                     </div>
                     {msg.role === 'user' && (
                       <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0">

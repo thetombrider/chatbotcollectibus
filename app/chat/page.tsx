@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
+import { MessageWithCitations } from '@/components/chat/Citation'
 
 interface Message {
   id?: string
   role: 'user' | 'assistant'
   content: string
   metadata?: Record<string, unknown>
+  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number }>
 }
 
 export default function ChatPage() {
@@ -15,6 +17,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [currentSources, setCurrentSources] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -36,6 +39,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
+    setCurrentSources([])
 
     // Crea conversazione se non esiste
     if (!conversationId) {
@@ -72,6 +76,7 @@ export default function ChatPage() {
       let assistantMessage: Message = {
         role: 'assistant',
         content: '',
+        sources: [],
       }
 
       setMessages((prev) => [...prev, assistantMessage])
@@ -89,6 +94,10 @@ export default function ChatPage() {
 
             if (data.type === 'text') {
               assistantMessage.content += data.content
+              if (data.sources) {
+                assistantMessage.sources = data.sources
+                setCurrentSources(data.sources)
+              }
               setMessages((prev) => {
                 const newMessages = [...prev]
                 newMessages[newMessages.length - 1] = { ...assistantMessage }
@@ -128,7 +137,7 @@ export default function ChatPage() {
               <div className="space-y-6">
                 {messages.map((msg, idx) => (
                   <div
-                    key={idx}
+                    key={msg.id || `msg-${idx}`}
                     className={`flex gap-4 ${
                       msg.role === 'user' ? 'justify-end' : 'justify-start'
                     }`}
@@ -146,8 +155,13 @@ export default function ChatPage() {
                           ? 'bg-gray-100 text-gray-900 rounded-2xl rounded-tr-sm'
                           : 'bg-white text-gray-900 rounded-2xl rounded-tl-sm border border-gray-200'
                       } px-4 py-3`}
+                      style={{ overflow: 'visible' }}
                     >
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 ? (
+                        <MessageWithCitations content={msg.content} sources={msg.sources} />
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      )}
                     </div>
                     {msg.role === 'user' && (
                       <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center flex-shrink-0">
