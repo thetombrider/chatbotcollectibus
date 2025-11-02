@@ -41,7 +41,9 @@ export default function ChatPage() {
     setLoading(true)
 
     // Crea conversazione se non esiste
-    if (!conversationId) {
+    const wasNewConversation = !conversationId
+    let currentConversationId = conversationId
+    if (!currentConversationId) {
       try {
         const res = await fetch('/api/conversations', {
           method: 'POST',
@@ -49,10 +51,8 @@ export default function ChatPage() {
           body: JSON.stringify({ title: messageContent.substring(0, 50) }),
         })
         const { conversation } = await res.json()
+        currentConversationId = conversation.id
         setConversationId(conversation.id)
-        // Redirect alla pagina con ID dopo la creazione
-        window.location.href = `/chat/${conversation.id}`
-        return
       } catch (error) {
         console.error('Failed to create conversation:', error)
         setLoading(false)
@@ -69,7 +69,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: messageContent,
-          conversationId,
+          conversationId: currentConversationId,
         }),
       })
 
@@ -115,6 +115,10 @@ export default function ChatPage() {
                 })
               } else if (data.type === 'done') {
                 setLoading(false)
+                // Update URL without reloading if it's a new conversation
+                if (wasNewConversation && currentConversationId) {
+                  window.history.replaceState(null, '', `/chat/${currentConversationId}`)
+                }
               } else if (data.type === 'error') {
                 console.error('Stream error:', data.error)
                 setLoading(false)
