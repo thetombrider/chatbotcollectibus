@@ -3,11 +3,10 @@ import { supabaseAdmin } from '@/lib/supabase/client'
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
-  const { id } = await params
   try {
-    const conversationId = id
+    const conversationId = params.id
 
     // Get conversation with messages
     const { data: conversation, error: convError } = await supabaseAdmin
@@ -52,11 +51,10 @@ export async function GET(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
-  const { id } = await params
   try {
-    const conversationId = id
+    const conversationId = params.id
 
     const { error } = await supabaseAdmin
       .from('conversations')
@@ -83,11 +81,10 @@ export async function DELETE(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
-  const { id } = await params
   try {
-    const conversationId = id
+    const conversationId = params.id
     const { title } = await req.json()
 
     if (!title) {

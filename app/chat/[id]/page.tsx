@@ -40,6 +40,12 @@ export default function ChatPageWithId({
       try {
         const res = await fetch(`/api/conversations/${id}`)
         if (!res.ok) {
+          if (res.status === 404) {
+            console.warn(`[chat/[id]] Conversation ${id} not found`)
+            // Redirect alla pagina chat principale se la conversazione non esiste
+            window.location.href = '/chat'
+            return
+          }
           throw new Error(`Failed to fetch: ${res.status}`)
         }
         const data = await res.json()
@@ -57,6 +63,9 @@ export default function ChatPageWithId({
         setMessages(loadedMessages)
       } catch (error) {
         console.error('Failed to load conversation:', error)
+        // Mostra un messaggio di errore invece di rimanere in loading
+        setConversation(null)
+        setMessages([])
       } finally {
         setLoadingConversation(false)
       }
@@ -155,6 +164,21 @@ export default function ChatPageWithId({
             {loadingConversation ? (
               <div className="text-center mt-20">
                 <div className="animate-pulse text-gray-500">Caricamento conversazione...</div>
+              </div>
+            ) : !conversation ? (
+              <div className="text-center mt-20">
+                <h1 className="text-2xl font-semibold text-gray-900 mb-4">
+                  Conversazione non trovata
+                </h1>
+                <p className="text-gray-600 mb-4">
+                  La conversazione che stai cercando non esiste o è stata eliminata.
+                </p>
+                <a
+                  href="/chat"
+                  className="inline-block bg-gray-900 text-white px-6 py-2.5 rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Torna alla chat
+                </a>
               </div>
             ) : messages.length === 0 ? (
               <div className="text-center mt-20">
