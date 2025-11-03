@@ -218,7 +218,9 @@ export async function POST(req: NextRequest) {
               },
             ]
             
-            const result = await ragAgent.stream(messages)
+            // Mastra Agent stream() accepts string or message array with proper typing
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await ragAgent.stream(messages as any)
 
             console.log('[api/chat] Agent stream result:', result)
             console.log('[api/chat] Result type:', typeof result)
@@ -264,7 +266,9 @@ export async function POST(req: NextRequest) {
               },
             ]
             
-            const generated = await ragAgent.generate(messages)
+            // Mastra Agent generate() accepts string or message array with proper typing
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const generated = await ragAgent.generate(messages as any)
             
             console.log('[api/chat] Generated result:', generated)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
