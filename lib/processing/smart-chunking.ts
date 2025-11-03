@@ -4,8 +4,8 @@
  */
 
 // Import tiktoken dinamicamente per evitare problemi WASM in Next.js
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let encoding_for_model: any = null
-let TiktokenModel: any = null
 
 // Lazy load tiktoken
 async function getTiktoken() {
@@ -13,7 +13,6 @@ async function getTiktoken() {
     try {
       const tiktoken = await import('@dqbd/tiktoken')
       encoding_for_model = tiktoken.encoding_for_model
-      TiktokenModel = tiktoken as any
       return true
     } catch (error) {
       console.warn('[smart-chunking] Tiktoken not available, using fallback token counting:', error)

@@ -143,7 +143,6 @@ function hasComplexLayout(text: string): boolean {
   const hasBoxChars = /[│┤├┬┴┼┌┐└┘─]/g.test(text)
 
   // Indicatore 4: Molti spazi consecutivi (allineamento colonne)
-  const manySpaces = /\s{5,}/g.test(text)
   const spaceCount = (text.match(/\s{5,}/g) || []).length
   const hasFrequentSpaces = spaceCount > lines.length * 0.2
 
