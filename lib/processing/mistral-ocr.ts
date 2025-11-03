@@ -1,7 +1,10 @@
 /**
- * Mistral OCR integration for document processing
- * Converts PDFs and images to structured Markdown using Mistral's OCR model
+ * Mistral Document AI integration for document processing
+ * Converts PDFs and images to structured Markdown using Mistral's Document AI OCR
+ * Uses official @mistralai/mistralai SDK
  */
+
+import { Mistral } from '@mistralai/mistralai'
 
 export interface MistralOCRResponse {
   markdown: string
@@ -14,8 +17,11 @@ export interface MistralOCRResponse {
 }
 
 /**
- * Processa documento con Mistral OCR
- * Converte PDF in Markdown strutturato preservando layout, tabelle e immagini
+ * Processa documento con Mistral Document AI OCR
+ * Converte PDF/immagini in Markdown strutturato preservando layout, tabelle e immagini
+ * 
+ * @param file - File da processare (PDF, PNG, JPG, ecc.)
+ * @returns MistralOCRResponse con markdown e metadata
  */
 export async function processWithMistralOCR(
   file: File
@@ -32,71 +38,37 @@ export async function processWithMistralOCR(
   try {
     console.log(`[mistral-ocr] Processing ${file.name} (${file.size} bytes)`)
 
-    // Converti file in base64
+    // Inizializza Mistral client
+    const client = new Mistral({ apiKey: mistralApiKey })
+
+    // Converti file in base64 data URL
     const arrayBuffer = await file.arrayBuffer()
     const base64 = Buffer.from(arrayBuffer).toString('base64')
     const dataUrl = `data:${file.type};base64,${base64}`
 
-    // Chiama Mistral Vision API (Pixtral per OCR)
-    // Model: pixtral-large-latest (o pixtral-12b-2409 per una versione specifica)
-    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${mistralApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'pixtral-large-latest',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Convert this document to well-structured Markdown. Follow these rules strictly:
-1. Preserve all headers using # ## ### notation (based on font size and hierarchy)
-2. Convert all tables to proper Markdown tables with | alignment
-3. Describe all images, charts, and diagrams in detail using ![detailed description]
-4. Preserve emphasis: use **bold** for strong text, *italic* for emphasis
-5. Format lists properly: use - for unordered, 1. 2. 3. for ordered
-6. Add section breaks (---) between major sections
-7. Maintain the original language (Italian or English)
-8. Keep all numerical data and statistics accurate
-9. Preserve document structure: title, sections, subsections
-10. For complex layouts (multi-column, sidebars), linearize logically
+    console.log(`[mistral-ocr] Calling Mistral Document AI OCR (model: mistral-ocr-latest)`)
 
-Return ONLY the Markdown content, no explanations or meta-commentary.`,
-              },
-              {
-                type: 'image_url',
-                image_url: dataUrl,
-              },
-            ],
-          },
-        ],
-        max_tokens: 16000, // Documenti lunghi
-        temperature: 0, // Deterministic per OCR
-      }),
+    // Chiama Mistral Document AI OCR
+    // Usa l'API OCR specializzata invece della chat API
+    const ocrResponse = await client.ocr.process({
+      model: 'mistral-ocr-latest',
+      document: {
+        type: 'image_url',
+        imageUrl: dataUrl, // camelCase per SDK
+      },
     })
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(
-        `Mistral OCR API error: ${response.status} ${response.statusText}. ${JSON.stringify(errorData)}`
-      )
-    }
-
-    const data = await response.json()
-
-    if (!data.choices || data.choices.length === 0) {
-      throw new Error('No response from Mistral OCR')
-    }
-
-    const markdown = data.choices[0].message.content
+    // Estrai il markdown da tutte le pagine
+    // L'API restituisce un array di pages, ognuna con il suo markdown
+    const markdown = ocrResponse.pages
+      .map((page) => page.markdown)
+      .join('\n\n---\n\n') // Separa le pagine con section break
 
     if (!markdown || markdown.trim().length === 0) {
-      throw new Error('Empty response from Mistral OCR')
+      throw new Error('Empty response from Mistral Document AI OCR')
     }
+
+    console.log(`[mistral-ocr] Processed ${ocrResponse.pages.length} page(s)`)
 
     const processingTime = Date.now() - startTime
 
@@ -121,10 +93,10 @@ Return ONLY the Markdown content, no explanations or meta-commentary.`,
 
     if (error instanceof Error) {
       // Rethrow con context più chiaro
-      throw new Error(`Mistral OCR failed: ${error.message}`)
+      throw new Error(`Mistral Document AI OCR failed: ${error.message}`)
     }
 
-    throw new Error('Mistral OCR failed with unknown error')
+    throw new Error('Mistral Document AI OCR failed with unknown error')
   }
 }
 
