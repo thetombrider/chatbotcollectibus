@@ -37,7 +37,8 @@ export async function processWithMistralOCR(
     const base64 = Buffer.from(arrayBuffer).toString('base64')
     const dataUrl = `data:${file.type};base64,${base64}`
 
-    // Chiama Mistral OCR API
+    // Chiama Mistral Vision API (Pixtral per OCR)
+    // Model: pixtral-large-latest (o pixtral-12b-2409 per una versione specifica)
     const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -45,7 +46,7 @@ export async function processWithMistralOCR(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'mistral-ocr',
+        model: 'pixtral-large-latest',
         messages: [
           {
             role: 'user',
