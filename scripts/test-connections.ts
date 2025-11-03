@@ -2,7 +2,7 @@
  * Script di test per verificare tutte le connessioni API
  */
 
-import { supabaseAdmin } from '../lib/supabase/client'
+import { supabaseAdmin } from '../lib/supabase/admin'
 import { generateEmbedding } from '../lib/embeddings/openai'
 import { ragAgent } from '../lib/mastra/agent'
 
@@ -80,4 +80,5 @@ async function runTests() {
 }
 
 runTests().catch(console.error)
+
 

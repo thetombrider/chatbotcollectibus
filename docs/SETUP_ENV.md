@@ -132,3 +132,4 @@ Se hai problemi:
 3. Controlla che il progetto Supabase sia attivo
 4. Verifica i limiti di rate delle API
 
+

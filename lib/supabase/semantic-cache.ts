@@ -1,4 +1,4 @@
-import { supabaseAdmin } from './client'
+import { supabaseAdmin } from './admin'
 import type { QueryCache } from './database.types'
 
 /**

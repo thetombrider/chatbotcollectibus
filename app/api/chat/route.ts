@@ -3,7 +3,7 @@ import { ragAgent } from '@/lib/mastra/agent'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
-import { supabaseAdmin } from '@/lib/supabase/client'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 

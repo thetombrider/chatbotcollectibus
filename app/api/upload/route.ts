@@ -3,7 +3,7 @@ import { extractText, chunkText } from '@/lib/processing/document-processor'
 import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument } from '@/lib/supabase/document-operations'
-import { supabaseAdmin } from '@/lib/supabase/client'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const maxDuration = 300 // 5 minuti per upload e processing
 

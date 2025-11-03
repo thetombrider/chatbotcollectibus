@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/client'
+import { createServerSupabaseClient } from '@/lib/supabase/client'
 
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url)
-    const userId = searchParams.get('userId') // In futuro da auth
+    const supabase = await createServerSupabaseClient()
 
-    let query = supabaseAdmin
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Fetch conversations for the authenticated user (RLS will filter automatically)
+    const { data, error } = await supabase
       .from('conversations')
       .select('*')
       .order('updated_at', { ascending: false })
-
-    if (userId) {
-      query = query.eq('user_id', userId)
-    }
-
-    const { data, error } = await query
 
     if (error) {
       console.error('[api/conversations] List failed:', error)
@@ -37,13 +41,25 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { title, userId } = await req.json()
+    const supabase = await createServerSupabaseClient()
 
-    const { data, error } = await supabaseAdmin
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { title } = await req.json()
+
+    const { data, error } = await supabase
       .from('conversations')
       .insert({
         title: title || 'Nuova conversazione',
-        user_id: userId || null,
+        user_id: user.id,
       })
       .select()
       .single()

@@ -37,3 +37,4 @@ npm run validate-env
 
 Questo verificherà che tutte le variabili siano configurate correttamente.
 
+

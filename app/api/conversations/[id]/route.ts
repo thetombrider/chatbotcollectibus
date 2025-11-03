@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase/client'
+import { createServerSupabaseClient } from '@/lib/supabase/client'
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = await createServerSupabaseClient()
+
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const conversationId = params.id
 
-    // Get conversation with messages
-    const { data: conversation, error: convError } = await supabaseAdmin
+    // Get conversation (RLS will ensure it belongs to the user)
+    const { data: conversation, error: convError } = await supabase
       .from('conversations')
       .select('*')
       .eq('id', conversationId)
@@ -22,7 +34,7 @@ export async function GET(
       )
     }
 
-    const { data: messages, error: msgError } = await supabaseAdmin
+    const { data: messages, error: msgError } = await supabase
       .from('messages')
       .select('*')
       .eq('conversation_id', conversationId)
@@ -54,9 +66,22 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = await createServerSupabaseClient()
+
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const conversationId = params.id
 
-    const { error } = await supabaseAdmin
+    // RLS will ensure user can only delete their own conversations
+    const { error } = await supabase
       .from('conversations')
       .delete()
       .eq('id', conversationId)
@@ -84,6 +109,18 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
+    const supabase = await createServerSupabaseClient()
+
+    // Get authenticated user
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const conversationId = params.id
     const { title } = await req.json()
 
@@ -94,7 +131,8 @@ export async function PATCH(
       )
     }
 
-    const { data, error } = await supabaseAdmin
+    // RLS will ensure user can only update their own conversations
+    const { data, error } = await supabase
       .from('conversations')
       .update({ title, updated_at: new Date().toISOString() })
       .eq('id', conversationId)
