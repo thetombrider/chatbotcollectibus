@@ -12,7 +12,11 @@ interface UploadStatus {
   retryCount?: number
 }
 
-export default function UploadPage() {
+interface DocumentUploaderProps {
+  onUploadComplete?: (documentId: string, filename: string) => void
+}
+
+export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
   const [files, setFiles] = useState<File[]>([])
   const [uploadStatuses, setUploadStatuses] = useState<Record<string, UploadStatus>>({})
   const [uploading, setUploading] = useState(false)
@@ -105,6 +109,8 @@ export default function UploadPage() {
           throw new Error('Response body is not readable')
         }
 
+        let finalDocumentId: string | undefined
+
         while (true) {
           const { done, value } = await reader.read()
 
@@ -134,8 +140,17 @@ export default function UploadPage() {
                   },
                 }))
 
+                // Salva documentId per callback
+                if (data.documentId) {
+                  finalDocumentId = data.documentId
+                }
+
                 // Se completato, esci dal loop
                 if (data.stage === 'completed') {
+                  // Chiama callback se fornito
+                  if (onUploadComplete && finalDocumentId) {
+                    onUploadComplete(finalDocumentId, file.name)
+                  }
                   return
                 }
               } catch (parseError) {
@@ -303,9 +318,7 @@ export default function UploadPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 bg-white min-h-screen">
-      <h1 className="text-3xl font-semibold text-gray-900 mb-8">Carica Documenti</h1>
-
+    <div className="max-w-4xl">
       <div
         className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center mb-6 hover:border-gray-400 transition-colors bg-gray-50"
         onDrop={handleDrop}

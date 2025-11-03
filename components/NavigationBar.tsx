@@ -74,14 +74,14 @@ export function NavigationBar() {
               Chat
             </Link>
             <Link
-              href="/upload"
+              href="/documents"
               className={`text-sm font-medium transition-colors ${
-                pathname === '/upload'
+                pathname === '/documents'
                   ? 'text-gray-900'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Upload Documenti
+              Documenti
             </Link>
           </div>
 

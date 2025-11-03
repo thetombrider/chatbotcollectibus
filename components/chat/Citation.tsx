@@ -1,7 +1,10 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 
 interface CitationProps {
   index: number
@@ -219,78 +222,228 @@ interface MessageWithCitationsProps {
 }
 
 /**
- * Componente per renderizzare un messaggio con citazioni parse
+ * Componente per renderizzare un messaggio con citazioni parse e markdown
  */
 export function MessageWithCitations({ content, sources = [] }: MessageWithCitationsProps) {
-  if (!sources || sources.length === 0) {
-    // Rimuovi tutte le citazioni dal testo se non ci sono sources
-    const cleanedContent = content.replace(/\[cit:\d+(?:,\d+)*\]/g, '')
-    return <p className="whitespace-pre-wrap leading-relaxed">{cleanedContent}</p>
-  }
+  // Mappa per tracciare le citazioni
+  const citationMapRef = useRef(new Map<string, number[]>())
+  
+  // Pre-processa il contenuto sostituendo le citazioni con placeholder univoci
+  const processedContent = React.useMemo(() => {
+    citationMapRef.current.clear()
+    
+    return content.replace(/\[cit:(\d+(?:,\d+)*)\]/g, (match, indicesStr) => {
+      const indices = indicesStr.split(',').map((n: string) => parseInt(n, 10))
+      
+      // Verifica che gli indici esistano nelle sources disponibili
+      const validIndices = indices.filter((idx: number) => sources.some(s => s.index === idx))
+      
+      // Se non ci sono indici validi o sources, rimuovi la citazione
+      if (validIndices.length === 0 || sources.length === 0) {
+        return ''
+      }
+      
+      // Crea un placeholder univoco per questa citazione
+      const placeholder = `{{CITE_${Object.keys(citationMapRef.current).length}}}`
+      citationMapRef.current.set(placeholder, validIndices)
+      
+      return placeholder
+    })
+  }, [content, sources])
 
-  // Regex per trovare citazioni [cit:N] o [cit:N,M,...]
-  const citationRegex = /\[cit:(\d+(?:,\d+)*)\]/g
-  const parts: Array<{ type: 'text' | 'citation'; content: string; indices?: number[] }> = []
-  let lastIndex = 0
-  let match
-
-  while ((match = citationRegex.exec(content)) !== null) {
-    // Aggiungi testo prima della citazione
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        content: content.slice(lastIndex, match.index),
-      })
+  // Componente per processare il testo e sostituire i placeholder con le citazioni
+  const TextWithCitations = ({ value }: { value?: string }) => {
+    if (!value || typeof value !== 'string') {
+      return <>{value}</>
     }
 
-    // Parse indici citazione
-    const indices = match[1].split(',').map((n) => parseInt(n, 10))
+    const parts: React.ReactNode[] = []
+    let lastIndex = 0
     
-    // Verifica che tutti gli indici esistano nelle sources disponibili
-    const validIndices = indices.filter(idx => sources.some(s => s.index === idx))
-    
-    // Se nessun indice è valido, ignora questa citazione (sarà rimossa dal testo)
-    if (validIndices.length === 0) {
-      // Aggiorna lastIndex per saltare questa citazione invalida
+    // Regex per trovare i placeholder {{CITE_N}}
+    const placeholderRegex = /\{\{CITE_(\d+)\}\}/g
+    let match
+
+    while ((match = placeholderRegex.exec(value)) !== null) {
+      // Aggiungi testo prima del placeholder
+      if (match.index > lastIndex) {
+        parts.push(value.slice(lastIndex, match.index))
+      }
+
+      // Trova la citazione corrispondente
+      const placeholder = match[0]
+      const indices = citationMapRef.current.get(placeholder)
+      
+      if (indices) {
+        if (indices.length === 1) {
+          parts.push(<Citation key={placeholder} index={indices[0]} sources={sources} />)
+        } else {
+          parts.push(<CitationMultiple key={placeholder} indices={indices} sources={sources} />)
+        }
+      }
+
       lastIndex = match.index + match[0].length
-      continue
     }
 
-    // Aggiungi citazione solo se ci sono indici validi
-    parts.push({
-      type: 'citation',
-      content: match[0],
-      indices: validIndices,
-    })
+    // Aggiungi testo finale
+    if (lastIndex < value.length) {
+      parts.push(value.slice(lastIndex))
+    }
 
-    lastIndex = match.index + match[0].length
+    return <>{parts}</>
   }
 
-  // Aggiungi testo finale
-  if (lastIndex < content.length) {
-    parts.push({
-      type: 'text',
-      content: content.slice(lastIndex),
-    })
-  }
-
-  // Se non ci sono citazioni, restituisci testo normale
-  if (parts.length === 0 || parts.every((p) => p.type === 'text')) {
-    return <p className="whitespace-pre-wrap leading-relaxed">{content}</p>
+  // Componenti personalizzati per react-markdown
+  const markdownComponents: Components = {
+    // Gestisci i paragrafi
+    p: ({ children, ...props }) => (
+      <p className="mb-4 last:mb-0 leading-relaxed">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </p>
+    ),
+    // Gestisci gli heading
+    h1: ({ children }) => (
+      <h1 className="text-2xl font-bold mb-3 mt-6 first:mt-0">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="text-xl font-bold mb-2 mt-5 first:mt-0">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </h2>
+    ),
+    h3: ({ children }) => (
+      <h3 className="text-lg font-semibold mb-2 mt-4 first:mt-0">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </h3>
+    ),
+    // Gestisci le liste
+    ul: ({ children }) => (
+      <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul>
+    ),
+    ol: ({ children }) => (
+      <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>
+    ),
+    li: ({ children }) => (
+      <li className="leading-relaxed">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </li>
+    ),
+    // Gestisci il codice
+    code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode }) => {
+      if (inline) {
+        return (
+          <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono">
+            {children}
+          </code>
+        )
+      }
+      return (
+        <code className="block bg-gray-100 text-gray-800 p-3 rounded-md text-sm font-mono overflow-x-auto mb-4">
+          {children}
+        </code>
+      )
+    },
+    // Gestisci i blockquote
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-4 border-gray-300 pl-4 italic my-4 text-gray-700">
+        {children}
+      </blockquote>
+    ),
+    // Gestisci i link
+    a: ({ href, children }) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:text-blue-800 underline"
+      >
+        {children}
+      </a>
+    ),
+    // Gestisci le tabelle
+    table: ({ children }) => (
+      <div className="overflow-x-auto mb-4">
+        <table className="min-w-full border-collapse border border-gray-300">
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children }) => (
+      <thead className="bg-gray-100">{children}</thead>
+    ),
+    th: ({ children }) => (
+      <th className="border border-gray-300 px-4 py-2 text-left font-semibold">
+        {children}
+      </th>
+    ),
+    td: ({ children }) => (
+      <td className="border border-gray-300 px-4 py-2">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </td>
+    ),
+    // Gestisci strong/bold
+    strong: ({ children }) => (
+      <strong className="font-semibold">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </strong>
+    ),
+    // Gestisci em/italic
+    em: ({ children }) => (
+      <em className="italic">
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations value={child} />
+          }
+          return child
+        })}
+      </em>
+    ),
   }
 
   return (
-    <div className="relative whitespace-pre-wrap leading-relaxed" style={{ overflow: 'visible' }}>
-      {parts.map((part, idx) => {
-        if (part.type === 'text') {
-          return <span key={idx}>{part.content}</span>
-        } else if (part.indices && part.indices.length === 1) {
-          return <Citation key={idx} index={part.indices[0]} sources={sources} />
-        } else if (part.indices && part.indices.length > 1) {
-          return <CitationMultiple key={idx} indices={part.indices} sources={sources} />
-        }
-        return null
-      })}
+    <div className="prose prose-sm max-w-none" style={{ overflow: 'visible' }}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={markdownComponents}
+      >
+        {processedContent}
+      </ReactMarkdown>
     </div>
   )
 }

@@ -189,3 +189,5 @@ curl http://localhost:3000/api/conversations
 - Verify cookies are being set (check browser dev tools)
 - Ensure `auth.getUser()` is called in middleware
 
+
+
