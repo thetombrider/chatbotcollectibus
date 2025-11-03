@@ -155,10 +155,11 @@ export async function POST(req: NextRequest) {
       preview: r.content.substring(0, 100) + '...'
     })))
     
-    // Filtra solo risultati con similarity >= 0.30 per evitare citazioni a documenti non rilevanti
-    // Threshold ridotto a 0.30 per permettere match anche con similarity moderata
-    // Nota: chunks con vector_score ~0.47 passeranno il filtro
-    const RELEVANCE_THRESHOLD = 0.30
+    // Filtra solo risultati con similarity >= 0.20 per evitare citazioni a documenti non rilevanti
+    // Threshold ridotto a 0.20 per permettere match anche con similarity bassa (utile per query generiche)
+    // Nota: con questo threshold, anche chunks con vector_score ~0.30 passeranno il filtro
+    // TODO: Considerare di aumentare quando si migliora la qualità degli embeddings
+    const RELEVANCE_THRESHOLD = 0.20
     const relevantResults = searchResults.filter(r => r.similarity >= RELEVANCE_THRESHOLD)
     
     console.log('[api/chat] Relevant results after filtering:', relevantResults.length)

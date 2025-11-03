@@ -232,8 +232,10 @@ export function MessageWithCitations({ content, sources = [] }: MessageWithCitat
   const processedContent = React.useMemo(() => {
     citationMapRef.current.clear()
     
-    return content.replace(/\[cit:(\d+(?:,\d+)*)\]/g, (match, indicesStr) => {
-      const indices = indicesStr.split(',').map((n: string) => parseInt(n, 10))
+    // Regex che gestisce sia [cit:1,2,3] che [cit 1,2,3] e [cit 1, 2, 3]
+    return content.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+      // Rimuovi spazi prima di fare split
+      const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
       
       // Verifica che gli indici esistano nelle sources disponibili
       const validIndices = indices.filter((idx: number) => sources.some(s => s.index === idx))
