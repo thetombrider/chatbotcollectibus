@@ -36,27 +36,45 @@ export async function processWithMistralOCR(
   }
 
   try {
-    console.log(`[mistral-ocr] Processing ${file.name} (${file.size} bytes)`)
+    console.log(`[mistral-ocr] Processing ${file.name} (${file.size} bytes, type: ${file.type})`)
 
     // Inizializza Mistral client
     const client = new Mistral({ apiKey: mistralApiKey })
 
-    // Converti file in base64 data URL
+    // Converti file in base64
     const arrayBuffer = await file.arrayBuffer()
     const base64 = Buffer.from(arrayBuffer).toString('base64')
-    const dataUrl = `data:${file.type};base64,${base64}`
 
-    console.log(`[mistral-ocr] Calling Mistral Document AI OCR (model: mistral-ocr-latest)`)
+    // Determina il tipo di documento e costruisci il payload corretto
+    // Mistral OCR supporta:
+    // - PDF: type="document_url" con documentUrl
+    // - Immagini: type="image_url" con imageUrl
+    const isPdf = file.type === 'application/pdf'
+    const isImage = file.type.startsWith('image/')
 
-    // Chiama Mistral Document AI OCR
-    // Usa l'API OCR specializzata invece della chat API
-    const ocrResponse = await client.ocr.process({
-      model: 'mistral-ocr-latest',
-      document: {
-        type: 'image_url',
-        imageUrl: dataUrl, // camelCase per SDK
-      },
-    })
+    if (!isPdf && !isImage) {
+      throw new Error(`Unsupported file type: ${file.type}. Only PDF and images are supported.`)
+    }
+
+    console.log(`[mistral-ocr] Calling Mistral Document AI OCR (model: mistral-ocr-latest, document type: ${isPdf ? 'PDF' : 'Image'})`)
+
+    // Chiama Mistral Document AI OCR con il tipo corretto
+    // Docs: https://docs.mistral.ai/capabilities/document_ai/basic_ocr
+    const ocrResponse = isPdf
+      ? await client.ocr.process({
+          model: 'mistral-ocr-latest',
+          document: {
+            type: 'document_url',
+            documentUrl: `data:application/pdf;base64,${base64}`,
+          },
+        })
+      : await client.ocr.process({
+          model: 'mistral-ocr-latest',
+          document: {
+            type: 'image_url',
+            imageUrl: `data:${file.type};base64,${base64}`,
+          },
+        })
 
     // Estrai il markdown da tutte le pagine
     // L'API restituisce un array di pages, ognuna con il suo markdown
