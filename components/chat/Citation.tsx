@@ -296,7 +296,7 @@ export function MessageWithCitations({ content, sources = [] }: MessageWithCitat
   // Componenti personalizzati per react-markdown
   const markdownComponents: Components = {
     // Gestisci i paragrafi
-    p: ({ children, ...props }) => (
+    p: ({ children }) => (
       <p className="mb-4 last:mb-0 leading-relaxed">
         {React.Children.map(children, (child) => {
           if (typeof child === 'string') {
@@ -355,7 +355,7 @@ export function MessageWithCitations({ content, sources = [] }: MessageWithCitat
       </li>
     ),
     // Gestisci il codice
-    code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode }) => {
+    code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) => {
       if (inline) {
         return (
           <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono">

@@ -111,7 +111,7 @@ export default function ChatPageWithId({
     li: ({ children }) => (
       <li className="leading-relaxed">{children}</li>
     ),
-    code: ({ inline, children, ...props }: { inline?: boolean; children?: React.ReactNode }) => {
+    code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) => {
       if (inline) {
         return (
           <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono">
