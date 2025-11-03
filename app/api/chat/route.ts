@@ -7,6 +7,113 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 
+/**
+ * Rileva se la query è comparativa e estrae i termini chiave da confrontare
+ */
+function detectComparativeQuery(message: string): string[] | null {
+  const lowerMessage = message.toLowerCase()
+  
+  // Pattern per query comparative
+  const comparativePatterns = [
+    /(?:punti?\s+in\s+comune|similari|differenze?|confronto|confronta|compara|vs|versus)\s+(?:tra|di|fra)\s+(?:la\s+)?(\w+)\s+(?:e|ed?)\s+(?:la\s+)?(\w+)/i,
+    /(\w+)\s+(?:e|ed?)\s+(\w+)\s*[:,-]?\s*(?:punti?\s+in\s+comune|similari|differenze?|confronto)/i,
+    /(?:entrambe|ambedue)\s+(?:le\s+)?(?:norme?|regolamenti?|direttive?)/i
+  ]
+  
+  for (const pattern of comparativePatterns) {
+    const match = message.match(pattern)
+    if (match) {
+      // Estrai i termini (gruppo 1 e 2 della regex)
+      if (match[1] && match[2]) {
+        return [match[1].toUpperCase(), match[2].toUpperCase()]
+      }
+    }
+  }
+  
+  // Caso speciale: rileva menzioni di più normative note
+  const knownRegulations = ['ESPR', 'PPWR', 'CSRD', 'CSDDD', 'GDPR', 'REACH']
+  const mentionedRegulations = knownRegulations.filter(reg => 
+    lowerMessage.includes(reg.toLowerCase())
+  )
+  
+  if (mentionedRegulations.length >= 2 && 
+      (lowerMessage.includes('comune') || 
+       lowerMessage.includes('entramb') || 
+       lowerMessage.includes('confronto') ||
+       lowerMessage.includes('differenz'))) {
+    return mentionedRegulations
+  }
+  
+  return null
+}
+
+/**
+ * Esegue ricerche multiple per query comparative e combina i risultati
+ */
+async function performMultiQuerySearch(
+  terms: string[], 
+  originalQuery: string,
+  originalEmbedding: number[]
+): Promise<any[]> {
+  console.log('[api/chat] Performing multi-query search for terms:', terms)
+  
+  // Esegui una ricerca per ogni termine
+  const searchPromises = terms.map(async (term) => {
+    try {
+      // Crea una query mirata per questo termine
+      const targetedQuery = `${term} ${originalQuery}`
+      const targetedEmbedding = await generateEmbedding(targetedQuery)
+      
+      // Ricerca con threshold più alto per risultati più rilevanti
+      const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7)
+      
+      console.log(`[api/chat] Results for ${term}:`, results.length, 
+        results.length > 0 ? `(best: ${results[0]?.similarity.toFixed(3)})` : '')
+      
+      return results
+    } catch (err) {
+      console.error(`[api/chat] Search failed for term ${term}:`, err)
+      return []
+    }
+  })
+  
+  // Attendi tutte le ricerche
+  const allResults = await Promise.all(searchPromises)
+  
+  // Combina i risultati, rimuovi duplicati, ordina per similarity
+  const combinedMap = new Map()
+  allResults.flat().forEach(result => {
+    if (!combinedMap.has(result.id) || combinedMap.get(result.id).similarity < result.similarity) {
+      combinedMap.set(result.id, result)
+    }
+  })
+  
+  const combined = Array.from(combinedMap.values())
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 15) // Top 15 per avere più diversità
+  
+  console.log('[api/chat] Combined results:', combined.length, 
+    combined.length > 0 ? `(best: ${combined[0]?.similarity.toFixed(3)})` : '')
+  
+  // Se abbiamo pochi risultati dalla multi-query, aggiungi anche dalla query originale
+  if (combined.length < 10) {
+    console.log('[api/chat] Adding results from original query to boost coverage')
+    const originalResults = await hybridSearch(originalEmbedding, originalQuery, 10, 0.25, 0.7)
+    
+    originalResults.forEach(result => {
+      if (!combinedMap.has(result.id)) {
+        combined.push(result)
+      }
+    })
+    
+    // Riordina e limita
+    combined.sort((a, b) => b.similarity - a.similarity)
+    combined.splice(15)
+  }
+  
+  return combined
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { message, conversationId } = await req.json()
@@ -140,11 +247,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Vector search per context con hybrid search migliorata
-    // Parametri ottimizzati per migliorare retrieval quality:
-    // - top-10 invece di 5 (più chunks candidati)
-    // - threshold 0.3 invece di 0.7 (più permissivo per catturare più candidati)
-    // - vector_weight 0.7 (più peso al vector score che tende ad essere più alto)
-    const searchResults = await hybridSearch(queryEmbedding, message, 10, 0.3, 0.7)
+    // Rileva se è una query comparativa e usa strategia multi-query
+    const comparativeTerms = detectComparativeQuery(message)
+    let searchResults
+    
+    if (comparativeTerms) {
+      console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
+      // Usa strategia multi-query per query comparative
+      searchResults = await performMultiQuerySearch(comparativeTerms, message, queryEmbedding)
+    } else {
+      // Query standard: hybrid search normale
+      // Parametri: top-10, threshold 0.3, vector_weight 0.7
+      searchResults = await hybridSearch(queryEmbedding, message, 10, 0.3, 0.7)
+    }
     
     // Log dei risultati per debugging
     console.log('[api/chat] Search results:', searchResults.map(r => ({
@@ -171,6 +286,16 @@ export async function POST(req: NextRequest) {
         '-', 
         Math.max(...relevantResults.map(r => r.similarity)).toFixed(3)
       )
+      
+      // Per query comparative, mostra distribuzione documenti
+      if (comparativeTerms) {
+        const documentDistribution = new Map<string, number>()
+        relevantResults.forEach(r => {
+          const filename = r.document_filename || 'Unknown'
+          documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
+        })
+        console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
+      }
     }
 
     // Build context solo se ci sono risultati rilevanti
@@ -203,9 +328,30 @@ export async function POST(req: NextRequest) {
           
           // Prova prima con stream(), se fallisce usa generate()
           try {
-            const systemPrompt = context
-              ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
-              : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            let systemPrompt
+            if (context) {
+              // Per query comparative, aggiungi informazioni sui documenti disponibili
+              if (comparativeTerms) {
+                const uniqueDocuments = [...new Set(relevantResults.map(r => r.document_filename))]
+                systemPrompt = `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
+
+Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments.join(', ')}.
+
+Usa SOLO il seguente contesto dai documenti per rispondere. Quando citi informazioni, usa [cit:N] dove N è il numero del documento. Per citazioni multiple usa [cit:N,M]. 
+
+IMPORTANTE: 
+- Confronta esplicitamente i concetti trovati in entrambe le normative
+- Cita SOLO informazioni presenti nel contesto fornito
+- Se trovi concetti simili in documenti diversi, menzionalo esplicitamente
+
+Contesto dai documenti:
+${context}`
+              } else {
+                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. Per citazioni multiple usa [cit:N,M]. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
+              }
+            } else {
+              systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            }
             
             const messages = [
               {
