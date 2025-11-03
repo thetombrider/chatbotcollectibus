@@ -49,6 +49,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Recupera gli ultimi 10 messaggi per context conversazionale
+    let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    if (conversationId) {
+      try {
+        const { data: historyMessages } = await supabaseAdmin
+          .from('messages')
+          .select('role, content')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true })
+          .limit(10)
+        
+        conversationHistory = historyMessages || []
+        console.log('[api/chat] Retrieved conversation history:', conversationHistory.length, 'messages')
+      } catch (err) {
+        console.error('[api/chat] Failed to retrieve conversation history:', err)
+        // Continue with empty history
+      }
+    }
+
     // Check semantic cache
     const queryEmbedding = await generateEmbedding(message)
     const cached = await findCachedResponse(queryEmbedding)
@@ -187,16 +206,19 @@ export async function POST(req: NextRequest) {
               ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
               : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
             
-            const result = await ragAgent.stream([
+            const messages = [
               {
                 role: 'system',
                 content: systemPrompt,
               },
+              ...conversationHistory,
               {
                 role: 'user',
                 content: message,
               },
-            ])
+            ]
+            
+            const result = await ragAgent.stream(messages)
 
             console.log('[api/chat] Agent stream result:', result)
             console.log('[api/chat] Result type:', typeof result)
@@ -230,16 +252,19 @@ export async function POST(req: NextRequest) {
               ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
               : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
             
-            const generated = await ragAgent.generate([
+            const messages = [
               {
                 role: 'system',
                 content: systemPrompt,
               },
+              ...conversationHistory,
               {
                 role: 'user',
                 content: message,
               },
-            ])
+            ]
+            
+            const generated = await ragAgent.generate(messages)
             
             console.log('[api/chat] Generated result:', generated)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

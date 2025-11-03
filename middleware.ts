@@ -34,9 +34,17 @@ export async function middleware(request: NextRequest) {
 
   // IMPORTANT: DO NOT REMOVE auth.getUser()
   // Refreshing the auth token
+  // Note: It's normal to get "Invalid Refresh Token" errors when not logged in
+  // This is just the middleware checking for an active session
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser()
+
+  // Only log unexpected auth errors (not the normal "no token found" case)
+  if (authError && !authError.message.includes('Refresh Token not found')) {
+    console.error('[middleware] Unexpected auth error:', authError)
+  }
 
   // Redirect to login if not authenticated and trying to access protected routes
   if (
