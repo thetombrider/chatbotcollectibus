@@ -29,18 +29,27 @@ export async function searchSimilarChunks(
 
 /**
  * Hybrid search: combina vector similarity + full-text search
+ * 
+ * @param queryEmbedding - Vector embedding della query
+ * @param queryText - Testo originale della query
+ * @param limit - Numero massimo di risultati
+ * @param threshold - Soglia minima di similarity
+ * @param vectorWeight - Peso per vector similarity (0-1, default 0.7). Il resto va al full-text search.
+ * @returns Array di SearchResult ordinati per similarity
  */
 export async function hybridSearch(
   queryEmbedding: number[],
   queryText: string,
   limit: number = 5,
-  threshold: number = 0.7
+  threshold: number = 0.7,
+  vectorWeight: number = 0.7
 ): Promise<SearchResult[]> {
   const { data, error } = await supabaseAdmin.rpc('hybrid_search', {
     query_embedding: queryEmbedding,
     query_text: queryText,
     match_threshold: threshold,
     match_count: limit,
+    vector_weight: vectorWeight,
   })
 
   if (error) {

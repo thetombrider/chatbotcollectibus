@@ -19,6 +19,23 @@ const nextConfig = {
       },
     ];
   },
+  // Configurazione webpack per tiktoken WASM
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Fix per tiktoken WASM in Next.js
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        '@dqbd/tiktoken': require.resolve('@dqbd/tiktoken'),
+      };
+    }
+    
+    // Ignora warning per moduli opzionali
+    config.ignoreWarnings = [
+      { module: /node_modules\/@dqbd\/tiktoken/ }
+    ];
+
+    return config;
+  },
 };
 
 module.exports = nextConfig;

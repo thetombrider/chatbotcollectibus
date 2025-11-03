@@ -120,12 +120,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Vector search per context
-    const searchResults = await hybridSearch(queryEmbedding, message, 5, 0.7)
+    // Vector search per context con hybrid search migliorata
+    // Parametri ottimizzati per migliorare retrieval quality:
+    // - top-10 invece di 5 (più chunks candidati)
+    // - threshold 0.3 invece di 0.7 (più permissivo per catturare più candidati)
+    // - vector_weight 0.7 (più peso al vector score che tende ad essere più alto)
+    const searchResults = await hybridSearch(queryEmbedding, message, 10, 0.3, 0.7)
     
-    // Filtra solo risultati con similarity >= 0.3 per evitare citazioni a documenti non rilevanti
-    const RELEVANCE_THRESHOLD = 0.3
+    // Log dei risultati per debugging
+    console.log('[api/chat] Search results:', searchResults.map(r => ({
+      filename: r.document_filename,
+      similarity: r.similarity.toFixed(3),
+      vector_score: r.vector_score?.toFixed(3),
+      text_score: r.text_score?.toFixed(3),
+      preview: r.content.substring(0, 100) + '...'
+    })))
+    
+    // Filtra solo risultati con similarity >= 0.30 per evitare citazioni a documenti non rilevanti
+    // Threshold ridotto a 0.30 per permettere match anche con similarity moderata
+    // Nota: chunks con vector_score ~0.47 passeranno il filtro
+    const RELEVANCE_THRESHOLD = 0.30
     const relevantResults = searchResults.filter(r => r.similarity >= RELEVANCE_THRESHOLD)
+    
+    console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
+    if (relevantResults.length > 0) {
+      const avgSimilarity = relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length
+      console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
+      console.log('[api/chat] Similarity range:', 
+        Math.min(...relevantResults.map(r => r.similarity)).toFixed(3), 
+        '-', 
+        Math.max(...relevantResults.map(r => r.similarity)).toFixed(3)
+      )
+    }
 
     // Build context solo se ci sono risultati rilevanti
     const context = relevantResults.length > 0

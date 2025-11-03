@@ -32,6 +32,8 @@ export interface SearchResult extends DocumentChunk {
   similarity: number
   document_filename?: string
   document_metadata?: Record<string, unknown>
+  vector_score?: number
+  text_score?: number
 }
 
 export interface Conversation {

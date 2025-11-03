@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { extractText, chunkText } from '@/lib/processing/document-processor'
+import { extractTextUnified } from '@/lib/processing/document-processor'
+import { smartChunkText } from '@/lib/processing/smart-chunking'
 import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument } from '@/lib/supabase/document-operations'
@@ -111,20 +112,35 @@ export async function POST(req: NextRequest) {
           // Fase 3: Estrazione testo (30%)
           sendProgress(controller, 'processing', 30, 'Extracting text from document...')
           
-          const text = await extractText(file)
+          // Usa estrattore unificato (OCR o native)
+          const extracted = await extractTextUnified(file)
+          const text = extracted.text
+          const format = extracted.format
+          
+          console.log(`[api/upload/stream] Processing method: ${extracted.processingMethod}`)
+          console.log(`[api/upload/stream] Format: ${format}`)
           
           if (!text || text.trim().length === 0) {
             throw new Error('No text extracted from document')
           }
 
           // Fase 4: Chunking (40%)
-          sendProgress(controller, 'processing', 40, 'Chunking document text...')
+          sendProgress(controller, 'processing', 40, 'Chunking document text with smart chunking...')
           
-          const chunks = chunkText(text, 500, 50)
+          // Usa smart chunking con token counting preciso
+          const chunks = await smartChunkText(text, {
+            maxTokens: 800,
+            overlapTokens: 100,
+            preserveStructure: true,
+            format: format,
+          })
 
           if (chunks.length === 0) {
             throw new Error('No chunks created from document')
           }
+          
+          console.log(`[api/upload/stream] Created ${chunks.length} chunks`)
+          console.log(`[api/upload/stream] Average tokens per chunk: ${Math.round(chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0) / chunks.length)}`)
 
           // Fase 5: Generazione embeddings (40-80%)
           const chunkTexts = chunks.map((c) => c.content)
@@ -165,6 +181,10 @@ export async function POST(req: NextRequest) {
             metadata: {
               ...chunk.metadata,
               documentFilename: file.name,
+              processingMethod: extracted.processingMethod,
+              sourceFormat: format,
+              // Aggiungi metadata da OCR se disponibile
+              ...extracted.metadata,
             },
           }))
 
@@ -317,7 +337,13 @@ export async function POST(req: NextRequest) {
     try {
       console.log(`[api/upload] Processing document ${document.id}: ${file.name}`)
       
-      const text = await extractText(file)
+      // Usa estrattore unificato (OCR o native)
+      const extracted = await extractTextUnified(file)
+      const text = extracted.text
+      const format = extracted.format
+      
+      console.log(`[api/upload] Processing method: ${extracted.processingMethod}`)
+      console.log(`[api/upload] Format: ${format}`)
       
       if (!text || text.trim().length === 0) {
         throw new Error('No text extracted from document')
@@ -325,13 +351,20 @@ export async function POST(req: NextRequest) {
 
       console.log(`[api/upload] Extracted ${text.length} characters from ${file.name}`)
       
-      const chunks = chunkText(text, 500, 50)
+      // Usa smart chunking con token counting preciso
+      const chunks = await smartChunkText(text, {
+        maxTokens: 800,
+        overlapTokens: 100,
+        preserveStructure: true,
+        format: format,
+      })
 
       if (chunks.length === 0) {
         throw new Error('No chunks created from document')
       }
 
       console.log(`[api/upload] Created ${chunks.length} chunks for ${file.name}`)
+      console.log(`[api/upload] Average tokens per chunk: ${Math.round(chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0) / chunks.length)}`)
 
       // Genera embeddings per tutti i chunks (batch di 100)
       const chunkTexts = chunks.map((c) => c.content)
@@ -339,7 +372,7 @@ export async function POST(req: NextRequest) {
 
       console.log(`[api/upload] Generated ${embeddings.length} embeddings for ${file.name}`)
 
-      // Prepara chunks con embeddings
+      // Prepara chunks con embeddings e metadata ricchi
       const chunksWithEmbeddings = chunks.map((chunk, index) => ({
         document_id: document.id,
         content: chunk.content,
@@ -348,6 +381,10 @@ export async function POST(req: NextRequest) {
         metadata: {
           ...chunk.metadata,
           documentFilename: file.name,
+          processingMethod: extracted.processingMethod,
+          sourceFormat: format,
+          // Aggiungi metadata da OCR se disponibile
+          ...extracted.metadata,
         },
       }))
 

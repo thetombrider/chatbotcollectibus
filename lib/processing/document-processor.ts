@@ -111,3 +111,81 @@ export async function extractText(file: File): Promise<string> {
   }
 }
 
+/**
+ * Result of unified text extraction
+ */
+export interface ExtractedContent {
+  text: string
+  format: 'plain' | 'markdown'
+  processingMethod: string
+  metadata: Record<string, unknown>
+}
+
+/**
+ * Estrae testo da file usando strategia ottimale (OCR o native)
+ * Analizza il documento e sceglie il metodo migliore automaticamente
+ * 
+ * @param file - File da processare
+ * @returns ExtractedContent con testo, formato e metadata
+ */
+export async function extractTextUnified(file: File): Promise<ExtractedContent> {
+  // Import dinamici per evitare problemi di circular dependencies
+  const { analyzeDocument } = await import('./document-analyzer')
+  const { processWithMistralOCR } = await import('./mistral-ocr')
+
+  console.log(`[document-processor] Processing ${file.name} with unified extraction`)
+
+  // 1. Analizza documento per determinare strategia
+  const strategy = await analyzeDocument(file)
+  
+  console.log(`[document-processor] Strategy: ${strategy.reason}`)
+
+  // 2. PDF che necessita OCR
+  if (file.type === 'application/pdf' && strategy.useOCR) {
+    try {
+      const result = await processWithMistralOCR(file)
+      return {
+        text: result.markdown,
+        format: 'markdown',
+        processingMethod: 'mistral-ocr',
+        metadata: {
+          ...result.metadata,
+          ocrReason: strategy.reason,
+          textDensity: strategy.textDensity,
+          hasComplexLayout: strategy.hasComplexLayout,
+        },
+      }
+    } catch (error) {
+      // Fallback a native extraction se OCR fallisce
+      console.warn(
+        '[document-processor] Mistral OCR failed, falling back to native extraction:',
+        error instanceof Error ? error.message : 'Unknown error'
+      )
+      
+      const text = await extractText(file)
+      return {
+        text,
+        format: 'plain',
+        processingMethod: 'native-fallback',
+        metadata: {
+          fallbackReason: error instanceof Error ? error.message : 'OCR failed',
+          originalStrategy: strategy.reason,
+        },
+      }
+    }
+  }
+
+  // 3. Tutti gli altri casi: native extraction
+  const text = await extractText(file)
+  return {
+    text,
+    format: 'plain',
+    processingMethod: 'native',
+    metadata: {
+      strategyReason: strategy.reason,
+      textDensity: strategy.textDensity,
+      hasComplexLayout: strategy.hasComplexLayout,
+    },
+  }
+}
+

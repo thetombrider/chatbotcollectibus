@@ -73,7 +73,7 @@ Esempio di risposta corretta:
 "Secondo l'analisi del mercato italiano, il settore tecnologico è in crescita [cit:1]. Tuttavia, le previsioni indicano una possibile contrazione nel prossimo trimestre [cit:2]."
 
 Cita sempre le fonti quando possibile.`,
-  model: `openrouter/anthropic/claude-3-haiku`,
+  model: `openrouter/google/gemini-2.5-flash`,
   tools: {
     vector_search: {
       id: 'vector_search',
