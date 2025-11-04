@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractTextUnified } from '@/lib/processing/document-processor'
 import { smartChunkText } from '@/lib/processing/smart-chunking'
+import { preprocessChunkContent } from '@/lib/processing/chunk-preprocessing'
 import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument } from '@/lib/supabase/document-operations'
@@ -34,8 +35,11 @@ export async function POST(req: NextRequest) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        try {
+        // Variabili per cleanup in caso di errore
+        let document: { id: string } | undefined
+        let filePath: string | undefined
 
+        try {
           if (!file) {
             sendProgress(controller, 'error', 0, 'File is required')
             controller.close()
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
           
           const fileExt = file.name.split('.').pop()
           const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
-          const filePath = `documents/${fileName}`
+          filePath = `documents/${fileName}`
 
           const { error: uploadError } = await supabaseAdmin.storage
             .from('documents')
@@ -93,7 +97,7 @@ export async function POST(req: NextRequest) {
           // Fase 2: Crea record documento (20%)
           sendProgress(controller, 'processing', 20, 'Creating document record...')
           
-          const document = await createDocument(
+          document = await createDocument(
             file.name,
             file.type,
             file.size,
@@ -128,9 +132,10 @@ export async function POST(req: NextRequest) {
           sendProgress(controller, 'processing', 40, 'Chunking document text with smart chunking...')
           
           // Usa smart chunking con token counting preciso
+          // Chunk size ridotto a 500 token per embeddings più specifici e similarity migliori
           const chunks = await smartChunkText(text, {
-            maxTokens: 800,
-            overlapTokens: 100,
+            maxTokens: 500,
+            overlapTokens: 100, // 20% overlap per mantenere continuità semantica
             preserveStructure: true,
             format: format,
           })
@@ -173,9 +178,14 @@ export async function POST(req: NextRequest) {
           // Fase 6: Preparazione chunks (80-85%)
           sendProgress(controller, 'processing', 85, 'Preparing chunks with embeddings...')
           
+          if (!document || !document.id) {
+            throw new Error('Document not found during chunk preparation')
+          }
+          
+          const documentId = document.id
           const chunksWithEmbeddings = chunks.map((chunk, index) => ({
-            document_id: document.id,
-            content: chunk.content,
+            document_id: documentId,
+            content: preprocessChunkContent(chunk.content), // Preprocessa contenuto prima di salvare
             embedding: embeddings[index],
             chunk_index: chunk.chunkIndex,
             metadata: {
@@ -213,6 +223,10 @@ export async function POST(req: NextRequest) {
           // Fase 8: Completamento (95-100%)
           sendProgress(controller, 'processing', 95, 'Finalizing...')
           
+          if (!document || !document.id) {
+            throw new Error('Document not found during finalization')
+          }
+          
           await supabaseAdmin
             .from('documents')
             .update({
@@ -237,6 +251,62 @@ export async function POST(req: NextRequest) {
           const errorMessage = error instanceof Error 
             ? error.message 
             : 'Unknown processing error'
+
+          // Cleanup: rimuovi document e file se sono stati creati
+          try {
+            // Se document esiste, fa cleanup
+            if (document && document.id) {
+              // Aggiorna status a error con messaggio (opzionale, per tracking)
+              try {
+                await supabaseAdmin
+                  .from('documents')
+                  .update({
+                    processing_status: 'error',
+                    error_message: errorMessage,
+                  })
+                  .eq('id', document.id)
+              } catch {
+                // Ignora se il documento non esiste più
+              }
+
+              // Elimina chunks parziali se presenti (ON DELETE CASCADE dovrebbe gestirli, ma meglio essere espliciti)
+              try {
+                await supabaseAdmin
+                  .from('document_chunks')
+                  .delete()
+                  .eq('document_id', document.id)
+              } catch {
+                // Ignora se non ci sono chunks
+              }
+
+              // Elimina documento dal database
+              try {
+                await supabaseAdmin
+                  .from('documents')
+                  .delete()
+                  .eq('id', document.id)
+              } catch {
+                // Ignora se il documento non esiste più
+              }
+
+              // Elimina file da storage (se esiste)
+              if (filePath) {
+                try {
+                  await supabaseAdmin.storage
+                    .from('documents')
+                    .remove([filePath])
+                } catch (storageError) {
+                  // Log ma non bloccare se il file non esiste o è già stato rimosso
+                  console.warn('[api/upload] Failed to remove file from storage:', storageError)
+                }
+              }
+
+              console.log(`[api/upload] Cleaned up failed document ${document.id}`)
+            }
+          } catch (cleanupError) {
+            // Log cleanup errors ma non bloccare il processo
+            console.error('[api/upload] Cleanup failed:', cleanupError)
+          }
 
           sendProgress(controller, 'error', 0, errorMessage)
           controller.close()
@@ -352,9 +422,10 @@ export async function POST(req: NextRequest) {
       console.log(`[api/upload] Extracted ${text.length} characters from ${file.name}`)
       
       // Usa smart chunking con token counting preciso
+      // Chunk size ridotto a 500 token per embeddings più specifici e similarity migliori
       const chunks = await smartChunkText(text, {
-        maxTokens: 800,
-        overlapTokens: 100,
+        maxTokens: 500,
+        overlapTokens: 100, // 20% overlap per mantenere continuità semantica
         preserveStructure: true,
         format: format,
       })
@@ -375,7 +446,7 @@ export async function POST(req: NextRequest) {
       // Prepara chunks con embeddings e metadata ricchi
       const chunksWithEmbeddings = chunks.map((chunk, index) => ({
         document_id: document.id,
-        content: chunk.content,
+        content: preprocessChunkContent(chunk.content), // Preprocessa contenuto prima di salvare
         embedding: embeddings[index],
         chunk_index: chunk.chunkIndex,
         metadata: {

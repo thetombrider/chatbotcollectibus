@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
-import { MessageWithCitations, SourceDetailPanel } from '@/components/chat/Citation'
+import { MessageWithCitations, SourceDetailPanel, extractCitedIndices } from '@/components/chat/Citation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -256,6 +256,14 @@ export default function ChatPageWithId({
                   newMessages[newMessages.length - 1] = { ...assistantMessage }
                   return newMessages
                 })
+              } else if (data.type === 'text_complete') {
+                // Sostituisci il contenuto con la versione completa rinumerata dal backend
+                assistantMessage.content = data.content
+                setMessages((prev) => {
+                  const newMessages = [...prev]
+                  newMessages[newMessages.length - 1] = { ...assistantMessage }
+                  return newMessages
+                })
               } else if (data.type === 'done') {
                 // Ricevi sources nel messaggio done
                 if (data.sources) {
@@ -267,13 +275,24 @@ export default function ChatPageWithId({
                   })
                 }
                 setLoading(false)
-                // Ricarica i messaggi dal database per ottenere gli ID
+                // NON ricaricare i messaggi dal database qui perché sovrascriverebbe il contenuto rinumerato
+                // Il contenuto rinumerato è già stato ricevuto tramite text_complete
+                // Ricarica solo se necessario per ottenere gli ID (ma mantieni il contenuto attuale)
                 try {
                   const reloadRes = await fetch(`/api/conversations/${conversationId}`)
                   if (reloadRes.ok) {
                     const reloadData = await reloadRes.json()
-                    const reloadedMessages = (reloadData.messages || []).map((msg: Message) => {
+                    const reloadedMessages = (reloadData.messages || []).map((msg: Message, idx: number) => {
                       const sources = msg.metadata?.sources as Array<{ index: number; filename: string; documentId: string; similarity: number }> | undefined
+                      // Se è l'ultimo messaggio (quello appena creato), mantieni il contenuto e le sources già aggiornate
+                      const isLastMessage = idx === reloadData.messages.length - 1
+                      if (isLastMessage && assistantMessage.content) {
+                        return {
+                          ...msg,
+                          content: assistantMessage.content, // Mantieni il contenuto rinumerato
+                          sources: assistantMessage.sources || (sources && Array.isArray(sources) && sources.length > 0 ? sources : undefined),
+                        }
+                      }
                       return {
                         ...msg,
                         sources: sources && Array.isArray(sources) && sources.length > 0 ? sources : undefined,
@@ -305,8 +324,128 @@ export default function ChatPageWithId({
     }
   }
 
-  const openSourcesPanel = (sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>) => {
-    setSelectedSourcesForPanel(sources)
+  const openSourcesPanel = (sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>, messageContent?: string) => {
+    console.log('[chat/[id]/page] ===== openSourcesPanel START =====')
+    console.log('[chat/[id]/page] Total sources available:', sources.length)
+    console.log('[chat/[id]/page] Sources with details:', sources.map(s => ({ 
+      index: s.index, 
+      filename: s.filename, 
+      chunkIndex: (s as any).chunkIndex,
+      similarity: s.similarity 
+    })))
+    
+    // Se c'è il contenuto del messaggio, filtra le sources per mostrare solo quelle citate
+    let filteredSources = sources
+    if (messageContent) {
+      console.log('[chat/[id]/page] Message content length:', messageContent.length)
+      console.log('[chat/[id]/page] Message content preview:', messageContent.substring(0, 200))
+      
+      const citedIndices = extractCitedIndices(messageContent)
+      console.log('[chat/[id]/page] Cited indices extracted from content:', citedIndices)
+      console.log('[chat/[id]/page] Cited indices count:', citedIndices.length)
+      
+      // Mostra tutte le citazioni trovate nel testo
+      const citationMatches = messageContent.matchAll(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g)
+      const allMatches = Array.from(citationMatches)
+      console.log('[chat/[id]/page] All citation matches found:', allMatches.map(m => m[0]))
+      
+      console.log('[chat/[id]/page] All sources indices (before filtering):', sources.map(s => ({ 
+        index: s.index, 
+        filename: s.filename 
+      })))
+      
+      if (citedIndices.length > 0) {
+        // Verifica quali indici citati esistono nelle sources
+        const validCitedIndices = citedIndices.filter(idx => sources.some(s => s.index === idx))
+        const invalidCitedIndices = citedIndices.filter(idx => !sources.some(s => s.index === idx))
+        
+        console.log('[chat/[id]/page] Valid cited indices (exist in sources):', validCitedIndices)
+        console.log('[chat/[id]/page] Invalid cited indices (NOT in sources):', invalidCitedIndices)
+        
+        if (invalidCitedIndices.length > 0) {
+          console.warn('[chat/[id]/page] WARNING: Some cited indices do not exist in sources!', {
+            invalidIndices: invalidCitedIndices,
+            availableIndices: sources.map(s => s.index),
+            message: 'The LLM may have cited documents that were not included in the sources array'
+          })
+        }
+        
+        // Filtra solo sources citate - usa indici assoluti dal contenuto originale del LLM
+        const allCitedSources = sources.filter(s => {
+          const isCited = citedIndices.includes(s.index)
+          console.log(`[chat/[id]/page] Source ${s.index} (${s.filename}): ${isCited ? '✓ CITED' : '✗ NOT CITED'}`)
+          return isCited
+        })
+        
+        console.log('[chat/[id]/page] All cited sources (before deduplication):', allCitedSources.length)
+        console.log('[chat/[id]/page] All cited sources details:', allCitedSources.map(s => ({ 
+          index: s.index, 
+          filename: s.filename, 
+          chunkIndex: (s as any).chunkIndex,
+          similarity: s.similarity
+        })))
+        
+        // Deduplica: per ogni indice citato, prendi solo la source con similarity più alta
+        // Questo assicura che se il testo cita solo [2], mostriamo solo 1 fonte (quella migliore con index 2)
+        const sourceMap = new Map<number, typeof sources[0]>()
+        allCitedSources.forEach(s => {
+          const existing = sourceMap.get(s.index)
+          if (!existing || s.similarity > existing.similarity) {
+            sourceMap.set(s.index, s)
+          }
+        })
+        
+        // Converti la mappa in array, ordinato per indice citato
+        const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+        filteredSources = sortedCitedIndices
+          .map(index => sourceMap.get(index))
+          .filter((s): s is typeof sources[0] => s !== undefined)
+        
+        console.log('[chat/[id]/page] Deduplicated sources count:', filteredSources.length)
+        console.log('[chat/[id]/page] Deduplicated sources (before renumbering):', filteredSources.map(s => ({ 
+          index: s.index, 
+          filename: s.filename, 
+          chunkIndex: (s as any).chunkIndex,
+          similarity: s.similarity
+        })))
+        
+        // Crea mappatura da indici assoluti a relativi e rinumera
+        const indexMap = new Map<number, number>()
+        sortedCitedIndices.forEach((absoluteIndex, idx) => {
+          const relativeIndex = idx + 1
+          indexMap.set(absoluteIndex, relativeIndex)
+          console.log(`[chat/[id]/page] Index mapping: absolute ${absoluteIndex} -> relative ${relativeIndex}`)
+        })
+        
+        console.log('[chat/[id]/page] Complete index mapping:', Object.fromEntries(indexMap))
+        
+        // Rinumerare sources con indici relativi (mantenendo ordine originale)
+        filteredSources = filteredSources.map(s => {
+          const relativeIndex = indexMap.get(s.index) || s.index
+          return {
+            ...s,
+            originalIndex: s.index, // Mantieni l'indice originale per riferimento
+            index: relativeIndex, // Nuovo indice relativo
+          }
+        })
+        
+        console.log('[chat/[id]/page] Renumbered sources (final):', filteredSources.map(s => ({ 
+          originalIndex: (s as any).originalIndex, 
+          newIndex: s.index, 
+          filename: s.filename,
+          chunkIndex: (s as any).chunkIndex
+        })))
+      } else {
+        console.log('[chat/[id]/page] No citations found in content, showing all sources')
+      }
+    } else {
+      console.log('[chat/[id]/page] No message content provided, showing all sources')
+    }
+    
+    console.log('[chat/[id]/page] Final filtered sources count:', filteredSources.length)
+    console.log('[chat/[id]/page] ===== openSourcesPanel END =====')
+    
+    setSelectedSourcesForPanel(filteredSources)
     setIsSourcesPanelOpen(true)
   }
 
@@ -374,7 +513,11 @@ export default function ChatPageWithId({
                         style={{ overflow: 'visible' }}
                       >
                         {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 ? (
-                          <MessageWithCitations content={msg.content} sources={msg.sources} onOpenSources={() => openSourcesPanel(msg.sources || [])} />
+                          <MessageWithCitations 
+                            content={msg.content} 
+                            sources={msg.sources} 
+                            onOpenSources={() => openSourcesPanel(msg.sources || [], msg.content)} 
+                          />
                         ) : msg.role === 'assistant' ? (
                           <div className="prose prose-sm max-w-none">
                             <ReactMarkdown

@@ -5,6 +5,30 @@ import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-
 import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
+/**
+ * Estrae tutti gli indici citati dal contenuto del messaggio (versione server-side)
+ * @param content - Contenuto del messaggio con citazioni [cit:1,2,3] o [cit:8,9]
+ * @returns Array di indici unici citati, ordinati
+ */
+function extractCitedIndices(content: string): number[] {
+  const indices = new Set<number>()
+  const regex = /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+  const matches = content.matchAll(regex)
+  
+  for (const match of matches) {
+    const indicesStr = match[1]
+    const nums = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    
+    nums.forEach(n => {
+      if (!isNaN(n) && n > 0) {
+        indices.add(n)
+      }
+    })
+  }
+  
+  return Array.from(indices).sort((a, b) => a - b)
+}
+
 export const maxDuration = 60 // 60 secondi per Vercel
 
 /**
@@ -388,8 +412,14 @@ export async function POST(req: NextRequest) {
         filename: s.filename,
         hasContent: !!s.content,
         contentLength: s.content?.length || 0,
-        chunkIndex: s.chunkIndex
+        chunkIndex: s.chunkIndex,
+        similarity: s.similarity,
+        similarityPercent: (s.similarity * 100).toFixed(1) + '%'
       })))
+      console.log('[api/chat] Similarity score verification:')
+      sources.forEach(s => {
+        console.log(`  Source ${s.index}: raw=${s.similarity}, display=${(s.similarity * 100).toFixed(1)}%`)
+      })
     }
 
     // Stream response from agent
@@ -407,6 +437,9 @@ export async function POST(req: NextRequest) {
           try {
             let systemPrompt
             if (context) {
+              // Conta quanti documenti ci sono nel contesto per fornire un esempio chiaro
+              const documentCount = relevantResults.length
+              
               // Per query comparative, aggiungi informazioni sui documenti disponibili
               if (comparativeTerms) {
                 const uniqueDocuments = [...new Set(relevantResults.map(r => r.document_filename))]
@@ -414,7 +447,25 @@ export async function POST(req: NextRequest) {
 
 Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments.join(', ')}.
 
-Usa SOLO il seguente contesto dai documenti per rispondere. Quando citi informazioni, usa [cit:N] dove N è il numero del documento. Per citazioni multiple usa [cit:N,M]. 
+Usa SOLO il seguente contesto dai documenti per rispondere. 
+
+CITAZIONI - REGOLE IMPORTANTI:
+- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
+- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
+- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
+- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
+- NON inventare numeri di documento che non esistono nel contesto
+- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
+
+ESEMPIO:
+Se il contesto contiene:
+[Documento 1: file1.pdf]
+Testo del documento 1...
+
+[Documento 2: file2.pdf]
+Testo del documento 2...
+
+E usi informazioni da entrambi, cita: [cit:1,2]
 
 IMPORTANTE: 
 - Confronta esplicitamente i concetti trovati in entrambe le normative
@@ -424,7 +475,33 @@ IMPORTANTE:
 Contesto dai documenti:
 ${context}`
               } else {
-                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. Per citazioni multiple usa [cit:N,M]. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
+                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.
+
+CITAZIONI - REGOLE IMPORTANTI:
+- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
+- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
+- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
+- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
+- NON inventare numeri di documento che non esistono nel contesto
+- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
+
+ESEMPIO:
+Se il contesto contiene:
+[Documento 1: file1.pdf]
+Testo del documento 1...
+
+[Documento 2: file2.pdf]
+Testo del documento 2...
+
+E usi informazioni da entrambi, cita: [cit:1,2]
+
+IMPORTANTE: 
+- NON inventare citazioni
+- Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
+- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
+
+Contesto dai documenti:
+${context}`
               }
             } else {
               systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
@@ -475,9 +552,39 @@ ${context}`
           } catch (streamError) {
             console.error('[api/chat] Stream failed, trying generate():', streamError)
             // Fallback a generate() se stream() non funziona
-            const systemPrompt = context
-              ? `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere. Se il contesto contiene informazioni rilevanti, citalo usando [cit:N] dove N è il numero del documento. IMPORTANTE: NON inventare citazioni. Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti.\n\nContesto dai documenti:\n${context}`
-              : `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            let systemPrompt
+            if (context) {
+              const documentCount = relevantResults.length
+              systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.
+
+CITAZIONI - REGOLE IMPORTANTI:
+- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
+- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
+- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
+- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
+- NON inventare numeri di documento che non esistono nel contesto
+- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
+
+ESEMPIO:
+Se il contesto contiene:
+[Documento 1: file1.pdf]
+Testo del documento 1...
+
+[Documento 2: file2.pdf]
+Testo del documento 2...
+
+E usi informazioni da entrambi, cita: [cit:1,2]
+
+IMPORTANTE: 
+- NON inventare citazioni
+- Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
+- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
+
+Contesto dai documenti:
+${context}`
+            } else {
+              systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+            }
             
             const messages = [
               {
@@ -545,6 +652,135 @@ ${context}`
             console.error('[api/chat] Failed to save cache:', err)
           }
 
+          // Estrai gli indici citati dalla risposta LLM e filtra le sources
+          const citedIndices = extractCitedIndices(fullResponse)
+          console.log('[api/chat] Cited indices in LLM response:', citedIndices)
+          console.log('[api/chat] All available sources indices:', sources.map(s => s.index))
+          
+          // Filtra le sources per includere solo quelle citate nel testo
+          let filteredSources = sources
+          let responseWithRenumberedCitations = fullResponse
+          
+          if (citedIndices.length > 0) {
+            // Deduplica: per ogni indice citato, prendi solo la source con similarity più alta
+            const sourceMap = new Map<number, typeof sources[0]>()
+            sources.forEach(s => {
+              if (citedIndices.includes(s.index)) {
+                const existing = sourceMap.get(s.index)
+                if (!existing || s.similarity > existing.similarity) {
+                  sourceMap.set(s.index, s)
+                }
+              }
+            })
+            
+            // Ordina gli indici citati per creare mappatura consistente
+            const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+            
+            // Converti la mappa in array, ordinato per indice citato
+            filteredSources = sortedCitedIndices
+              .map(index => sourceMap.get(index))
+              .filter((s): s is typeof sources[0] => s !== undefined)
+            
+            // Rinumerare le sources con indici relativi (1, 2, 3, ...) BASANDOSI SULL'ORDINE DELLE SOURCES FILTRATE
+            // Questo garantisce che la prima source filtrata diventi indice 1, la seconda indice 2, ecc.
+            filteredSources = filteredSources.map((s, idx) => ({
+              ...s,
+              originalIndex: s.index, // Mantieni l'indice originale per riferimento
+              index: idx + 1, // Nuovo indice relativo (1-based) basato sulla posizione nell'array filtrato
+            }))
+            
+            // Crea mappatura da indice assoluto originale a indice relativo NUOVO
+            // basandosi sull'ordine delle sources filtrate (non sugli indici citati)
+            const indexMapping = new Map<number, number>()
+            filteredSources.forEach((s) => {
+              indexMapping.set((s as any).originalIndex, s.index)
+              console.log(`[api/chat] Citation mapping: absolute ${(s as any).originalIndex} -> relative ${s.index}`)
+            })
+            
+            // Sostituisci le citazioni nel testo con gli indici relativi
+            // E traccia quali indici relativi vengono effettivamente usati nel testo finale
+            const usedRelativeIndices = new Set<number>()
+            responseWithRenumberedCitations = fullResponse.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+              const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+              const relativeIndices = indices
+                .map((absIdx: number) => indexMapping.get(absIdx))
+                .filter((relIdx: number | undefined): relIdx is number => relIdx !== undefined)
+                .sort((a: number, b: number) => a - b)
+              
+              if (relativeIndices.length === 0) {
+                // Nessun indice valido, rimuovi la citazione
+                return ''
+              }
+              
+              // Traccia gli indici relativi usati
+              relativeIndices.forEach((idx: number) => usedRelativeIndices.add(idx))
+              
+              return `[cit:${relativeIndices.join(',')}]`
+            })
+            
+            // Filtra ulteriormente le sources per includere solo quelle effettivamente citate nel testo finale
+            // Questo garantisce che se il testo contiene solo [cit:1,2], il sidebar mostri solo 2 sources
+            const finalUsedIndices = Array.from(usedRelativeIndices).sort((a, b) => a - b)
+            console.log('[api/chat] Relative indices actually used in final text:', finalUsedIndices)
+            
+            if (finalUsedIndices.length > 0 && finalUsedIndices.length < filteredSources.length) {
+              // Rimappa le sources usate con indici sequenziali da 1
+              const finalFilteredSources = finalUsedIndices
+                .map(relIdx => filteredSources.find(s => s.index === relIdx))
+                .filter((s): s is typeof sources[0] => s !== undefined)
+                .map((s, idx) => ({
+                  ...s,
+                  originalIndex: (s as any).originalIndex,
+                  index: idx + 1, // Rinumerazione finale: 1, 2, 3, ...
+                }))
+              
+              // Aggiorna la mappatura per riflettere la rinumerazione finale
+              const finalIndexMapping = new Map<number, number>()
+              finalUsedIndices.forEach((oldRelIdx, idx) => {
+                const newRelIdx = idx + 1
+                finalIndexMapping.set(oldRelIdx, newRelIdx)
+              })
+              
+              // Sostituisci nuovamente le citazioni con gli indici finali (1, 2, 3, ...)
+              responseWithRenumberedCitations = responseWithRenumberedCitations.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+                const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+                const finalIndices = indices
+                  .map((oldRelIdx: number) => finalIndexMapping.get(oldRelIdx))
+                  .filter((newRelIdx: number | undefined): newRelIdx is number => newRelIdx !== undefined)
+                  .sort((a: number, b: number) => a - b)
+                
+                if (finalIndices.length === 0) {
+                  return ''
+                }
+                
+                return `[cit:${finalIndices.join(',')}]`
+              })
+              
+              filteredSources = finalFilteredSources
+              console.log('[api/chat] Final filtered sources (only those actually cited in text):', filteredSources.length)
+              console.log('[api/chat] Final filtered sources details:', filteredSources.map(s => ({
+                originalIndex: (s as any).originalIndex,
+                finalIndex: s.index,
+                filename: s.filename,
+                similarity: s.similarity
+              })))
+            }
+            
+            console.log('[api/chat] Filtered sources (only cited, renumbered):', filteredSources.length)
+            console.log('[api/chat] Filtered sources details:', filteredSources.map(s => ({
+              originalIndex: (s as any).originalIndex,
+              newIndex: s.index,
+              filename: s.filename,
+              similarity: s.similarity
+            })))
+            console.log('[api/chat] Response citations renumbered:', {
+              original: fullResponse.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
+              renumbered: responseWithRenumberedCitations.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
+            })
+          } else {
+            console.log('[api/chat] No citations found in response, using all sources')
+          }
+
           // Save assistant message to database
           if (conversationId) {
             try {
@@ -555,13 +791,13 @@ ${context}`
               const insertData = {
                 conversation_id: conversationId,
                 role: 'assistant' as const,
-                content: fullResponse.trim(),
+                content: responseWithRenumberedCitations.trim(), // Usa il testo con citazioni rinumerate
                 metadata: {
                   chunks_used: searchResults.map((r) => ({
                     id: r.id,
                     similarity: r.similarity,
                   })),
-                  sources: sources,
+                  sources: filteredSources, // Salva solo le sources citate (già rinumerate)
                 },
               }
               
@@ -601,9 +837,18 @@ ${context}`
             }
           }
 
-          // Invia sources solo alla fine per evitare problemi di parsing SSE
+          // Invia sources filtrate (solo quelle citate) e testo rinumerato alla fine
+          console.log('[api/chat] Sending filtered sources to frontend:', filteredSources.length)
+          console.log('[api/chat] Sending renumbered response to frontend')
+          
+          // Invia il testo completo rinumerato in un messaggio separato prima del "done"
+          // Questo permette al frontend di sostituire il contenuto streamato con quello rinumerato
           controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources })}\n\n`)
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text_complete', content: responseWithRenumberedCitations })}\n\n`)
+          )
+          
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: filteredSources })}\n\n`)
           )
           controller.close()
         } catch (error) {

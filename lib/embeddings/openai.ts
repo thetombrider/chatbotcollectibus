@@ -1,95 +1,152 @@
 import OpenAI from 'openai'
-
-// Validazione API key
-const openaiApiKey = process.env.OPENAI_API_KEY
-
-if (!openaiApiKey) {
-  throw new Error(
-    'OPENAI_API_KEY is not set. Please add it to your .env.local file.'
-  )
-}
+import { normalizeTextForEmbedding } from './text-preprocessing'
 
 const openai = new OpenAI({
-  apiKey: openaiApiKey,
+  apiKey: process.env.OPENAI_API_KEY,
 })
 
 /**
  * Genera embedding per un testo usando OpenAI
+ * 
+ * Applica automaticamente normalizzazione del testo per migliorare
+ * la consistency degli embeddings e aumentare i punteggi di similarity.
+ * 
+ * @param text - Testo da convertire in embedding
+ * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
+ * @returns Array numerico rappresentante l'embedding
+ * 
+ * @example
+ * const embedding = await generateEmbedding("La GDPR stabilisce...")
  */
 export async function generateEmbedding(
   text: string,
   model: string = 'text-embedding-3-large'
 ): Promise<number[]> {
-  if (!text || text.trim().length === 0) {
-    throw new Error('Text cannot be empty')
-  }
-
   try {
+    // Normalizza testo prima di generare embedding
+    const normalizedText = normalizeTextForEmbedding(text)
+    
     const response = await openai.embeddings.create({
       model,
-      input: text,
+      input: normalizedText,
       encoding_format: 'float',
-      dimensions: 1536,
+      dimensions: 1536, // Specifica esplicitamente 1536 dimensioni per text-embedding-3-large
     })
 
-    if (!response.data || response.data.length === 0) {
-      throw new Error('No embedding returned from OpenAI')
+    const embedding = response.data[0].embedding
+    
+    // Validazione dimensioni
+    if (embedding.length !== 1536) {
+      console.error(`[embeddings] Invalid embedding dimensions: expected 1536, got ${embedding.length}`)
+      throw new Error(`Invalid embedding dimensions: expected 1536, got ${embedding.length}. This may indicate a model configuration issue.`)
     }
 
-    return response.data[0].embedding
-  } catch (error) {
+    return embedding
+  } catch (error: unknown) {
     console.error('[embeddings] Generation failed:', error)
-    if (error instanceof Error && error.message.includes('API key')) {
-      throw new Error(
-        'OpenAI API key is invalid or expired. Please check your OPENAI_API_KEY environment variable.'
-      )
+    
+    // Gestione errori più specifica
+    if (error && typeof error === 'object' && 'code' in error) {
+      const apiError = error as { code?: string; message?: string; status?: number }
+      
+      if (apiError.code === 'model_not_found') {
+        throw new Error(
+          `Model not found: ${model}. Please check:\n` +
+          `1. The model name is correct (text-embedding-3-large)\n` +
+          `2. Your OpenAI API key has access to this model\n` +
+          `3. You have sufficient credits in your OpenAI account`
+        )
+      }
+      
+      if (apiError.status === 401) {
+        throw new Error(
+          `Authentication failed. Please check your OPENAI_API_KEY is valid and has sufficient credits.`
+        )
+      }
+      
+      if (apiError.status === 429) {
+        throw new Error(
+          `Rate limit exceeded or insufficient credits. Please check your OpenAI account balance.`
+        )
+      }
     }
-    throw new Error(
-      `Failed to generate embedding: ${error instanceof Error ? error.message : 'Unknown error'}`
-    )
+    
+    throw new Error(`Failed to generate embedding: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
 /**
  * Genera embeddings per multipli testi (batch)
+ * 
+ * Applica automaticamente normalizzazione del testo per ogni input
+ * per migliorare la consistency degli embeddings e aumentare i punteggi di similarity.
+ * 
+ * @param texts - Array di testi da convertire in embeddings
+ * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
+ * @returns Array di arrays numerici rappresentanti gli embeddings
+ * 
+ * @example
+ * const embeddings = await generateEmbeddings([
+ *   "Chunk 1 content...",
+ *   "Chunk 2 content..."
+ * ])
  */
 export async function generateEmbeddings(
   texts: string[],
   model: string = 'text-embedding-3-large'
 ): Promise<number[][]> {
-  if (!texts || texts.length === 0) {
-    throw new Error('Texts array cannot be empty')
-  }
-
-  // OpenAI ha un limite di batch size
-  const MAX_BATCH_SIZE = 100
-  const results: number[][] = []
-
   try {
-    for (let i = 0; i < texts.length; i += MAX_BATCH_SIZE) {
-      const batch = texts.slice(i, i + MAX_BATCH_SIZE)
-      const response = await openai.embeddings.create({
-        model,
-        input: batch,
-        encoding_format: 'float',
-        dimensions: 1536,
-      })
+    // Normalizza tutti i testi prima di generare embeddings
+    const normalizedTexts = texts.map(text => normalizeTextForEmbedding(text))
+    
+    const response = await openai.embeddings.create({
+      model,
+      input: normalizedTexts,
+      encoding_format: 'float',
+      dimensions: 1536, // Specifica esplicitamente 1536 dimensioni per text-embedding-3-large
+    })
 
-      const batchEmbeddings = response.data.map((item) => item.embedding)
-      results.push(...batchEmbeddings)
+    const embeddings = response.data.map(item => item.embedding)
+    
+    // Validazione dimensioni per tutti gli embeddings
+    const invalidEmbeddings = embeddings.filter(emb => emb.length !== 1536)
+    if (invalidEmbeddings.length > 0) {
+      const invalidDims = invalidEmbeddings.map(emb => emb.length)
+      console.error(`[embeddings] Invalid embedding dimensions found: ${invalidDims.join(', ')}. Expected 1536 for all embeddings.`)
+      throw new Error(`Invalid embedding dimensions: found ${invalidEmbeddings.length} embeddings with incorrect dimensions. Expected 1536, got: ${invalidDims.join(', ')}`)
     }
 
-    return results
-  } catch (error) {
+    return embeddings
+  } catch (error: unknown) {
     console.error('[embeddings] Batch generation failed:', error)
-    if (error instanceof Error && error.message.includes('API key')) {
-      throw new Error(
-        'OpenAI API key is invalid or expired. Please check your OPENAI_API_KEY environment variable.'
-      )
+    
+    // Gestione errori più specifica
+    if (error && typeof error === 'object' && 'code' in error) {
+      const apiError = error as { code?: string; message?: string; status?: number }
+      
+      if (apiError.code === 'model_not_found') {
+        throw new Error(
+          `Model not found: ${model}. Please check:\n` +
+          `1. The model name is correct (text-embedding-3-large)\n` +
+          `2. Your OpenAI API key has access to this model\n` +
+          `3. You have sufficient credits in your OpenAI account`
+        )
+      }
+      
+      if (apiError.status === 401) {
+        throw new Error(
+          `Authentication failed. Please check your OPENAI_API_KEY is valid and has sufficient credits.`
+        )
+      }
+      
+      if (apiError.status === 429) {
+        throw new Error(
+          `Rate limit exceeded or insufficient credits. Please check your OpenAI account balance.`
+        )
+      }
     }
-    throw new Error(
-      `Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`
-    )
+    
+    throw new Error(`Failed to generate embeddings: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
