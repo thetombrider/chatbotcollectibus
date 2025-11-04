@@ -21,10 +21,37 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
+
+  // Auto-resize textarea based on content
+  const handleTextareaResize = () => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto'
+      // Set height to scrollHeight (min 52px, max 200px)
+      const newHeight = Math.min(Math.max(textarea.scrollHeight, 52), 200)
+      textarea.style.height = `${newHeight}px`
+    }
+  }
+
+  // Handle input change with auto-resize
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    // Trigger resize on next frame to ensure accurate measurement
+    requestAnimationFrame(handleTextareaResize)
+  }
+
+  // Reset textarea height when input is cleared (after sending message)
+  useEffect(() => {
+    if (input === '' && textareaRef.current) {
+      textareaRef.current.style.height = '52px'
+    }
+  }, [input])
 
   useEffect(() => {
     scrollToBottom()
@@ -307,8 +334,9 @@ export default function ChatPage() {
             <div className="flex gap-2 items-end">
               <div className="flex-1 relative">
                 <textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -333,9 +361,14 @@ export default function ChatPage() {
                 </button>
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
-            </p>
+            <div className="flex justify-between items-center mt-2">
+              <p className="text-xs text-gray-500">
+                Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
+              </p>
+              <p className="text-xs text-gray-400">
+                {input.length} caratteri
+              </p>
+            </div>
           </div>
         </div>
       </div>

@@ -40,12 +40,6 @@ L'implementazione corrente è solida e funzionale:
    - Share: crea link condivisibile alla conversazione
    - File: `app/chat/page.tsx` (righe 239-282)
 
-4. **Textarea Auto-Resize Migliorata**
-   - La textarea attuale ha minHeight/maxHeight fissi
-   - Implementare auto-resize fluido mentre si scrive
-   - Aggiungere indicatore caratteri/tokens (es. "245 caratteri")
-   - File: `app/chat/page.tsx` (righe 309-323)
-
 #### A2. **Citazioni e Fonti**
 
 **Problema**: Le citazioni sono funzionali ma potrebbero fornire più contesto.
