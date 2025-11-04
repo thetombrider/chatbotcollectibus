@@ -319,7 +319,7 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
 
 interface SourceDetailPanelProps {
   isOpen: boolean
-  sources: Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>
+  sources: Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>
   onClose: () => void
 }
 
@@ -449,7 +449,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
 interface MessageWithCitationsProps {
   content: string
-  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>
+  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>
   onOpenSources?: () => void
 }
 

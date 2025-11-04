@@ -33,7 +33,7 @@ export default function ChatPageWithId({
   const [loadingConversation, setLoadingConversation] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
-  const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>>([])
+  const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
