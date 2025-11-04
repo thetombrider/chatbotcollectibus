@@ -459,10 +459,13 @@ interface MessageWithCitationsProps {
 export function MessageWithCitations({ content, sources = [], onOpenSources }: MessageWithCitationsProps) {
   // Mappa per tracciare le citazioni
   const citationMapRef = useRef(new Map<string, number[]>())
+  // Counter per generare ID univoci per gli elementi
+  const elementCounterRef = useRef(0)
   
   // Pre-processa il contenuto sostituendo le citazioni con placeholder univoci
   const processedContent = React.useMemo(() => {
     citationMapRef.current.clear()
+    elementCounterRef.current = 0
     
     // Regex che gestisce sia [cit:1,2,3] che [cit 1,2,3] e [cit 1, 2, 3]
     return content.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
@@ -486,13 +489,15 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
   }, [content, sources])
 
   // Componente per processare il testo e sostituire i placeholder con le citazioni
-  const TextWithCitations = ({ value }: { value?: string }) => {
+  // Usa un counter locale che si resetta ad ogni chiamata
+  const TextWithCitations = ({ value, keyPrefix = '' }: { value?: string; keyPrefix?: string }) => {
     if (!value || typeof value !== 'string') {
       return <>{value}</>
     }
 
     const parts: React.ReactNode[] = []
     let lastIndex = 0
+    let localCounter = 0 // Counter locale per questa specifica stringa
     
     // Regex per trovare i placeholder {{CITE_N}}
     const placeholderRegex = /\{\{CITE_(\d+)\}\}/g
@@ -501,7 +506,8 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     while ((match = placeholderRegex.exec(value)) !== null) {
       // Aggiungi testo prima del placeholder
       if (match.index > lastIndex) {
-        parts.push(value.slice(lastIndex, match.index))
+        const textContent = value.slice(lastIndex, match.index)
+        parts.push(<React.Fragment key={`${keyPrefix}text-${localCounter++}`}>{textContent}</React.Fragment>)
       }
 
       // Trova la citazione corrispondente
@@ -509,10 +515,12 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
       const indices = citationMapRef.current.get(placeholder)
       
       if (indices) {
+        // Usa placeholder + offset nella stringa per key unica e stabile
+        const uniqueKey = `${keyPrefix}${placeholder}-at-${match.index}`
         if (indices.length === 1) {
-          parts.push(<Citation key={placeholder} index={indices[0]} sources={sources} onOpenSources={onOpenSources} />)
+          parts.push(<Citation key={uniqueKey} index={indices[0]} sources={sources} onOpenSources={onOpenSources} />)
         } else {
-          parts.push(<CitationMultiple key={placeholder} indices={indices} sources={sources} onOpenSources={onOpenSources} />)
+          parts.push(<CitationMultiple key={uniqueKey} indices={indices} sources={sources} onOpenSources={onOpenSources} />)
         }
       }
 
@@ -521,7 +529,8 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
 
     // Aggiungi testo finale
     if (lastIndex < value.length) {
-      parts.push(value.slice(lastIndex))
+      const textContent = value.slice(lastIndex)
+      parts.push(<React.Fragment key={`${keyPrefix}text-${localCounter++}`}>{textContent}</React.Fragment>)
     }
 
     return <>{parts}</>
@@ -532,9 +541,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     // Gestisci i paragrafi
     p: ({ children }) => (
       <p className="mb-4 last:mb-0 leading-relaxed">
-        {React.Children.map(children, (child) => {
+        {React.Children.map(children, (child, idx) => {
           if (typeof child === 'string') {
-            return <TextWithCitations value={child} />
+            return <TextWithCitations key={`p-${idx}`} value={child} keyPrefix={`p-${idx}-`} />
           }
           return child
         })}
@@ -543,9 +552,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     // Gestisci gli heading
     h1: ({ children }) => (
       <h1 className="text-2xl font-bold mb-3 mt-6 first:mt-0">
-        {React.Children.map(children, (child) => {
+        {React.Children.map(children, (child, idx) => {
           if (typeof child === 'string') {
-            return <TextWithCitations value={child} />
+            return <TextWithCitations key={`h1-${idx}`} value={child} keyPrefix={`h1-${idx}-`} />
           }
           return child
         })}
@@ -553,9 +562,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     ),
     h2: ({ children }) => (
       <h2 className="text-xl font-bold mb-2 mt-5 first:mt-0">
-        {React.Children.map(children, (child) => {
+        {React.Children.map(children, (child, idx) => {
           if (typeof child === 'string') {
-            return <TextWithCitations value={child} />
+            return <TextWithCitations key={`h2-${idx}`} value={child} keyPrefix={`h2-${idx}-`} />
           }
           return child
         })}
@@ -563,9 +572,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     ),
     h3: ({ children }) => (
       <h3 className="text-lg font-semibold mb-2 mt-4 first:mt-0">
-        {React.Children.map(children, (child) => {
+        {React.Children.map(children, (child, idx) => {
           if (typeof child === 'string') {
-            return <TextWithCitations value={child} />
+            return <TextWithCitations key={`h3-${idx}`} value={child} keyPrefix={`h3-${idx}-`} />
           }
           return child
         })}
@@ -578,16 +587,20 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     ol: ({ children }) => (
       <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>
     ),
-    li: ({ children }) => (
-      <li className="leading-relaxed">
-        {React.Children.map(children, (child) => {
-          if (typeof child === 'string') {
-            return <TextWithCitations value={child} />
-          }
-          return child
-        })}
-      </li>
-    ),
+    li: ({ children }) => {
+      // Genera un ID univoco per questo elemento li usando il counter
+      const liId = `li-${elementCounterRef.current++}`
+      return (
+        <li className="leading-relaxed">
+          {React.Children.map(children, (child, idx) => {
+            if (typeof child === 'string') {
+              return <TextWithCitations key={`${liId}-${idx}`} value={child} keyPrefix={`${liId}-${idx}-`} />
+            }
+            return child
+          })}
+        </li>
+      )
+    },
     // Gestisci il codice
     code: ({ inline, children }: { inline?: boolean; children?: React.ReactNode }) => {
       if (inline) {
