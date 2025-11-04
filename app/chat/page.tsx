@@ -215,15 +215,21 @@ export default function ChatPage() {
 
               if (data.type === 'text') {
                 assistantMessage.content += data.content
-                if (data.sources) {
-                  assistantMessage.sources = data.sources
-                }
                 setMessages((prev) => {
                   const newMessages = [...prev]
                   newMessages[newMessages.length - 1] = { ...assistantMessage }
                   return newMessages
                 })
               } else if (data.type === 'done') {
+                // Ricevi sources nel messaggio done
+                if (data.sources) {
+                  assistantMessage.sources = data.sources
+                  setMessages((prev) => {
+                    const newMessages = [...prev]
+                    newMessages[newMessages.length - 1] = { ...assistantMessage }
+                    return newMessages
+                  })
+                }
                 setLoading(false)
                 // Update URL without reloading if it's a new conversation
                 if (wasNewConversation && currentConversationId) {

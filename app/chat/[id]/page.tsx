@@ -251,15 +251,21 @@ export default function ChatPageWithId({
 
               if (data.type === 'text') {
                 assistantMessage.content += data.content
-                if (data.sources) {
-                  assistantMessage.sources = data.sources
-                }
                 setMessages((prev) => {
                   const newMessages = [...prev]
                   newMessages[newMessages.length - 1] = { ...assistantMessage }
                   return newMessages
                 })
               } else if (data.type === 'done') {
+                // Ricevi sources nel messaggio done
+                if (data.sources) {
+                  assistantMessage.sources = data.sources
+                  setMessages((prev) => {
+                    const newMessages = [...prev]
+                    newMessages[newMessages.length - 1] = { ...assistantMessage }
+                    return newMessages
+                  })
+                }
                 setLoading(false)
                 // Ricarica i messaggi dal database per ottenere gli ID
                 try {

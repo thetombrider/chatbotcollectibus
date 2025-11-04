@@ -369,13 +369,14 @@ export async function POST(req: NextRequest) {
       : null
 
     // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
+    // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
     const sources = relevantResults.length > 0
       ? relevantResults.map((r, index) => ({
           index: index + 1,
           documentId: r.document_id,
           filename: r.document_filename || 'Documento sconosciuto',
           similarity: r.similarity,
-          content: r.content, // Testo del chunk estratto dal vector store
+          content: r.content.substring(0, 1000) + (r.content.length > 1000 ? '...' : ''), // Preview del chunk
           chunkIndex: r.chunk_index, // Indice del chunk nel documento
         }))
       : []
@@ -462,8 +463,9 @@ ${context}`
                 if (content) {
                   fullResponse += content
 
+                  // NON inviare sources ad ogni chunk - troppo grande e può causare errori di parsing
                   controller.enqueue(
-                    new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content, sources })}\n\n`)
+                    new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content })}\n\n`)
                   )
                 }
               }
@@ -505,8 +507,9 @@ ${context}`
               const words = fullResponse.split(/\s+/)
               for (const word of words) {
                 const chunk = word + ' '
+                // NON inviare sources ad ogni chunk - troppo grande e può causare errori di parsing
                 controller.enqueue(
-                  new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: chunk, sources })}\n\n`)
+                  new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: chunk })}\n\n`)
                 )
                 // Piccolo delay per simulare streaming
                 await new Promise(resolve => setTimeout(resolve, 10))
@@ -598,8 +601,9 @@ ${context}`
             }
           }
 
+          // Invia sources solo alla fine per evitare problemi di parsing SSE
           controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources })}\n\n`)
           )
           controller.close()
         } catch (error) {
