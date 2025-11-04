@@ -321,14 +321,15 @@ interface SourceDetailPanelProps {
   isOpen: boolean
   sources: Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>
   onClose: () => void
-  selectedSourceIndex?: number
-  onSourceSelect?: (index: number) => void
 }
 
 /**
  * Componente per visualizzare il pannello dettagliato delle fonti
+ * Ogni fonte mostra direttamente il chunk estratto dal vector store
  */
-export function SourceDetailPanel({ isOpen, sources, onClose, selectedSourceIndex, onSourceSelect }: SourceDetailPanelProps) {
+export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPanelProps) {
+  const [expandedIndex, setExpandedIndex] = React.useState<number | null>(0)
+
   if (!isOpen) {
     return null
   }
@@ -357,9 +358,6 @@ export function SourceDetailPanel({ isOpen, sources, onClose, selectedSourceInde
 
   // Ordina per similarità decrescente
   const sortedSources = [...sources].sort((a, b) => b.similarity - a.similarity)
-  const selectedSource = selectedSourceIndex !== undefined && sources[selectedSourceIndex]
-    ? sources[selectedSourceIndex]
-    : sortedSources[0]
 
   return (
     <div className={`fixed right-0 top-16 h-[calc(100vh-4rem)] bg-white border-l border-gray-200 shadow-lg transition-all duration-300 z-50 overflow-hidden ${isOpen ? 'w-96 overflow-y-auto' : 'w-0'}`}>
@@ -377,60 +375,73 @@ export function SourceDetailPanel({ isOpen, sources, onClose, selectedSourceInde
           </button>
         </div>
 
-        {/* Lista Fonti */}
-        <div className="mb-4 space-y-2">
-          {sortedSources.map((source, idx) => (
-            <button
-              key={idx}
-              onClick={() => onSourceSelect?.(idx)}
-              className={`w-full text-left p-3 rounded-lg border transition-colors ${
-                selectedSource?.index === source.index
-                  ? 'bg-blue-50 border-blue-300'
-                  : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
-              }`}
-            >
-              <div className="font-medium text-sm text-gray-900 truncate">{source.filename}</div>
-              <div className="text-xs text-gray-600 mt-1">
-                Similarità: {(source.similarity * 100).toFixed(1)}%
-              </div>
-              <div className="mt-2 inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
-                Fonte #{source.index}
-              </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Preview Fonte Selezionata */}
-        {selectedSource && (
-          <div className="border-t pt-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Dettagli Fonte</h3>
-            <div className="bg-gray-50 p-3 rounded-lg text-sm space-y-3">
-              <div className="font-medium text-gray-900">{selectedSource.filename}</div>
-              <div className="text-gray-700 text-xs leading-relaxed">
-                <p>Similarità: <span className="font-semibold">{(selectedSource.similarity * 100).toFixed(1)}%</span></p>
-                <p className="mt-1">Chunk: <span className="font-semibold">#{selectedSource.chunkIndex}</span></p>
-                <p className="mt-1">Document ID: <span className="font-mono text-xs text-gray-600 break-all">{selectedSource.documentId}</span></p>
-              </div>
-              
-              {/* Contenuto del Chunk Estratto */}
-              <div className="border-t border-gray-300 pt-3">
-                <h4 className="text-xs font-semibold text-gray-700 mb-2">Testo Estratto dal Vector Store:</h4>
-                <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
-                  {selectedSource.content}
-                </div>
-              </div>
-              
-              <a
-                href={`/documents/${selectedSource.documentId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+        {/* Lista Fonti con Chunk Espandibili */}
+        <div className="space-y-3">
+          {sortedSources.map((source, idx) => {
+            const isExpanded = expandedIndex === idx
+            
+            return (
+              <div
+                key={idx}
+                className="border border-gray-200 rounded-lg overflow-hidden"
               >
-                Apri Documento Completo
-              </a>
-            </div>
-          </div>
-        )}
+                {/* Header Fonte - Sempre Visibile */}
+                <button
+                  onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                  className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 pr-2">
+                      <div className="font-medium text-sm text-gray-900 mb-1">
+                        {source.filename}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-600">
+                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
+                          Fonte #{source.index}
+                        </span>
+                        <span>Similarità: {(source.similarity * 100).toFixed(1)}%</span>
+                        <span>Chunk #{source.chunkIndex}</span>
+                      </div>
+                    </div>
+                    <svg 
+                      className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </button>
+
+                {/* Contenuto Espandibile */}
+                {isExpanded && (
+                  <div className="p-3 bg-white border-t border-gray-200">
+                    {/* Testo del Chunk */}
+                    <div className="mb-3">
+                      <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                        Testo Estratto dal Vector Store:
+                      </h4>
+                      <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
+                        {source.content || <span className="text-gray-400 italic">Contenuto non disponibile</span>}
+                      </div>
+                    </div>
+
+                    {/* Link al Documento Completo */}
+                    <a
+                      href={`/documents/${source.documentId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                    >
+                      Apri Documento Completo
+                    </a>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

@@ -379,6 +379,17 @@ export async function POST(req: NextRequest) {
           chunkIndex: r.chunk_index, // Indice del chunk nel documento
         }))
       : []
+    
+    // Log per verificare che i dati del chunk siano presenti
+    if (sources.length > 0) {
+      console.log('[api/chat] Sources with content:', sources.map(s => ({
+        index: s.index,
+        filename: s.filename,
+        hasContent: !!s.content,
+        contentLength: s.content?.length || 0,
+        chunkIndex: s.chunkIndex
+      })))
+    }
 
     // Stream response from agent
     const stream = new ReadableStream({
