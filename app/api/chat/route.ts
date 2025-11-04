@@ -4,6 +4,7 @@ import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
  * Estrae tutti gli indici citati dal contenuto del messaggio (versione server-side)
@@ -141,7 +142,7 @@ async function performMultiQuerySearch(
   terms: string[], 
   originalQuery: string,
   originalEmbedding: number[]
-): Promise<any[]> {
+): Promise<SearchResult[]> {
   console.log('[api/chat] Performing multi-query search for terms:', terms)
   
   // Esegui una ricerca per ogni termine
@@ -168,15 +169,15 @@ async function performMultiQuerySearch(
   const allResults = await Promise.all(searchPromises)
   
   // Combina i risultati, rimuovi duplicati, ordina per similarity
-  const combinedMap = new Map()
-  allResults.flat().forEach(result => {
-    if (!combinedMap.has(result.id) || combinedMap.get(result.id).similarity < result.similarity) {
+  const combinedMap = new Map<string, SearchResult>()
+  allResults.flat().forEach((result: SearchResult) => {
+    if (!combinedMap.has(result.id) || combinedMap.get(result.id)!.similarity < result.similarity) {
       combinedMap.set(result.id, result)
     }
   })
   
   const combined = Array.from(combinedMap.values())
-    .sort((a, b) => b.similarity - a.similarity)
+    .sort((a: SearchResult, b: SearchResult) => b.similarity - a.similarity)
     .slice(0, 15) // Top 15 per avere più diversità
   
   console.log('[api/chat] Combined results:', combined.length, 
@@ -187,14 +188,14 @@ async function performMultiQuerySearch(
     console.log('[api/chat] Adding results from original query to boost coverage')
     const originalResults = await hybridSearch(originalEmbedding, originalQuery, 10, 0.25, 0.7)
     
-    originalResults.forEach(result => {
+    originalResults.forEach((result: SearchResult) => {
       if (!combinedMap.has(result.id)) {
         combined.push(result)
       }
     })
     
     // Riordina e limita
-    combined.sort((a, b) => b.similarity - a.similarity)
+    combined.sort((a: SearchResult, b: SearchResult) => b.similarity - a.similarity)
     combined.splice(15)
   }
   
@@ -349,7 +350,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Log dei risultati per debugging
-    console.log('[api/chat] Search results:', searchResults.map(r => ({
+    console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
       filename: r.document_filename,
       similarity: r.similarity.toFixed(3),
       vector_score: r.vector_score?.toFixed(3),
@@ -362,22 +363,22 @@ export async function POST(req: NextRequest) {
     // Nota: con questo threshold, anche chunks con vector_score ~0.30 passeranno il filtro
     // TODO: Considerare di aumentare quando si migliora la qualità degli embeddings
     const RELEVANCE_THRESHOLD = 0.20
-    const relevantResults = searchResults.filter(r => r.similarity >= RELEVANCE_THRESHOLD)
+    const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
     
     console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
     if (relevantResults.length > 0) {
-      const avgSimilarity = relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length
+      const avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
       console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
       console.log('[api/chat] Similarity range:', 
-        Math.min(...relevantResults.map(r => r.similarity)).toFixed(3), 
+        Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
         '-', 
-        Math.max(...relevantResults.map(r => r.similarity)).toFixed(3)
+        Math.max(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3)
       )
       
       // Per query comparative, mostra distribuzione documenti
       if (comparativeTerms) {
         const documentDistribution = new Map<string, number>()
-        relevantResults.forEach(r => {
+        relevantResults.forEach((r: SearchResult) => {
           const filename = r.document_filename || 'Unknown'
           documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
         })
@@ -388,14 +389,14 @@ export async function POST(req: NextRequest) {
     // Build context solo se ci sono risultati rilevanti
     const context = relevantResults.length > 0
       ? relevantResults
-          .map((r, index) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
+          .map((r: SearchResult, index: number) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
           .join('\n\n')
       : null
 
     // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
     // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
     const sources = relevantResults.length > 0
-      ? relevantResults.map((r, index) => ({
+      ? relevantResults.map((r: SearchResult, index: number) => ({
           index: index + 1,
           documentId: r.document_id,
           filename: r.document_filename || 'Documento sconosciuto',
@@ -442,7 +443,7 @@ export async function POST(req: NextRequest) {
               
               // Per query comparative, aggiungi informazioni sui documenti disponibili
               if (comparativeTerms) {
-                const uniqueDocuments = [...new Set(relevantResults.map(r => r.document_filename))]
+                const uniqueDocuments = [...new Set(relevantResults.map((r: SearchResult) => r.document_filename))]
                 systemPrompt = `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
 
 Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments.join(', ')}.
@@ -745,7 +746,7 @@ ${context}`
                 role: 'assistant' as const,
                 content: responseWithRenumberedCitations.trim(), // Usa il testo con citazioni rinumerate
                 metadata: {
-                  chunks_used: searchResults.map((r) => ({
+                  chunks_used: searchResults.map((r: SearchResult) => ({
                     id: r.id,
                     similarity: r.similarity,
                   })),

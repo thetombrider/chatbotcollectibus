@@ -60,8 +60,8 @@ export async function hybridSearch(
   // Log similarity values per verifica
   if (data && data.length > 0) {
     console.log('[vector-operations] Hybrid search results similarity values:')
-    data.forEach((result, idx) => {
-      console.log(`  [${idx + 1}] Similarity: ${result.similarity} (raw), ${(result.similarity * 100).toFixed(1)}% (display)`)
+    data.forEach((result: Record<string, unknown>, idx: number) => {
+      console.log(`  [${idx + 1}] Similarity: ${result.similarity} (raw), ${((result.similarity as number) * 100).toFixed(1)}% (display)`)
       if (result.vector_score !== undefined) {
         console.log(`      Vector score: ${result.vector_score}, Text score: ${result.text_score || 'N/A'}`)
       }

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
-import { MessageWithCitations, SourceDetailPanel, extractCitedIndices } from '@/components/chat/Citation'
+import { MessageWithCitations, SourceDetailPanel } from '@/components/chat/Citation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'

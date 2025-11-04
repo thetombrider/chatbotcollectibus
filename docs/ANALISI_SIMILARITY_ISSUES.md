@@ -884,42 +884,87 @@ Con chunk 500 token invece di 800:
 ## 📋 Checklist Implementazione
 
 ### Phase 1 (Priorità ALTA)
-- [ ] Implementare `normalizeTextForEmbedding()` in `lib/embeddings/text-preprocessing.ts`
-- [ ] Integrare normalizzazione in `generateEmbedding()` e `generateEmbeddings()`
-- [ ] Creare script `detect-document-language.ts`
-- [ ] Eseguire language detection sui documenti esistenti
-- [ ] Aggiornare funzione SQL `hybrid_search` con lingua corretta
-- [ ] Rebuild full-text search index con lingua corretta
-- [ ] Modificare chunk size da 800 a 500 token in `app/api/upload/route.ts`
-- [ ] Creare script `reprocess-documents.ts` per re-ingestion
-- [ ] Testare normalizzazione con test suite 1
+- [x] ✅ **COMPLETATO** - Implementare `normalizeTextForEmbedding()` in `lib/embeddings/text-preprocessing.ts`
+  - Include: lowercase, rimozione caratteri speciali, normalizzazione whitespace, espansione acronimi
+- [x] ✅ **COMPLETATO** - Integrare normalizzazione in `generateEmbedding()` e `generateEmbeddings()`
+  - Integrato in `lib/embeddings/openai.ts` (linee 27, 100)
+- [x] ✅ **COMPLETATO** - Creare script `detect-document-language.ts`
+  - Script completo con analisi euristica basata su stopwords
+- [ ] ⚠️ **DA ESEGUIRE** - Eseguire language detection sui documenti esistenti
+  - Script pronto: `npx tsx scripts/detect-document-language.ts`
+- [x] ✅ **COMPLETATO** - Aggiornare funzione SQL `hybrid_search` con lingua corretta
+  - Configurato per 'italian' nelle migration 20241104000002 e 20241104000003
+  - **NOTA:** Eseguire lo script language detection per verificare se è necessario cambiare
+- [ ] ⚠️ **DA FARE** - Rebuild full-text search index con lingua corretta
+  - Necessario SOLO se language detection indica necessità di cambiare da 'italian'
+- [x] ✅ **COMPLETATO** - Modificare chunk size da 800 a 500 token in `app/api/upload/route.ts`
+  - Implementato: `maxTokens: 500, overlapTokens: 100` (linee 137, 427)
+- [ ] ❌ **NON IMPLEMENTATO** - Creare script `reprocess-documents.ts` per re-ingestion
+  - **RICHIESTO** per re-processare documenti esistenti con nuove impostazioni
+- [ ] ❌ **NON TESTATO** - Testare normalizzazione con test suite 1
+
+**Status Phase 1:** 5/9 completati ✅ | 2 da eseguire ⚠️ | 2 non implementati ❌
 
 ### Phase 2 (Priorità MEDIA)
-- [ ] Implementare `enhanceQuery()` in `lib/embeddings/query-enhancement.ts`
-- [ ] Integrare query enhancement in `app/api/chat/route.ts`
-- [ ] Creare script `calibrate-text-scaling.ts`
-- [ ] Eseguire calibrazione e trovare scaling factor ottimale
-- [ ] Aggiornare funzione SQL `hybrid_search` con nuovo scaling factor
-- [ ] Implementare `preprocessChunkContent()` in `lib/processing/chunk-preprocessing.ts`
-- [ ] Integrare preprocessing in upload pipeline
-- [ ] Testare con test suite 2
+- [ ] ❌ **NON IMPLEMENTATO** - Implementare `enhanceQuery()` in `lib/embeddings/query-enhancement.ts`
+- [ ] ❌ **NON IMPLEMENTATO** - Integrare query enhancement in `app/api/chat/route.ts`
+- [ ] ❌ **NON IMPLEMENTATO** - Creare script `calibrate-text-scaling.ts`
+- [ ] ❌ **NON TESTATO** - Eseguire calibrazione e trovare scaling factor ottimale
+- [x] ✅ **COMPLETATO** - Aggiornare funzione SQL `hybrid_search` con nuovo scaling factor
+  - Implementato: `text_scale_factor = 10.0` nella migration 20241104000003
+- [x] ✅ **COMPLETATO** - Implementare `preprocessChunkContent()` in `lib/processing/chunk-preprocessing.ts`
+  - Include: rimozione header/footer, normalizzazione whitespace, rimozione caratteri non stampabili
+- [x] ✅ **COMPLETATO** - Integrare preprocessing in upload pipeline
+  - Integrato in `app/api/upload/route.ts` (linee 188, 449)
+- [ ] ❌ **NON TESTATO** - Testare con test suite 2
+
+**Status Phase 2:** 3/8 completati ✅ | 5 non implementati ❌
 
 ### Phase 3 (Priorità BASSA)
-- [ ] Creare dashboard diagnostica `app/diagnostics/similarity/page.tsx`
-- [ ] Implementare `logSimilarityMetrics()` in `lib/supabase/similarity-metrics.ts`
-- [ ] Creare migration per tabella `similarity_metrics`
-- [ ] Integrare logging in `app/api/chat/route.ts`
-- [ ] Setup monitoring dashboard (Supabase o custom)
-- [ ] Eseguire test suite 3 (end-to-end)
+- [ ] ❌ **NON IMPLEMENTATO** - Creare dashboard diagnostica `app/diagnostics/similarity/page.tsx`
+- [ ] ❌ **NON IMPLEMENTATO** - Implementare `logSimilarityMetrics()` in `lib/supabase/similarity-metrics.ts`
+- [ ] ❌ **NON IMPLEMENTATO** - Creare migration per tabella `similarity_metrics`
+- [ ] ❌ **NON IMPLEMENTATO** - Integrare logging in `app/api/chat/route.ts`
+- [ ] ❌ **NON IMPLEMENTATO** - Setup monitoring dashboard (Supabase o custom)
+- [ ] ❌ **NON TESTATO** - Eseguire test suite 3 (end-to-end)
+
+**Status Phase 3:** 0/6 completati ❌
 
 ### Re-Ingestion (Dopo Phase 1)
-- [ ] Backup database completo
-- [ ] Calcolare costo stimato re-embedding
-- [ ] Ottenere approval per costi
-- [ ] Identificare subset documenti critici (se necessario)
-- [ ] Eseguire re-ingestion con monitoring
-- [ ] Validare risultati con query test
-- [ ] Rollout completo se validazione OK
+- [ ] ⚠️ **RACCOMANDATO** - Backup database completo
+- [ ] ⚠️ **RACCOMANDATO** - Calcolare costo stimato re-embedding
+- [ ] ⚠️ **RACCOMANDATO** - Ottenere approval per costi
+- [ ] ❌ **NON IMPLEMENTATO** - Identificare subset documenti critici (se necessario)
+- [ ] ❌ **NON IMPLEMENTATO** - Eseguire re-ingestion con monitoring
+- [ ] ❌ **NON TESTATO** - Validare risultati con query test
+- [ ] ❌ **NON TESTATO** - Rollout completo se validazione OK
+
+**Status Re-Ingestion:** 0/7 completati - **⚠️ BLOCCATO: Richiede script reprocess-documents.ts**
+
+---
+
+## 📊 Progress Summary
+
+**Overall Progress:** 8/30 tasks completati (27%)
+
+### ✅ Successi Chiave
+1. **Text Normalization** - Implementata e integrata completamente
+2. **Chunk Size Optimization** - Ridotto da 800 a 500 token
+3. **Content Preprocessing** - Implementato e integrato
+4. **Text Score Scaling** - Ottimizzato a 10x
+5. **Language Detection Script** - Pronto per l'esecuzione
+
+### ⚠️ Prossimi Step Critici
+1. **Eseguire language detection** per verificare configurazione lingua corretta
+2. **Creare script reprocess-documents.ts** per re-ingestion documenti esistenti
+3. **Re-ingest documenti** con nuove impostazioni (chunk 500 token + normalizzazione)
+4. **Testing** per validare i miglioramenti di similarity
+
+### ❌ Gap Principali
+- **Query Enhancement** - Non implementato (Phase 2)
+- **Monitoring & Analytics** - Nessun dashboard o logging avanzato (Phase 3)
+- **Testing automatizzato** - Nessuna test suite implementata
+- **Re-ingestion** - Script non implementato, processo non eseguito
 
 ---
 
@@ -954,7 +999,23 @@ Con chunk 500 token invece di 800:
 
 ---
 
+## 📝 Change Log
+
+### 2024-11-04 (v1.1) - Checklist Update
+- ✅ Aggiornata checklist con implementazioni effettive
+- ✅ Aggiunto Progress Summary con statistiche
+- ✅ Identificati prossimi step critici
+- ✅ Documentati gap principali
+
+### 2024-11-04 (v1.0) - Documento Iniziale
+- ✅ Analisi iniziale problemi similarity
+- ✅ Piano di azione dettagliato
+- ✅ Checklist implementazione
+
+---
+
 *Documento generato il: 2024-11-04*
-*Versione: 1.0*
-*Status: DRAFT - Pending Review*
+*Ultimo aggiornamento: 2024-11-04*
+*Versione: 1.1*
+*Status: ACTIVE - In Progress (27% completato)*
 
