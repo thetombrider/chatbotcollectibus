@@ -272,20 +272,20 @@ const openSourcesPanel = (sources: Array<...>, messageContent?: string) => {
 ## 📋 Checklist Implementazione
 
 ### Backend
-- [ ] Semplificare rinumerazione (una sola passata)
-- [ ] Assicurarsi che `filteredSources` contenga SOLO sources citate
-- [ ] Aggiungere verifiche finali (log + validazione)
+- [x] Semplificare rinumerazione (una sola passata)
+- [x] Assicurarsi che `filteredSources` contenga SOLO sources citate
+- [x] Aggiungere verifiche finali (log + validazione)
 - [ ] Testare con diversi scenari (singola, multipla, non valida, nessuna)
 
 ### Frontend Citation Component
-- [ ] Rimuovere `absoluteToRelativeIndexMap`
-- [ ] Semplificare processamento citazioni (mantenere placeholder ma semplificare logica)
-- [ ] Semplificare `Citation` e `CitationMultiple` (rimuovere fallback `relativeIndex`)
+- [x] Rimuovere `absoluteToRelativeIndexMap`
+- [x] Semplificare processamento citazioni (mantenere placeholder ma semplificare logica)
+- [x] Semplificare `Citation` e `CitationMultiple` (rimuovere fallback `relativeIndex`)
 - [ ] Testare rendering citazioni
 
 ### Frontend Chat Pages
-- [ ] Semplificare `openSourcesPanel` (rimuovere filtraggio/deduplica/rinumerazione)
-- [ ] Applicare a entrambe le pagine (`page.tsx` e `[id]/page.tsx`)
+- [x] Semplificare `openSourcesPanel` (rimuovere filtraggio/deduplica/rinumerazione)
+- [x] Applicare a entrambe le pagine (`page.tsx` e `[id]/page.tsx`)
 - [ ] Testare apertura side panel
 - [ ] Verificare che side panel mostri solo sources citate
 
@@ -295,6 +295,22 @@ const openSourcesPanel = (sources: Array<...>, messageContent?: string) => {
 - [ ] Verificare che non ci siano sources non citate nel side panel
 - [ ] Verificare comportamento con citazioni multiple
 - [ ] Verificare comportamento con citazioni non valide
+
+---
+
+## ✅ Implementazione Completata
+
+Tutte le modifiche al codice sono state applicate con successo:
+
+1. **Backend (`app/api/chat/route.ts`)**: Rinumerazione semplificata da ~130 righe a ~80 righe
+2. **Frontend Citation (`components/chat/Citation.tsx`)**: Rimosse mappature complesse, logica semplificata
+3. **Frontend Pages (`app/chat/page.tsx` e `app/chat/[id]/page.tsx`)**: Funzione `openSourcesPanel` ridotta da ~130 righe a ~10 righe
+
+### Prossimi Passi
+Testare l'applicazione per verificare che:
+- Il side panel mostri solo le fonti effettivamente citate
+- La numerazione delle citazioni sia corretta e sequenziale (1, 2, 3...)
+- Non ci siano inconsistenze tra testo e side panel
 
 ---
 

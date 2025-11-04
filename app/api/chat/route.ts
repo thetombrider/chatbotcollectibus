@@ -673,112 +673,64 @@ ${context}`
               }
             })
             
-            // Ordina gli indici citati per creare mappatura consistente
+            // Ordina gli indici citati e crea array finale con rinumerazione sequenziale (1, 2, 3...)
             const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
-            
-            // Converti la mappa in array, ordinato per indice citato
             filteredSources = sortedCitedIndices
               .map(index => sourceMap.get(index))
               .filter((s): s is typeof sources[0] => s !== undefined)
+              .map((s, idx) => ({
+                ...s,
+                index: idx + 1, // Rinumerazione sequenziale semplice (1, 2, 3...)
+              }))
             
-            // Rinumerare le sources con indici relativi (1, 2, 3, ...) BASANDOSI SULL'ORDINE DELLE SOURCES FILTRATE
-            // Questo garantisce che la prima source filtrata diventi indice 1, la seconda indice 2, ecc.
-            filteredSources = filteredSources.map((s, idx) => ({
-              ...s,
-              originalIndex: s.index, // Mantieni l'indice originale per riferimento
-              index: idx + 1, // Nuovo indice relativo (1-based) basato sulla posizione nell'array filtrato
-            }))
-            
-            // Crea mappatura da indice assoluto originale a indice relativo NUOVO
-            // basandosi sull'ordine delle sources filtrate (non sugli indici citati)
+            // Crea mappatura da indice originale a nuovo indice (1, 2, 3...)
             const indexMapping = new Map<number, number>()
-            filteredSources.forEach((s) => {
-              indexMapping.set((s as any).originalIndex, s.index)
-              console.log(`[api/chat] Citation mapping: absolute ${(s as any).originalIndex} -> relative ${s.index}`)
+            sortedCitedIndices.forEach((originalIndex, idx) => {
+              indexMapping.set(originalIndex, idx + 1)
+              console.log(`[api/chat] Citation mapping: original ${originalIndex} -> new ${idx + 1}`)
             })
             
-            // Sostituisci le citazioni nel testo con gli indici relativi
-            // E traccia quali indici relativi vengono effettivamente usati nel testo finale
-            const usedRelativeIndices = new Set<number>()
-            responseWithRenumberedCitations = fullResponse.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
-              const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
-              const relativeIndices = indices
-                .map((absIdx: number) => indexMapping.get(absIdx))
-                .filter((relIdx: number | undefined): relIdx is number => relIdx !== undefined)
-                .sort((a: number, b: number) => a - b)
-              
-              if (relativeIndices.length === 0) {
-                // Nessun indice valido, rimuovi la citazione
-                return ''
-              }
-              
-              // Traccia gli indici relativi usati
-              relativeIndices.forEach((idx: number) => usedRelativeIndices.add(idx))
-              
-              return `[cit:${relativeIndices.join(',')}]`
-            })
-            
-            // Filtra ulteriormente le sources per includere solo quelle effettivamente citate nel testo finale
-            // Questo garantisce che se il testo contiene solo [cit:1,2], il sidebar mostri solo 2 sources
-            const finalUsedIndices = Array.from(usedRelativeIndices).sort((a, b) => a - b)
-            console.log('[api/chat] Relative indices actually used in final text:', finalUsedIndices)
-            
-            if (finalUsedIndices.length > 0 && finalUsedIndices.length < filteredSources.length) {
-              // Rimappa le sources usate con indici sequenziali da 1
-              const finalFilteredSources = finalUsedIndices
-                .map(relIdx => filteredSources.find(s => s.index === relIdx))
-                .filter((s): s is typeof sources[0] => s !== undefined)
-                .map((s, idx) => ({
-                  ...s,
-                  originalIndex: (s as any).originalIndex,
-                  index: idx + 1, // Rinumerazione finale: 1, 2, 3, ...
-                }))
-              
-              // Aggiorna la mappatura per riflettere la rinumerazione finale
-              const finalIndexMapping = new Map<number, number>()
-              finalUsedIndices.forEach((oldRelIdx, idx) => {
-                const newRelIdx = idx + 1
-                finalIndexMapping.set(oldRelIdx, newRelIdx)
-              })
-              
-              // Sostituisci nuovamente le citazioni con gli indici finali (1, 2, 3, ...)
-              responseWithRenumberedCitations = responseWithRenumberedCitations.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+            // Sostituisci citazioni nel testo con indici rinumerati
+            responseWithRenumberedCitations = fullResponse.replace(
+              /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g,
+              (match, indicesStr) => {
                 const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
-                const finalIndices = indices
-                  .map((oldRelIdx: number) => finalIndexMapping.get(oldRelIdx))
-                  .filter((newRelIdx: number | undefined): newRelIdx is number => newRelIdx !== undefined)
+                const newIndices = indices
+                  .map((oldIdx: number) => indexMapping.get(oldIdx))
+                  .filter((newIdx: number | undefined): newIdx is number => newIdx !== undefined)
                   .sort((a: number, b: number) => a - b)
                 
-                if (finalIndices.length === 0) {
-                  return ''
+                if (newIndices.length === 0) {
+                  return '' // Rimuovi citazione se non c'è corrispondenza
                 }
                 
-                return `[cit:${finalIndices.join(',')}]`
-              })
-              
-              filteredSources = finalFilteredSources
-              console.log('[api/chat] Final filtered sources (only those actually cited in text):', filteredSources.length)
-              console.log('[api/chat] Final filtered sources details:', filteredSources.map(s => ({
-                originalIndex: (s as any).originalIndex,
-                finalIndex: s.index,
-                filename: s.filename,
-                similarity: s.similarity
-              })))
+                return `[cit:${newIndices.join(',')}]`
+              }
+            )
+            
+            // Verifica finale: assicurati che tutti gli indici nel testo corrispondano alle sources
+            const finalCitedIndices = extractCitedIndices(responseWithRenumberedCitations)
+            console.log('[api/chat] Final sources:', filteredSources.map(s => ({
+              index: s.index,
+              filename: s.filename,
+              cited: true
+            })))
+            console.log('[api/chat] Final cited indices in text:', finalCitedIndices)
+            console.log('[api/chat] Final sources indices:', filteredSources.map(s => s.index))
+            
+            // Verifica che tutti gli indici nel testo esistano nelle sources
+            const missingIndices = finalCitedIndices.filter(idx => !filteredSources.some(s => s.index === idx))
+            if (missingIndices.length > 0) {
+              console.error('[api/chat] ERROR: Text contains citations not in sources!', missingIndices)
             }
             
-            console.log('[api/chat] Filtered sources (only cited, renumbered):', filteredSources.length)
-            console.log('[api/chat] Filtered sources details:', filteredSources.map(s => ({
-              originalIndex: (s as any).originalIndex,
-              newIndex: s.index,
-              filename: s.filename,
-              similarity: s.similarity
-            })))
             console.log('[api/chat] Response citations renumbered:', {
               original: fullResponse.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
               renumbered: responseWithRenumberedCitations.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
             })
           } else {
-            console.log('[api/chat] No citations found in response, using all sources')
+            console.log('[api/chat] No citations found in response, no sources to send')
+            filteredSources = [] // Nessuna citazione = nessuna source da mostrare
           }
 
           // Save assistant message to database

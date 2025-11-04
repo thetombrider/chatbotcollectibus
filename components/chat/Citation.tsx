@@ -21,14 +21,8 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
   const citationRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  // Cerca per indice relativo (se presente) o assoluto (fallback)
-  const citationSources = sources.filter((s) => {
-    // Se la source ha relativeIndex, usa quello; altrimenti usa index assoluto
-    const sourceIndex = (s as any).relativeIndex !== undefined 
-      ? (s as any).relativeIndex 
-      : s.index
-    return sourceIndex === index
-  })
+  // Le sources sono già rinumerate, usa direttamente index
+  const citationSources = sources.filter((s) => s.index === index)
 
   const handleShowTooltip = () => {
     if (hideTimeoutRef.current) {
@@ -170,14 +164,8 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
   const citationRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  // Cerca per indici relativi (se presenti) o assoluti (fallback)
-  const citationSources = sources.filter((s) => {
-    // Se la source ha relativeIndex, usa quello; altrimenti usa index assoluto
-    const sourceIndex = (s as any).relativeIndex !== undefined 
-      ? (s as any).relativeIndex 
-      : s.index
-    return indices.includes(sourceIndex)
-  })
+  // Le sources sono già rinumerate, usa direttamente index
+  const citationSources = sources.filter((s) => indices.includes(s.index))
 
   const handleShowTooltip = () => {
     if (hideTimeoutRef.current) {
@@ -538,122 +526,36 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
   // Counter per generare ID univoci per gli elementi
   const elementCounterRef = useRef(0)
   
-  // Estrai indici citati per uso esterno
-  const citedIndices = React.useMemo(() => {
-    const indices = extractCitedIndices(content)
-    console.log('[MessageWithCitations] ===== Citation Validation START =====')
-    console.log('[MessageWithCitations] Extracted cited indices from content:', indices)
-    console.log('[MessageWithCitations] Available sources indices:', sources.map(s => s.index))
-    console.log('[MessageWithCitations] Total sources count:', sources.length)
-    
-    // Validazione: verifica quali indici citati esistono nelle sources
-    const validIndices = indices.filter(idx => sources.some(s => s.index === idx))
-    const invalidIndices = indices.filter(idx => !sources.some(s => s.index === idx))
-    
-    console.log('[MessageWithCitations] Valid cited indices (exist in sources):', validIndices)
-    console.log('[MessageWithCitations] Invalid cited indices (NOT in sources):', invalidIndices)
-    
-    if (invalidIndices.length > 0) {
-      console.warn('[MessageWithCitations] WARNING: Some cited indices do not exist in sources!', {
-        invalidIndices,
-        availableIndices: sources.map(s => s.index),
-        message: 'The LLM may have cited documents with incorrect indices. These citations will be filtered out.'
-      })
-    }
-    
-    console.log('[MessageWithCitations] ===== Citation Validation END =====')
-    return indices
-  }, [content, sources])
-  
-  // Crea mappatura da indici assoluti a relativi per le citazioni nel testo
-  // Solo per gli indici validi che esistono nelle sources
-  const absoluteToRelativeIndexMap = React.useMemo(() => {
-    const map = new Map<number, number>()
-    // Estrai tutti gli indici unici citati che esistono nelle sources
-    const validUniqueIndices = Array.from(new Set(citedIndices))
-      .filter(idx => sources.some(s => s.index === idx))
-      .sort((a, b) => a - b)
-    
-    console.log('[MessageWithCitations] Valid unique indices for mapping:', validUniqueIndices)
-    
-    validUniqueIndices.forEach((absoluteIndex, idx) => {
-      const relativeIndex = idx + 1
-      map.set(absoluteIndex, relativeIndex) // Mappa indice assoluto -> indice relativo (1-based)
-      console.log(`[MessageWithCitations] Mapping: absolute ${absoluteIndex} -> relative ${relativeIndex}`)
-    })
-    console.log('[MessageWithCitations] Absolute to relative index map:', Object.fromEntries(map))
-    return map
-  }, [citedIndices, sources])
+  // Le sources sono già filtrate e rinumerate dal backend (1, 2, 3...)
+  // Non serve validazione o mappatura aggiuntiva
   
   // Pre-processa il contenuto sostituendo le citazioni con placeholder univoci
   const processedContent = React.useMemo(() => {
     citationMapRef.current.clear()
     elementCounterRef.current = 0
     
-    let processedCount = 0
-    let filteredCount = 0
-    
     // Regex che gestisce sia [cit:1,2,3] che [cit 1,2,3] e [cit 1, 2, 3]
     const processed = content.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
-      processedCount++
-      
       // Rimuovi spazi prima di fare split
       const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
       
-      // Verifica che gli indici esistano nelle sources disponibili
+      // Filtra solo indici validi (che esistono nelle sources)
       const validIndices = indices.filter((idx: number) => sources.some(s => s.index === idx))
-      const invalidIndices = indices.filter((idx: number) => !sources.some(s => s.index === idx))
       
-      if (invalidIndices.length > 0) {
-        console.warn(`[MessageWithCitations] Citation "${match}" contains invalid indices:`, {
-          allIndices: indices,
-          validIndices,
-          invalidIndices,
-          availableSources: sources.map(s => s.index)
-        })
-      }
-      
-      // Se non ci sono indici validi o sources, rimuovi la citazione
-      if (validIndices.length === 0 || sources.length === 0) {
-        filteredCount++
-        console.warn(`[MessageWithCitations] Filtering out citation "${match}" - no valid indices`)
+      // Se non ci sono indici validi, rimuovi la citazione
+      if (validIndices.length === 0) {
         return ''
       }
       
-      // Converti indici assoluti in relativi per il rendering
-      const relativeIndices = validIndices
-        .map((absoluteIdx: number) => absoluteToRelativeIndexMap.get(absoluteIdx))
-        .filter((relativeIdx: number | undefined): relativeIdx is number => relativeIdx !== undefined)
-        .sort((a: number, b: number) => a - b)
-      
-      if (relativeIndices.length === 0) {
-        filteredCount++
-        console.warn(`[MessageWithCitations] Filtering out citation "${match}" - no valid relative indices found`)
-        return ''
-      }
-      
-      // Crea un placeholder univoco per questa citazione
-      const placeholder = `{{CITE_${Object.keys(citationMapRef.current).length}}}`
-      citationMapRef.current.set(placeholder, relativeIndices)
-      
-      console.log(`[MessageWithCitations] Processed citation "${match}":`, {
-        originalIndices: indices,
-        validIndices,
-        relativeIndices,
-        placeholder
-      })
+      // Crea placeholder semplice
+      const placeholder = `{{CITE_${citationMapRef.current.size}}}`
+      citationMapRef.current.set(placeholder, validIndices)
       
       return placeholder
     })
     
-    console.log('[MessageWithCitations] Citation processing summary:', {
-      totalCitationsFound: processedCount,
-      filteredCitations: filteredCount,
-      renderedCitations: processedCount - filteredCount
-    })
-    
     return processed
-  }, [content, sources, absoluteToRelativeIndexMap])
+  }, [content, sources])
 
   // Componente per processare il testo e sostituire i placeholder con le citazioni
   // Usa un counter locale che si resetta ad ogni chiamata
@@ -685,23 +587,13 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
         // Usa placeholder + offset nella stringa per key unica e stabile
         const uniqueKey = `${keyPrefix}${placeholder}-at-${match.index}`
         
-        // Crea sources con indici relativi per il componente Citation
-        // Le sources originali hanno indici assoluti, ma ora usiamo indici relativi
-        const sourcesWithRelativeIndices = sources.map((s, idx) => {
-          const relativeIdx = absoluteToRelativeIndexMap.get(s.index)
-          return relativeIdx !== undefined 
-            ? { ...s, relativeIndex: relativeIdx }
-            : s
-        })
-        
+        // Le sources sono già rinumerate dal backend, usale direttamente
         if (relativeIndices.length === 1) {
-          // Usa l'indice relativo per trovare la source corrispondente
-          const relativeIndex = relativeIndices[0]
           parts.push(
             <Citation 
               key={uniqueKey} 
-              index={relativeIndex} 
-              sources={sourcesWithRelativeIndices} 
+              index={relativeIndices[0]} 
+              sources={sources} 
               onOpenSources={onOpenSources} 
             />
           )
@@ -710,7 +602,7 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
             <CitationMultiple 
               key={uniqueKey} 
               indices={relativeIndices} 
-              sources={sourcesWithRelativeIndices} 
+              sources={sources} 
               onOpenSources={onOpenSources} 
             />
           )
