@@ -375,6 +375,8 @@ export async function POST(req: NextRequest) {
           documentId: r.document_id,
           filename: r.document_filename || 'Documento sconosciuto',
           similarity: r.similarity,
+          content: r.content, // Testo del chunk estratto dal vector store
+          chunkIndex: r.chunk_index, // Indice del chunk nel documento
         }))
       : []
 

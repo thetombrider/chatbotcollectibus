@@ -319,7 +319,7 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
 
 interface SourceDetailPanelProps {
   isOpen: boolean
-  sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>
+  sources: Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>
   onClose: () => void
   selectedSourceIndex?: number
   onSourceSelect?: (index: number) => void
@@ -404,17 +404,27 @@ export function SourceDetailPanel({ isOpen, sources, onClose, selectedSourceInde
         {selectedSource && (
           <div className="border-t pt-4">
             <h3 className="text-sm font-semibold text-gray-900 mb-2">Dettagli Fonte</h3>
-            <div className="bg-gray-50 p-3 rounded-lg text-sm">
-              <div className="font-medium text-gray-900 mb-2">{selectedSource.filename}</div>
-              <div className="text-gray-700 text-xs leading-relaxed mb-3">
+            <div className="bg-gray-50 p-3 rounded-lg text-sm space-y-3">
+              <div className="font-medium text-gray-900">{selectedSource.filename}</div>
+              <div className="text-gray-700 text-xs leading-relaxed">
                 <p>Similarità: <span className="font-semibold">{(selectedSource.similarity * 100).toFixed(1)}%</span></p>
-                <p className="mt-2">Document ID: <span className="font-mono text-xs text-gray-600 break-all">{selectedSource.documentId}</span></p>
+                <p className="mt-1">Chunk: <span className="font-semibold">#{selectedSource.chunkIndex}</span></p>
+                <p className="mt-1">Document ID: <span className="font-mono text-xs text-gray-600 break-all">{selectedSource.documentId}</span></p>
               </div>
+              
+              {/* Contenuto del Chunk Estratto */}
+              <div className="border-t border-gray-300 pt-3">
+                <h4 className="text-xs font-semibold text-gray-700 mb-2">Testo Estratto dal Vector Store:</h4>
+                <div className="bg-white border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
+                  {selectedSource.content}
+                </div>
+              </div>
+              
               <a
                 href={`/documents/${selectedSource.documentId}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block mt-3 px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
               >
                 Apri Documento Completo
               </a>
@@ -428,7 +438,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose, selectedSourceInde
 
 interface MessageWithCitationsProps {
   content: string
-  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number }>
+  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number; content: string; chunkIndex: number }>
   onOpenSources?: () => void
 }
 
