@@ -20,7 +20,22 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 })
   const citationRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const citationSources = sources.filter((s) => s.index === index)
+
+  const handleShowTooltip = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+    setShowTooltip(true)
+  }
+
+  const handleHideTooltip = () => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setShowTooltip(false)
+    }, 200)
+  }
 
   useEffect(() => {
     const updatePosition = () => {
@@ -62,6 +77,15 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
     }
   }, [showTooltip])
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [])
+
   if (citationSources.length === 0) {
     return null
   }
@@ -71,9 +95,9 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
       <span ref={citationRef} className="relative inline-block">
         <sup
           className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-          onClick={() => setShowTooltip(!showTooltip)}
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
+          onClick={() => setShowTooltip(true)}
         >
           [{index}]
         </sup>
@@ -88,8 +112,8 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
             transform: 'translate(-50%, -100%)',
             marginBottom: '8px',
           }}
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
         >
           <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
             <div className="font-semibold mb-2 text-white">Fonte:</div>
@@ -138,7 +162,22 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 })
   const citationRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const citationSources = sources.filter((s) => indices.includes(s.index))
+
+  const handleShowTooltip = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+    setShowTooltip(true)
+  }
+
+  const handleHideTooltip = () => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setShowTooltip(false)
+    }, 200)
+  }
 
   useEffect(() => {
     const updatePosition = () => {
@@ -180,6 +219,15 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
     }
   }, [showTooltip])
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [])
+
   if (citationSources.length === 0) {
     return null
   }
@@ -189,9 +237,9 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
       <span ref={citationRef} className="relative inline-block">
         <sup
           className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-          onClick={() => setShowTooltip(!showTooltip)}
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
+          onClick={() => setShowTooltip(true)}
         >
           [{indices.join(',')}]
         </sup>
@@ -206,8 +254,8 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
             transform: 'translate(-50%, -100%)',
             marginBottom: '8px',
           }}
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
         >
           <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
             <div className="font-semibold mb-2 text-white">Fonti:</div>

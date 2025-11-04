@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
-import { MessageWithCitations } from '@/components/chat/Citation'
+import { MessageWithCitations, SourceDetailPanel } from '@/components/chat/Citation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -32,7 +32,10 @@ export default function ChatPageWithId({
   const [loading, setLoading] = useState(false)
   const [loadingConversation, setLoadingConversation] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
+  const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     const loadConversation = async () => {
@@ -83,6 +86,32 @@ export default function ChatPageWithId({
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
+
+  // Auto-resize textarea based on content
+  const handleTextareaResize = () => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto'
+      // Set height to scrollHeight (min 52px, max 200px)
+      const newHeight = Math.min(Math.max(textarea.scrollHeight, 52), 200)
+      textarea.style.height = `${newHeight}px`
+    }
+  }
+
+  // Handle input change with auto-resize
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value)
+    // Trigger resize on next frame to ensure accurate measurement
+    requestAnimationFrame(handleTextareaResize)
+  }
+
+  // Reset textarea height when input is cleared (after sending message)
+  useEffect(() => {
+    if (input === '' && textareaRef.current) {
+      textareaRef.current.style.height = '52px'
+    }
+  }, [input])
 
   useEffect(() => {
     scrollToBottom()
@@ -270,10 +299,15 @@ export default function ChatPageWithId({
     }
   }
 
+  const openSourcesPanel = (sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>) => {
+    setSelectedSourcesForPanel(sources)
+    setIsSourcesPanelOpen(true)
+  }
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] bg-white">
+    <div className="flex h-[calc(100vh-4rem)] bg-white relative">
       <ConversationSidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col relative">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-8">
             {loadingConversation ? (
@@ -334,7 +368,7 @@ export default function ChatPageWithId({
                         style={{ overflow: 'visible' }}
                       >
                         {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 ? (
-                          <MessageWithCitations content={msg.content} sources={msg.sources} />
+                          <MessageWithCitations content={msg.content} sources={msg.sources} onOpenSources={() => openSourcesPanel(msg.sources || [])} />
                         ) : msg.role === 'assistant' ? (
                           <div className="prose prose-sm max-w-none">
                             <ReactMarkdown
@@ -383,8 +417,9 @@ export default function ChatPageWithId({
             <div className="flex gap-2 items-end">
               <div className="flex-1 relative">
                 <textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={handleInputChange}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
@@ -409,12 +444,23 @@ export default function ChatPageWithId({
                 </button>
               </div>
             </div>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
-            </p>
+            <div className="flex justify-between items-center mt-2">
+              <p className="text-xs text-gray-500">
+                Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
+              </p>
+              <p className="text-xs text-gray-400">
+                {input.length} caratteri
+              </p>
+            </div>
           </div>
         </div>
       </div>
+      
+      <SourceDetailPanel 
+        isOpen={isSourcesPanelOpen}
+        sources={selectedSourcesForPanel}
+        onClose={() => setIsSourcesPanelOpen(false)}
+      />
     </div>
   )
 }
