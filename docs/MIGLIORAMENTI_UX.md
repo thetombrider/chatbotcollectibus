@@ -27,11 +27,6 @@ L'implementazione corrente è solida e funzionale:
    - Componente: `components/chat/SuggestedPrompts.tsx`
    - Posizione: Sotto il messaggio di benvenuto in `app/chat/page.tsx` (riga ~229-236)
 
-2. **Streaming Indicator Migliorato**
-   - Sostituire i 3 pallini con un indicatore più informativo
-   - Mostrare "Cercando nei documenti..." → "Analizzando..." → "Generando risposta..."
-   - Stati: searching, analyzing, generating
-   - File: `app/chat/page.tsx` (righe 283-298)
 
 3. **Messaggi con Azioni**
    - Aggiungi bottoni sotto ogni risposta assistant: Copy, Retry, Share

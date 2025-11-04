@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
-import { MessageWithCitations } from '@/components/chat/Citation'
+import { MessageWithCitations, SourceDetailPanel } from '@/components/chat/Citation'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -20,6 +20,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
+  const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -246,10 +248,15 @@ export default function ChatPage() {
     }
   }
 
+  const openSourcesPanel = (sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>) => {
+    setSelectedSourcesForPanel(sources)
+    setIsSourcesPanelOpen(true)
+  }
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] bg-white">
+    <div className="flex h-[calc(100vh-4rem)] bg-white relative">
       <ConversationSidebar />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col relative">
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-4 py-8">
             {messages.length === 0 ? (
@@ -286,7 +293,7 @@ export default function ChatPage() {
                       style={{ overflow: 'visible' }}
                     >
                       {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 ? (
-                        <MessageWithCitations content={msg.content} sources={msg.sources} />
+                        <MessageWithCitations content={msg.content} sources={msg.sources} onOpenSources={() => openSourcesPanel(msg.sources || [])} />
                       ) : msg.role === 'assistant' ? (
                         <div className="prose prose-sm max-w-none">
                           <ReactMarkdown
@@ -372,6 +379,12 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+      
+      <SourceDetailPanel 
+        isOpen={isSourcesPanelOpen}
+        sources={selectedSourcesForPanel}
+        onClose={() => setIsSourcesPanelOpen(false)}
+      />
     </div>
   )
 }
