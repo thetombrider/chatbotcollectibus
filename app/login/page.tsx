@@ -31,7 +31,17 @@ export default function LoginPage() {
       }
     }
     loadLogo()
-  }, [])
+
+    // Check for OAuth errors in URL query params
+    const urlParams = new URLSearchParams(window.location.search)
+    const errorParam = urlParams.get('error')
+    if (errorParam) {
+      setError(errorParam)
+      showToast(errorParam, 'error')
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [showToast])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,6 +103,39 @@ export default function LoginPage() {
       showToast(errorMsg, 'error')
       console.error('Auth error:', err)
     } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleMicrosoftLogin = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'azure',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          scopes: 'email openid profile',
+        },
+      })
+
+      if (oauthError) {
+        setError(oauthError.message)
+        showToast(oauthError.message, 'error')
+        setLoading(false)
+        return
+      }
+
+      // Redirect to Azure AD for authentication
+      if (data?.url) {
+        window.location.href = data.url
+      }
+    } catch (err) {
+      const errorMsg = 'Errore durante l\'autenticazione con Microsoft. Riprova.'
+      setError(errorMsg)
+      showToast(errorMsg, 'error')
+      console.error('Microsoft OAuth error:', err)
       setLoading(false)
     }
   }
@@ -190,6 +233,48 @@ export default function LoginPage() {
               </div>
             </div>
           )}
+
+          {/* Microsoft SSO Button */}
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">oppure</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleMicrosoftLogin}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 py-3 px-4 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <svg
+              className="w-5 h-5"
+              viewBox="0 0 23 23"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M11.5 11.5H22.5V22.5H11.5V11.5Z"
+                fill="#F25022"
+              />
+              <path
+                d="M0.5 11.5H11.5V22.5H0.5V11.5Z"
+                fill="#7FBA00"
+              />
+              <path
+                d="M0.5 0.5H11.5V11.5H0.5V0.5Z"
+                fill="#00A4EF"
+              />
+              <path
+                d="M11.5 0.5H22.5V11.5H11.5V0.5Z"
+                fill="#FFB900"
+              />
+            </svg>
+            {loading ? 'Caricamento...' : 'Entra con Microsoft'}
+          </button>
 
           {/* Submit button */}
           <button
