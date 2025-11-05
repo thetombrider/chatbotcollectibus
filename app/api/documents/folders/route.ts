@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 /**
  * GET /api/documents/folders
  * Lista tutte le cartelle esistenti con conteggio documenti
  */
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     // Get all unique folders with document counts
     const { data: documents, error } = await supabaseAdmin

@@ -14,7 +14,6 @@ export function FolderSelector({
   allowCreate = true,
 }: FolderSelectorProps) {
   const [folders, setFolders] = useState<Array<{ name: string; count: number }>>([])
-  const [loading, setLoading] = useState(true)
   const [showInput, setShowInput] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
 
@@ -32,8 +31,6 @@ export function FolderSelector({
       setFolders(data.folders || [])
     } catch (err) {
       console.error('Error fetching folders:', err)
-    } finally {
-      setLoading(false)
     }
   }
 

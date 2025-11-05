@@ -19,6 +19,7 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
     if (isOpen && document.id) {
       fetchChunks()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, document.id])
 
   const fetchChunks = async () => {
@@ -150,9 +151,9 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
                   </div>
                 )}
 
-                {!loading && !error && chunks.length > 0 && (
-                  <div className="space-y-4">
-                    {chunks.map((chunk, index) => (
+                    {!loading && !error && chunks.length > 0 && (
+                      <div className="space-y-4">
+                        {chunks.map((chunk) => (
                       <div
                         key={chunk.id}
                         className="bg-gray-50 rounded-lg p-4 border border-gray-200"

@@ -1,8 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-import type { Document } from '@/lib/supabase/database.types'
-
 interface VersionDialogProps {
   isOpen: boolean
   existingDocument: {

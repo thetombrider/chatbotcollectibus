@@ -29,11 +29,11 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [previewDocument, setPreviewDocument] = useState<Document | null>(null)
-  const [folders, setFolders] = useState<Array<{ name: string; count: number }>>([])
 
   useEffect(() => {
     fetchDocuments()
     fetchFolders()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger, selectedFolder])
 
   const fetchDocuments = async () => {
@@ -59,12 +59,8 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
 
   const fetchFolders = async () => {
     try {
-      const response = await fetch('/api/documents/folders')
-      if (!response.ok) {
-        throw new Error('Failed to fetch folders')
-      }
-      const data = await response.json()
-      setFolders(data.folders || [])
+      await fetch('/api/documents/folders')
+      // Refresh folders list for folder selector
     } catch (err) {
       console.error('Error fetching folders:', err)
     }

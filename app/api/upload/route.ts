@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
             // Variabili per cleanup in caso di errore
             let document: { id: string } | undefined
             let filePath: string | undefined
-            let oldDocumentId: string | undefined
 
             try {
               if (!file) {
@@ -103,7 +102,6 @@ export async function POST(req: NextRequest) {
 
           // Handle replace action: delete old document
           if (existingDoc && action === 'replace') {
-            oldDocumentId = existingDoc.id
             sendProgress(controller, 'processing', 10, 'Replacing existing document...')
             await deleteDocument(existingDoc.id)
             // Also delete storage file
