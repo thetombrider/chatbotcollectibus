@@ -309,8 +309,9 @@ export default function ChatPage() {
     <div className="flex h-[calc(100vh-4rem)] bg-white relative">
       <ConversationSidebar />
       <div className="flex-1 flex flex-col relative">
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-8">
+        <div className="flex-1 flex overflow-hidden relative">
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-3xl mx-auto px-4 py-8">
             {messages.length === 0 ? (
               <div className="text-center mt-20">
                 {logoUrl && (
@@ -397,10 +398,17 @@ export default function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
             )}
+            </div>
           </div>
+          
+          <SourceDetailPanel 
+            isOpen={isSourcesPanelOpen}
+            sources={selectedSourcesForPanel}
+            onClose={() => setIsSourcesPanelOpen(false)}
+          />
         </div>
 
-        <div className="border-t border-gray-200 bg-white">
+        <div className="border-t border-gray-200 bg-white relative z-10">
           <div className="max-w-3xl mx-auto px-4 py-4">
             <div className="flex gap-2 items-end">
               <div className="flex-1 relative">
@@ -443,12 +451,6 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
-      
-      <SourceDetailPanel 
-        isOpen={isSourcesPanelOpen}
-        sources={selectedSourcesForPanel}
-        onClose={() => setIsSourcesPanelOpen(false)}
-      />
     </div>
   )
 }

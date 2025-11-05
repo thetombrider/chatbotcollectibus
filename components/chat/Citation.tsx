@@ -346,21 +346,25 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
   if (sources.length === 0) {
     return (
-      <div className={`fixed right-0 top-16 h-[calc(100vh-4rem)] bg-white border-l border-gray-200 shadow-lg transition-all duration-300 z-50 overflow-hidden ${isOpen ? 'w-96 overflow-y-auto' : 'w-0'}`}>
-        <div className="p-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-              title="Chiudi pannello"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+      <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`}>
+        <div className="h-full flex flex-col">
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
+              <button
+                onClick={onClose}
+                className="text-gray-500 hover:text-gray-700 transition-colors"
+                title="Chiudi pannello"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <p className="text-gray-600 text-sm">Nessuna fonte disponibile</p>
+          <div className="flex-1 overflow-y-auto p-4">
+            <p className="text-gray-600 text-sm">Nessuna fonte disponibile</p>
+          </div>
         </div>
       </div>
     )
@@ -378,23 +382,26 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
   })
 
   return (
-    <div className={`fixed right-0 top-16 h-[calc(100vh-4rem)] bg-white border-l border-gray-200 shadow-lg transition-all duration-300 z-50 overflow-hidden ${isOpen ? 'w-96 overflow-y-auto' : 'w-0'}`}>
-      <div className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
-            title="Chiudi pannello"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`}>
+      <div className="h-full flex flex-col">
+        <div className="p-4 border-b border-gray-200 flex-shrink-0">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 transition-colors"
+              title="Chiudi pannello"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        {/* Lista Fonti con Chunk Espandibili */}
-        <div className="space-y-3">
+        {/* Lista Fonti con Chunk Espandibili - Scrollabile */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="space-y-3">
           {sortedSources.map((source, idx) => {
             const isExpanded = expandedIndex === idx
             
@@ -459,6 +466,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
               </div>
             )
           })}
+          </div>
         </div>
       </div>
     </div>
