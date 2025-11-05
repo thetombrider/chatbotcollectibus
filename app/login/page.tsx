@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
@@ -10,8 +10,26 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
+
+  useEffect(() => {
+    // Load company logo
+    const loadLogo = async () => {
+      try {
+        const response = await fetch('/api/settings')
+        if (response.ok) {
+          const data = await response.json()
+          setLogoUrl(data.company_logo?.url || null)
+        }
+      } catch (err) {
+        console.error('Error loading logo:', err)
+        // Fail silently - logo is optional
+      }
+    }
+    loadLogo()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,6 +92,17 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-4">
       <div className="max-w-md w-full space-y-8">
+        {/* Logo */}
+        {logoUrl && (
+          <div className="flex justify-center mb-4">
+            <img
+              src={logoUrl}
+              alt="Company Logo"
+              className="max-h-24 max-w-full object-contain"
+            />
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">

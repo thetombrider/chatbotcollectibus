@@ -23,6 +23,7 @@ export default function ChatPage() {
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
   const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>>([])
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -59,6 +60,23 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    // Load company logo
+    const loadLogo = async () => {
+      try {
+        const response = await fetch('/api/settings')
+        if (response.ok) {
+          const data = await response.json()
+          setLogoUrl(data.company_logo?.url || null)
+        }
+      } catch (err) {
+        console.error('Error loading logo:', err)
+        // Fail silently - logo is optional
+      }
+    }
+    loadLogo()
+  }, [])
 
   // Componenti markdown personalizzati per messaggi senza citazioni
   const markdownComponents: Components = {
@@ -295,6 +313,15 @@ export default function ChatPage() {
           <div className="max-w-3xl mx-auto px-4 py-8">
             {messages.length === 0 ? (
               <div className="text-center mt-20">
+                {logoUrl && (
+                  <div className="flex justify-center mb-8">
+                    <img
+                      src={logoUrl}
+                      alt="Company Logo"
+                      className="max-w-xs max-h-32 object-contain"
+                    />
+                  </div>
+                )}
                 <h1 className="text-4xl font-semibold text-gray-900 mb-4">
                   Come posso aiutarti?
                 </h1>
