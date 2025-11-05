@@ -314,27 +314,100 @@ export async function POST(req: NextRequest) {
             console.log('[api/chat] Found cached response')
             console.log('[api/chat] Cached response_text length:', cached.response_text?.length || 0)
             console.log('[api/chat] Cached response_text preview:', cached.response_text?.substring(0, 100) || 'EMPTY')
+            console.log('[api/chat] Cached sources count:', cached.sources?.length || 0)
             
             if (!cached.response_text || cached.response_text.trim().length === 0) {
               console.error('[api/chat] ERROR: Cached response is empty!')
               // Continue with normal flow instead of using cache
             } else {
-              // Send cached response
+              // Processa le citazioni nel testo cached usando le sources salvate
+              let processedCachedResponse = cached.response_text
+              let cachedSources = cached.sources || []
+              
+              // Estrai citazioni dal testo cached
+              const cachedCitedIndices = extractCitedIndices(cached.response_text)
+              console.log('[api/chat] Cached response cited indices:', cachedCitedIndices)
+              
+              if (cachedCitedIndices.length > 0 && cachedSources.length > 0) {
+                // Verifica che gli indici citati corrispondano alle sources salvate
+                const validCitedIndices = cachedCitedIndices.filter(idx => 
+                  cachedSources.some(s => s.index === idx)
+                )
+                
+                if (validCitedIndices.length > 0) {
+                  // Filtra sources per includere solo quelle citate
+                  const filteredCachedSources = validCitedIndices
+                    .map(idx => cachedSources.find(s => s.index === idx))
+                    .filter((s): s is typeof cachedSources[0] => s !== undefined)
+                    .map((s, idx) => ({
+                      ...s,
+                      index: idx + 1, // Rinumerazione sequenziale (1, 2, 3...)
+                    }))
+                  
+                  // Crea mappatura da indice originale a nuovo indice
+                  const indexMapping = new Map<number, number>()
+                  validCitedIndices.forEach((originalIndex) => {
+                    // Trova la source originale con questo indice
+                    const originalSource = cachedSources.find(s => s.index === originalIndex)
+                    if (originalSource) {
+                      // Trova la posizione nella lista filtrata (usando documentId come identificatore univoco)
+                      const newIndex = filteredCachedSources.findIndex(s => s.documentId === originalSource.documentId && s.chunkIndex === originalSource.chunkIndex) + 1
+                      if (newIndex > 0) {
+                        indexMapping.set(originalIndex, newIndex)
+                        console.log(`[api/chat] Cached citation mapping: original ${originalIndex} -> new ${newIndex}`)
+                      }
+                    }
+                  })
+                  
+                  // Rinumerà le citazioni nel testo
+                  processedCachedResponse = cached.response_text.replace(
+                    /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g,
+                    (match, indicesStr) => {
+                      const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+                      const newIndices = indices
+                        .map((oldIdx: number) => indexMapping.get(oldIdx))
+                        .filter((newIdx: number | undefined): newIdx is number => newIdx !== undefined)
+                        .sort((a: number, b: number) => a - b)
+                      
+                      if (newIndices.length === 0) {
+                        return '' // Rimuovi citazione se non c'è corrispondenza
+                      }
+                      
+                      return `[cit:${newIndices.join(',')}]`
+                    }
+                  )
+                  
+                  cachedSources = filteredCachedSources
+                  console.log('[api/chat] Cached response citations processed, sources found:', cachedSources.length)
+                } else {
+                  // Nessuna citazione valida corrisponde alle sources, rimuovi tutte le citazioni
+                  console.warn('[api/chat] Cached response citations do not match saved sources, removing citations')
+                  processedCachedResponse = cached.response_text.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, '')
+                  cachedSources = []
+                }
+              } else if (cachedCitedIndices.length > 0 && cachedSources.length === 0) {
+                // Ci sono citazioni ma non ci sono sources salvate, rimuovi le citazioni
+                console.warn('[api/chat] Cached response has citations but no saved sources, removing citations')
+                processedCachedResponse = cached.response_text.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, '')
+              }
+              
+              // Send cached response (con citazioni processate)
               controller.enqueue(
-                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: cached.response_text })}\n\n`)
+                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: processedCachedResponse })}\n\n`)
               )
               
               // Save assistant message to database
               if (conversationId) {
                 try {
                   console.log('[api/chat] Saving cached assistant message to database')
-                  console.log('[api/chat] Cached content length:', cached.response_text.length)
+                  console.log('[api/chat] Cached content length:', processedCachedResponse.length)
                   const { error } = await supabaseAdmin.from('messages').insert({
                     conversation_id: conversationId,
                     role: 'assistant',
-                    content: cached.response_text.trim(),
+                    content: processedCachedResponse.trim(),
                     metadata: {
                       cached: true,
+                      sources: cachedSources,
                     },
                   })
                   if (error) {
@@ -347,8 +420,9 @@ export async function POST(req: NextRequest) {
                 }
               }
 
+              // Invia sources se presenti
               controller.enqueue(
-                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: cachedSources })}\n\n`)
               )
               controller.close()
               return
@@ -697,13 +771,6 @@ ${context}`
             return
           }
 
-          // Save to cache (use enhanced query for embedding key)
-          try {
-            await saveCachedResponse(queryToEmbed, queryEmbedding, fullResponse)
-          } catch (err) {
-            console.error('[api/chat] Failed to save cache:', err)
-          }
-
           // Estrai gli indici citati dalla risposta LLM e filtra le sources
           const citedIndices = extractCitedIndices(fullResponse)
           console.log('[api/chat] Cited indices in LLM response:', citedIndices)
@@ -857,6 +924,15 @@ ${context}`
           controller.enqueue(
             new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: filteredSources })}\n\n`)
           )
+          
+          // Save to cache (use enhanced query for embedding key)
+          // Save AFTER processing citations so we save filteredSources with correct indices
+          try {
+            await saveCachedResponse(queryToEmbed, queryEmbedding, responseWithRenumberedCitations, filteredSources)
+          } catch (err) {
+            console.error('[api/chat] Failed to save cache:', err)
+          }
+          
           controller.close()
         } catch (error) {
           console.error('[api/chat] Stream error:', error)

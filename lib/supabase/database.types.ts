@@ -65,5 +65,13 @@ export interface QueryCache {
   hit_count: number
   created_at: string
   expires_at: string
+  sources?: Array<{
+    index: number
+    documentId: string
+    filename: string
+    similarity: number
+    content: string
+    chunkIndex: number | null
+  }>
 }
 
