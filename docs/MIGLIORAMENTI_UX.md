@@ -13,22 +13,6 @@ L'implementazione corrente è solida e funzionale:
 
 ## Categorie di Miglioramenti
 
-### 🎨 A. Miglioramenti UX/UI Immediati
-
-#### A1. **Esperienza Chat**
-
-**Problema**: La chat manca di alcune feature che migliorerebbero la produttività quotidiana.
-
-**Suggerimenti**:
-
-1. **Suggested Prompts / Quick Actions**
-   - Mostra 3-4 prompt suggeriti quando la chat è vuota
-   - Es: "Analizza trend fintech 2024", "Confronta strategie ESG", "Riassumi policy governance"
-   - Componente: `components/chat/SuggestedPrompts.tsx`
-   - Posizione: Sotto il messaggio di benvenuto in `app/chat/page.tsx` (riga ~229-236)
-
-
-
 #### A3. **Sidebar Conversazioni**
 
 **Problema**: La sidebar è funzionale ma manca di organizzazione per molte conversazioni.
@@ -44,34 +28,7 @@ L'implementazione corrente è solida e funzionale:
    - Input search sopra la lista
    - Cerca in titoli e contenuti dei messaggi
    - File: `components/chat/ConversationSidebar.tsx` (dopo riga 75)
-
-#### A4. **Gestione Documenti**
-
-**Problema**: La gestione documenti è basica, manca di funzioni aziendali utili.
-
-**Suggerimenti**:
-
-2. **Folders/Categories**
-   - Organizzare documenti in cartelle logiche (es: "Clienti", "Industry Reports", "Internal")
-   - Colonna `folder` in tabella `documents`
-   - Breadcrumbs nella UI
-   - File: `app/documents/page.tsx`
-
-3. **Document Preview**
-   - Modal con preview PDF inline (usando PDF.js o iframe)
-   - Mostra chunks estratti con highlighting
-   - Nuovo componente: `components/documents/DocumentPreview.tsx`
-
-4. **Versioning Base**
-   - Quando si fa upload di file con stesso nome, chiedi se sostituire o creare nuova versione
-   - Colonna `version` in database
-   - Mantieni history delle versioni
-   - File: `app/api/upload/route.ts`
-
-5. **Batch Actions**
-   - Checkbox per selezione multipla
-   - Azioni: Delete, Move to folder, Add tags, Export
-   - File: `components/documents/DocumentsTable.tsx`
+ 
 
 ### 🚀 B. Nuove Feature per Consulenza
 
