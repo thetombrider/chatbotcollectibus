@@ -65,3 +65,4 @@ COMMENT ON FUNCTION hybrid_search IS 'Hybrid search combining vector similarity 
 -- add_document_metadata_to_search_v2, ma viene aggiunto qui per allineamento del repo.
 
 
+

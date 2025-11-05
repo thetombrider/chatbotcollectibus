@@ -393,3 +393,4 @@ ENABLE_QUERY_ENHANCEMENT=false
 - OpenRouter docs: https://openrouter.ai/docs
 - Gemini pricing: https://openrouter.ai/models/google/gemini-flash-1.5
 
+

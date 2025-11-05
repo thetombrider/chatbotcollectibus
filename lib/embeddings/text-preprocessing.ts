@@ -69,3 +69,4 @@ export function normalizeTextForEmbedding(text: string): string {
   return normalized
 }
 
+

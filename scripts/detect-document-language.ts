@@ -278,3 +278,4 @@ if (require.main === module) {
 
 export { detectDocumentLanguages }
 
+

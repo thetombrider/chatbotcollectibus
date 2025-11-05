@@ -28,34 +28,6 @@ L'implementazione corrente è solida e funzionale:
    - Posizione: Sotto il messaggio di benvenuto in `app/chat/page.tsx` (riga ~229-236)
 
 
-3. **Messaggi con Azioni**
-   - Aggiungi bottoni sotto ogni risposta assistant: Copy, Retry, Share
-   - Copy: copia testo in clipboard
-   - Retry: rigenerazione risposta con stesso prompt
-   - Share: crea link condivisibile alla conversazione
-   - File: `app/chat/page.tsx` (righe 239-282)
-
-#### A2. **Citazioni e Fonti**
-
-**Problema**: Le citazioni sono funzionali ma potrebbero fornire più contesto.
-
-**Suggerimenti**:
-
-1. **Preview Estesa del Documento**
-   - Nel tooltip citazione, mostra estratto del chunk (~100 char prima e dopo)
-   - Aggiungi link "Apri documento completo" che porta a pagina dettaglio
-   - File: `components/chat/Citation.tsx` (righe 93-106)
-
-2. **Citation Panel Laterale**
-   - Pannello collapsabile sulla destra che mostra tutte le fonti usate
-   - Ordinabile per relevance/alfabetico
-   - Click su fonte = scroll alla prima citazione
-   - Nuovo componente: `components/chat/SourcesPanel.tsx`
-
-3. **Visualizzazione Similarity Score**
-   - Oltre alla percentuale, mostra indicatore visivo (barra/stelline)
-   - Codice colori: >80% verde, 60-80% giallo, <60% rosso
-   - File: `components/chat/Citation.tsx` (righe 97-100)
 
 #### A3. **Sidebar Conversazioni**
 
@@ -73,32 +45,11 @@ L'implementazione corrente è solida e funzionale:
    - Cerca in titoli e contenuti dei messaggi
    - File: `components/chat/ConversationSidebar.tsx` (dopo riga 75)
 
-3. **Tags/Labels per Conversazioni**
-   - Aggiungi colonna `tags` alla tabella `conversations` (JSONB)
-   - UI per aggiungere/rimuovere tag (es: "fintech", "governance", "urgente")
-   - Filtro per tag nella sidebar
-   - File: migrazione `supabase/migrations/add_conversation_tags.sql`
-
-4. **Rename Conversazione**
-   - Click su titolo = edit inline
-   - Attualmente il titolo è solo preview prime 50 char
-   - File: `components/chat/ConversationSidebar.tsx` (righe 97-99)
-
-5. **Pin Conversazioni Importanti**
-   - Icona pin/star per fissare conversazioni in alto
-   - Colonna `pinned` in database (boolean)
-   - File: `components/chat/ConversationSidebar.tsx`
-
 #### A4. **Gestione Documenti**
 
 **Problema**: La gestione documenti è basica, manca di funzioni aziendali utili.
 
 **Suggerimenti**:
-
-1. **Bulk Upload**
-   - Permettere selezione multipla file
-   - Progress bar per ogni file
-   - File: `components/documents/DocumentUploader.tsx`
 
 2. **Folders/Categories**
    - Organizzare documenti in cartelle logiche (es: "Clienti", "Industry Reports", "Internal")
