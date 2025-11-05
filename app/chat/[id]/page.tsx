@@ -468,7 +468,7 @@ export default function ChatPageWithId({
           />
         </div>
 
-        <div className="border-t border-gray-200 bg-white relative z-10">
+        <div className="relative z-10 backdrop-blur-xl bg-transparent shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
           <div className="max-w-3xl mx-auto px-4 py-4">
             <div className="flex gap-2 items-end">
               <div className="flex-1 relative">
@@ -484,7 +484,7 @@ export default function ChatPageWithId({
                   }}
                   placeholder="Scrivi un messaggio..."
                   rows={1}
-                  className="w-full resize-none border border-gray-300 rounded-lg px-4 py-3 pr-12 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
+                  className="w-full resize-none border border-gray-300 rounded-lg px-4 py-3 pr-12 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-gray-900 placeholder-gray-500 bg-white/95 backdrop-blur-sm"
                   disabled={loading || !conversationId}
                   style={{ minHeight: '52px', maxHeight: '200px' }}
                 />
