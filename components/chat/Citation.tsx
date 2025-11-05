@@ -326,8 +326,27 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
  * Ogni fonte mostra direttamente il chunk estratto dal vector store
  */
 export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPanelProps) {
+  // All hooks must be called before any conditional returns
   const [expandedIndex, setExpandedIndex] = React.useState<number | null>(0)
 
+  // Ordina per indice di citazione (numerazione relativa) invece che per similarity
+  // Le sources già sono state filtrate e rinumerate in app/chat/page.tsx
+  const sortedSources = useMemo(() => {
+    return [...sources].sort((a, b) => {
+      // Se hanno originalIndex, mantieni l'ordine originale (ordine di citazione)
+      // Altrimenti ordina per similarity
+      if ('originalIndex' in a && 'originalIndex' in b) {
+        return (a.originalIndex as number) - (b.originalIndex as number)
+      }
+      return (a.index || 0) - (b.index || 0)
+    })
+  }, [sources])
+
+  const handleExpand = useCallback((idx: number) => {
+    setExpandedIndex((prev) => (prev === idx ? null : idx))
+  }, [])
+
+  // Conditional returns after all hooks
   if (!isOpen) {
     return null
   }
@@ -357,23 +376,6 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
       </div>
     )
   }
-
-  // Ordina per indice di citazione (numerazione relativa) invece che per similarity
-  // Le sources già sono state filtrate e rinumerate in app/chat/page.tsx
-  const sortedSources = useMemo(() => {
-    return [...sources].sort((a, b) => {
-      // Se hanno originalIndex, mantieni l'ordine originale (ordine di citazione)
-      // Altrimenti ordina per similarity
-      if ('originalIndex' in a && 'originalIndex' in b) {
-        return (a.originalIndex as number) - (b.originalIndex as number)
-      }
-      return (a.index || 0) - (b.index || 0)
-    })
-  }, [sources])
-
-  const handleExpand = useCallback((idx: number) => {
-    setExpandedIndex((prev) => (prev === idx ? null : idx))
-  }, [])
 
   return (
     <>
