@@ -330,7 +330,7 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
                 setSelectedFolder(folder)
                 setSelectedDocuments(new Set()) // Clear selection when folder changes
               }}
-              allowCreate={true}
+              allowCreate={false}
             />
           </div>
         </div>

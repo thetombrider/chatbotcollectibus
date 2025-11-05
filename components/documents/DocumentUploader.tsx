@@ -40,6 +40,7 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
     info: DuplicateInfo
   } | null>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [folderCreatedMessage, setFolderCreatedMessage] = useState<string | null>(null)
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -272,6 +273,8 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
     if (files.length === 0) return
 
     setUploading(true)
+    // Clear folder creation message when starting upload
+    setFolderCreatedMessage(null)
 
     // Upload file uno alla volta per mostrare progress individuale
     for (const file of files) {
@@ -400,7 +403,23 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Cartella
         </label>
-        <FolderSelector value={folder} onChange={setFolder} allowCreate={true} />
+        <FolderSelector 
+          value={folder} 
+          onChange={setFolder} 
+          allowCreate={true}
+          onFolderCreated={(folderName) => {
+            setFolderCreatedMessage(`Cartella "${folderName}" creata. Carica il documento e verrà salvato al suo interno.`)
+            // Auto-hide message after 5 seconds
+            setTimeout(() => {
+              setFolderCreatedMessage(null)
+            }, 5000)
+          }}
+        />
+        {folderCreatedMessage && (
+          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-800">{folderCreatedMessage}</p>
+          </div>
+        )}
       </div>
 
       <div

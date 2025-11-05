@@ -19,6 +19,8 @@ export function BatchActionsToolbar({
   const [showMoveDialog, setShowMoveDialog] = useState(false)
   const [targetFolder, setTargetFolder] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
 
   const handleMoveClick = () => {
     setShowMoveDialog(true)
@@ -37,6 +39,19 @@ export function BatchActionsToolbar({
   const handleDeleteConfirm = () => {
     onDelete()
     setShowDeleteConfirm(false)
+  }
+
+  const handleNewFolderClick = () => {
+    setShowNewFolderDialog(true)
+  }
+
+  const handleNewFolderConfirm = () => {
+    if (newFolderName.trim()) {
+      const folderName = newFolderName.trim()
+      onMove(folderName)
+      setNewFolderName('')
+      setShowNewFolderDialog(false)
+    }
   }
 
   if (selectedCount === 0) {
@@ -67,6 +82,12 @@ export function BatchActionsToolbar({
               Sposta in cartella
             </button>
             <button
+              onClick={handleNewFolderClick}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900"
+            >
+              Nuova
+            </button>
+            <button
               onClick={handleDeleteClick}
               className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
             >
@@ -87,7 +108,7 @@ export function BatchActionsToolbar({
               <FolderSelector
                 value={targetFolder}
                 onChange={setTargetFolder}
-                allowCreate={true}
+                allowCreate={false}
               />
             </div>
             <div className="flex gap-3">
@@ -101,6 +122,59 @@ export function BatchActionsToolbar({
                 onClick={() => {
                   setShowMoveDialog(false)
                   setTargetFolder(null)
+                }}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              >
+                Annulla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Folder Dialog */}
+      {showNewFolderDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Crea nuova cartella
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Crea una nuova cartella e sposta {selectedCount} documento{selectedCount !== 1 ? 'i' : ''} selezionato{selectedCount !== 1 ? 'i' : ''} al suo interno.
+            </p>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nome cartella
+              </label>
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="Nome cartella..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFolderName.trim()) {
+                    handleNewFolderConfirm()
+                  } else if (e.key === 'Escape') {
+                    setShowNewFolderDialog(false)
+                    setNewFolderName('')
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={handleNewFolderConfirm}
+                disabled={!newFolderName.trim()}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Crea e sposta
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewFolderDialog(false)
+                  setNewFolderName('')
                 }}
                 className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900"
               >

@@ -6,12 +6,14 @@ interface FolderSelectorProps {
   value?: string | null
   onChange: (folder: string | null) => void
   allowCreate?: boolean
+  onFolderCreated?: (folderName: string) => void
 }
 
 export function FolderSelector({
   value,
   onChange,
   allowCreate = true,
+  onFolderCreated,
 }: FolderSelectorProps) {
   const [folders, setFolders] = useState<Array<{ name: string; count: number }>>([])
   const [showInput, setShowInput] = useState(false)
@@ -48,6 +50,10 @@ export function FolderSelector({
       setShowInput(false)
       // Refresh folders list to include the new folder
       await fetchFolders()
+      // Call onFolderCreated callback if provided
+      if (onFolderCreated) {
+        onFolderCreated(folderName)
+      }
     }
   }
 
