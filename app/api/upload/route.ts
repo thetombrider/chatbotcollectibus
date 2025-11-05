@@ -4,7 +4,7 @@ import { sentenceAwareChunking } from '@/lib/processing/sentence-aware-chunking'
 import { preprocessChunkContent } from '@/lib/processing/chunk-preprocessing'
 import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
-import { createDocument } from '@/lib/supabase/document-operations'
+import { createDocument, checkDuplicateFilename, deleteDocument, getDocumentVersions } from '@/lib/supabase/document-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const maxDuration = 300 // 5 minuti per upload e processing
@@ -27,24 +27,27 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url)
   const useStreaming = url.searchParams.get('stream') === 'true'
 
-  // Se streaming è richiesto, usa Server-Sent Events
-  if (useStreaming) {
-    // Leggi formData prima di creare lo stream
-    const formData = await req.formData()
-    const file = formData.get('file') as File
+      // Se streaming è richiesto, usa Server-Sent Events
+      if (useStreaming) {
+        // Leggi formData prima di creare lo stream
+        const formData = await req.formData()
+        const file = formData.get('file') as File
+        const folder = formData.get('folder') as string | null
+        const action = formData.get('action') as string | null // 'replace' | 'version'
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        // Variabili per cleanup in caso di errore
-        let document: { id: string } | undefined
-        let filePath: string | undefined
+        const stream = new ReadableStream({
+          async start(controller) {
+            // Variabili per cleanup in caso di errore
+            let document: { id: string } | undefined
+            let filePath: string | undefined
+            let oldDocumentId: string | undefined
 
-        try {
-          if (!file) {
-            sendProgress(controller, 'error', 0, 'File is required')
-            controller.close()
-            return
-          }
+            try {
+              if (!file) {
+                sendProgress(controller, 'error', 0, 'File is required')
+                controller.close()
+                return
+              }
 
           // Validazione file
           const maxSize = 50 * 1024 * 1024 // 50MB
@@ -65,8 +68,50 @@ export async function POST(req: NextRequest) {
             return
           }
 
-          // Fase 1: Upload file (10%)
-          sendProgress(controller, 'uploading', 10, 'Uploading file to storage...')
+          // Fase 1: Check for duplicate (10%)
+          sendProgress(controller, 'checking', 10, 'Checking for duplicate files...')
+          
+          const folderValue = folder && folder.trim() !== '' ? folder.trim() : null
+          const existingDoc = await checkDuplicateFilename(file.name, folderValue || undefined)
+
+          // If duplicate exists and no action specified, return duplicate flag
+          if (existingDoc && !action) {
+            const existingVersions = await getDocumentVersions(existingDoc.id)
+            const maxVersion = Math.max(...existingVersions.map((v) => v.version || 1))
+            
+            const duplicateData = {
+              duplicate: true,
+              existingDocument: {
+                id: existingDoc.id,
+                filename: existingDoc.filename,
+                folder: existingDoc.folder,
+                version: existingDoc.version || 1,
+                created_at: existingDoc.created_at,
+              },
+              maxVersion,
+            }
+            
+            const data = JSON.stringify({
+              stage: 'duplicate',
+              progress: 0,
+              message: JSON.stringify(duplicateData),
+            })
+            controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+            controller.close()
+            return
+          }
+
+          // Handle replace action: delete old document
+          if (existingDoc && action === 'replace') {
+            oldDocumentId = existingDoc.id
+            sendProgress(controller, 'processing', 10, 'Replacing existing document...')
+            await deleteDocument(existingDoc.id)
+            // Also delete storage file
+            await supabaseAdmin.storage.from('documents').remove([existingDoc.storage_path])
+          }
+
+          // Fase 2: Upload file (20%)
+          sendProgress(controller, 'uploading', 20, 'Uploading file to storage...')
           
           const fileExt = file.name.split('.').pop()
           const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`
@@ -94,8 +139,20 @@ export async function POST(req: NextRequest) {
             return
           }
 
-          // Fase 2: Crea record documento (20%)
-          sendProgress(controller, 'processing', 20, 'Creating document record...')
+          // Fase 3: Crea record documento (30%)
+          sendProgress(controller, 'processing', 30, 'Creating document record...')
+          
+          // Determine version and parent_version_id
+          let version = 1
+          let parentVersionId: string | null = null
+          
+          if (existingDoc && action === 'version') {
+            const existingVersions = await getDocumentVersions(existingDoc.id)
+            const maxVersion = Math.max(...existingVersions.map((v) => v.version || 1))
+            version = maxVersion + 1
+            // Use the original document ID as parent (or the existing doc's parent)
+            parentVersionId = existingDoc.parent_version_id || existingDoc.id
+          }
           
           document = await createDocument(
             file.name,
@@ -105,7 +162,10 @@ export async function POST(req: NextRequest) {
             {
               uploadedAt: new Date().toISOString(),
               processing_status: 'processing',
-            }
+            },
+            folderValue,
+            version,
+            parentVersionId
           )
 
           await supabaseAdmin
@@ -113,8 +173,8 @@ export async function POST(req: NextRequest) {
             .update({ processing_status: 'processing' })
             .eq('id', document.id)
 
-          // Fase 3: Estrazione testo (30%)
-          sendProgress(controller, 'processing', 30, 'Extracting text from document...')
+          // Fase 4: Estrazione testo (40%)
+          sendProgress(controller, 'processing', 40, 'Extracting text from document...')
           
           // Usa estrattore unificato (OCR o native)
           const extracted = await extractTextUnified(file)
@@ -128,8 +188,8 @@ export async function POST(req: NextRequest) {
             throw new Error('No text extracted from document')
           }
 
-          // Fase 4: Chunking (40%)
-          sendProgress(controller, 'processing', 40, 'Chunking document text with sentence-aware chunking...')
+          // Fase 5: Chunking (50%)
+          sendProgress(controller, 'processing', 50, 'Chunking document text with sentence-aware chunking...')
           
           // Usa sentence-aware chunking per preservare integrità semantica
           // Target 350 token (sweet spot per text-embeddings-3-large)
@@ -149,11 +209,11 @@ export async function POST(req: NextRequest) {
           console.log(`[api/upload/stream] Created ${chunks.length} chunks`)
           console.log(`[api/upload/stream] Average tokens per chunk: ${Math.round(chunks.reduce((sum, c) => sum + c.metadata.tokenCount, 0) / chunks.length)}`)
 
-          // Fase 5: Generazione embeddings (40-80%)
+          // Fase 6: Generazione embeddings (50-80%)
           const chunkTexts = chunks.map((c) => c.content)
           const totalBatches = Math.ceil(chunks.length / 100)
           
-          sendProgress(controller, 'processing', 50, `Generating embeddings (0/${totalBatches} batches)...`)
+          sendProgress(controller, 'processing', 60, `Generating embeddings (0/${totalBatches} batches)...`)
           
           // Genera embeddings con progress tracking
           const embeddings: number[][] = []
@@ -163,8 +223,8 @@ export async function POST(req: NextRequest) {
             const batch = chunkTexts.slice(i, i + MAX_BATCH_SIZE)
             const batchIndex = Math.floor(i / MAX_BATCH_SIZE) + 1
             
-            // Progress durante generazione embeddings: 50-80%
-            const embedProgress = 50 + (batchIndex / totalBatches) * 30
+            // Progress durante generazione embeddings: 60-80%
+            const embedProgress = 60 + (batchIndex / totalBatches) * 20
             sendProgress(
               controller,
               'processing',

@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import type { Document } from '@/lib/supabase/database.types'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
+import { BatchActionsToolbar } from './BatchActionsToolbar'
+import { DocumentPreview } from './DocumentPreview'
+import { FolderSelector } from './FolderSelector'
 
 interface DocumentsTableProps {
   refreshTrigger?: number
@@ -23,16 +26,24 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
     isOpen: boolean
     document: Document | null
   }>({ isOpen: false, document: null })
+  const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+  const [previewDocument, setPreviewDocument] = useState<Document | null>(null)
+  const [folders, setFolders] = useState<Array<{ name: string; count: number }>>([])
 
   useEffect(() => {
     fetchDocuments()
-  }, [refreshTrigger])
+    fetchFolders()
+  }, [refreshTrigger, selectedFolder])
 
   const fetchDocuments = async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/documents')
+      const url = selectedFolder !== null
+        ? `/api/documents?folder=${encodeURIComponent(selectedFolder)}`
+        : '/api/documents'
+      const response = await fetch(url)
       if (!response.ok) {
         throw new Error('Failed to fetch documents')
       }
@@ -43,6 +54,19 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchFolders = async () => {
+    try {
+      const response = await fetch('/api/documents/folders')
+      if (!response.ok) {
+        throw new Error('Failed to fetch folders')
+      }
+      const data = await response.json()
+      setFolders(data.folders || [])
+    } catch (err) {
+      console.error('Error fetching folders:', err)
     }
   }
 
@@ -92,6 +116,84 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
       setSortField(field)
       setSortOrder('desc')
     }
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedDocuments.size === 0) return
+
+    try {
+      const response = await fetch('/api/documents/batch', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedDocuments) }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to batch delete documents')
+      }
+
+      // Remove deleted documents from list
+      setDocuments((prev) => prev.filter((doc) => !selectedDocuments.has(doc.id)))
+      setSelectedDocuments(new Set())
+      // Refresh folders count
+      fetchFolders()
+    } catch (err) {
+      console.error('Error batch deleting documents:', err)
+      alert('Errore durante l\'eliminazione dei documenti. Riprova.')
+    }
+  }
+
+  const handleBatchMove = async (folder: string | null) => {
+    if (selectedDocuments.size === 0) return
+
+    try {
+      const response = await fetch('/api/documents/batch', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedDocuments), folder }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to batch move documents')
+      }
+
+      // Update documents in list
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          selectedDocuments.has(doc.id) ? { ...doc, folder: folder || undefined } : doc
+        )
+      )
+      setSelectedDocuments(new Set())
+      // Refresh folders count
+      fetchFolders()
+    } catch (err) {
+      console.error('Error batch moving documents:', err)
+      alert('Errore durante lo spostamento dei documenti. Riprova.')
+    }
+  }
+
+  const handleSelectAll = () => {
+    if (selectedDocuments.size === filteredAndSorted.length) {
+      setSelectedDocuments(new Set())
+    } else {
+      setSelectedDocuments(new Set(filteredAndSorted.map((doc) => doc.id)))
+    }
+  }
+
+  const handleSelectDocument = (id: string) => {
+    setSelectedDocuments((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(id)) {
+        newSet.delete(id)
+      } else {
+        newSet.add(id)
+      }
+      return newSet
+    })
+  }
+
+  const handlePreview = (document: Document) => {
+    setPreviewDocument(document)
   }
 
   // Filter and sort documents
@@ -219,6 +321,45 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
 
   return (
     <div className="max-w-7xl">
+      {/* Folder Filter and Breadcrumbs */}
+      <div className="mb-6">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Filtra per cartella
+            </label>
+            <FolderSelector
+              value={selectedFolder}
+              onChange={(folder) => {
+                setSelectedFolder(folder)
+                setSelectedDocuments(new Set()) // Clear selection when folder changes
+              }}
+              allowCreate={true}
+            />
+          </div>
+        </div>
+        {selectedFolder && (
+          <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
+            <button
+              onClick={() => setSelectedFolder(null)}
+              className="text-gray-500 hover:text-gray-700 underline"
+            >
+              Tutte le cartelle
+            </button>
+            <span>/</span>
+            <span className="font-medium">{selectedFolder}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Batch Actions Toolbar */}
+      <BatchActionsToolbar
+        selectedCount={selectedDocuments.size}
+        onDelete={handleBatchDelete}
+        onMove={handleBatchMove}
+        onClearSelection={() => setSelectedDocuments(new Set())}
+      />
+
       {/* Search bar */}
       <div className="mb-6">
         <div className="relative">
@@ -260,49 +401,64 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
       {/* Table */}
       {filteredAndSorted.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+          <div className="overflow-x-auto">
+            <table className="w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-2 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-10">
+                  <input
+                    type="checkbox"
+                    checked={selectedDocuments.size === filteredAndSorted.length && filteredAndSorted.length > 0}
+                    onChange={handleSelectAll}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                  />
+                </th>
                 <th
                   onClick={() => handleSort('filename')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors min-w-[200px]"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     Nome File
                     <SortIcon field="filename" />
                   </div>
                 </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-32">
+                  Cartella
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-20">
+                  Versione
+                </th>
                 <th
                   onClick={() => handleSort('file_size')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors w-24"
                 >
-                  <div className="flex items-center gap-2">
-                    Dimensione
+                  <div className="flex items-center gap-1">
+                    Dim.
                     <SortIcon field="file_size" />
                   </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-28">
                   Stato
                 </th>
                 <th
                   onClick={() => handleSort('chunks_count')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors w-20"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     Chunks
                     <SortIcon field="chunks_count" />
                   </div>
                 </th>
                 <th
                   onClick={() => handleSort('created_at')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+                  className="px-3 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors w-28"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     Data
                     <SortIcon field="created_at" />
                   </div>
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-700 uppercase tracking-wider w-24">
                   Azioni
                 </th>
               </tr>
@@ -312,49 +468,91 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
                 <>
                   <tr
                     key={doc.id}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => toggleRowExpansion(doc.id)}
+                    className="hover:bg-gray-50 transition-colors"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <td className="px-2 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDocuments.has(doc.id)}
+                        onChange={() => handleSelectDocument(doc.id)}
+                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </td>
+                    <td className="px-3 py-3 cursor-pointer" onClick={() => toggleRowExpansion(doc.id)}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        <div className="text-sm font-medium text-gray-900 truncate max-w-md" title={doc.filename}>
+                        <div className="text-sm font-medium text-gray-900 truncate" title={doc.filename}>
                           {doc.filename}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-3 py-3 text-sm text-gray-600">
+                      {doc.folder ? (
+                        <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs truncate block max-w-[120px]" title={doc.folder}>
+                          {doc.folder}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {doc.version && doc.version > 1 ? (
+                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                          v{doc.version}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-600">
                       {formatFileSize(doc.file_size)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-3">
                       {getStatusBadge(doc.processing_status)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-600">
                       {doc.chunks_count || 0}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-600">
                       {formatDate(doc.created_at)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDelete(doc)
-                        }}
-                        className="text-red-600 hover:text-red-900 transition-colors p-2 rounded hover:bg-red-50"
-                        title="Elimina documento"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                    <td className="px-3 py-3 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handlePreview(doc)
+                          }}
+                          className="text-blue-600 hover:text-blue-900 transition-colors p-1.5 rounded hover:bg-blue-50"
+                          title="Preview documento"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDelete(doc)
+                          }}
+                          className="text-red-600 hover:text-red-900 transition-colors p-1.5 rounded hover:bg-red-50"
+                          title="Elimina documento"
+                          disabled={selectedDocuments.size > 0}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   {expandedRows.has(doc.id) && (
                     <tr key={`${doc.id}-expanded`}>
-                      <td colSpan={6} className="px-6 py-4 bg-gray-50">
+                      <td colSpan={9} className="px-3 py-3 bg-gray-50">
                         <div className="text-sm">
                           <h4 className="font-medium text-gray-900 mb-2">Metadata</h4>
                           <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -397,7 +595,17 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
+      )}
+
+      {/* Document Preview */}
+      {previewDocument && (
+        <DocumentPreview
+          document={previewDocument}
+          isOpen={true}
+          onClose={() => setPreviewDocument(null)}
+        />
       )}
 
       {/* Delete confirmation dialog */}

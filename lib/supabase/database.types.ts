@@ -14,6 +14,9 @@ export interface Document {
   processing_status?: 'pending' | 'processing' | 'completed' | 'error'
   error_message?: string
   chunks_count?: number
+  folder?: string
+  version?: number
+  parent_version_id?: string
   created_at: string
   updated_at: string
 }

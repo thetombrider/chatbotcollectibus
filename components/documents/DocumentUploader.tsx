@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { FolderSelector } from './FolderSelector'
+import { VersionDialog } from './VersionDialog'
 
 interface UploadStatus {
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error'
@@ -12,6 +14,18 @@ interface UploadStatus {
   retryCount?: number
 }
 
+interface DuplicateInfo {
+  duplicate: true
+  existingDocument: {
+    id: string
+    filename: string
+    folder?: string | null
+    version: number
+    created_at: string
+  }
+  maxVersion: number
+}
+
 interface DocumentUploaderProps {
   onUploadComplete?: (documentId: string, filename: string) => void
 }
@@ -20,6 +34,12 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
   const [files, setFiles] = useState<File[]>([])
   const [uploadStatuses, setUploadStatuses] = useState<Record<string, UploadStatus>>({})
   const [uploading, setUploading] = useState(false)
+  const [folder, setFolder] = useState<string | null>(null)
+  const [duplicateInfo, setDuplicateInfo] = useState<{
+    file: File
+    info: DuplicateInfo
+  } | null>(null)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -70,7 +90,8 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
   const uploadFileWithRetry = async (
     file: File,
     maxRetries: number = 3,
-    baseDelay: number = 1000
+    baseDelay: number = 1000,
+    action?: 'replace' | 'version'
   ): Promise<void> => {
     let retryCount = 0
 
@@ -89,6 +110,12 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
 
         const formData = new FormData()
         formData.append('file', file)
+        if (folder) {
+          formData.append('folder', folder)
+        }
+        if (action) {
+          formData.append('action', action)
+        }
 
         // Usa streaming per progress real-time
         const res = await fetch('/api/upload?stream=true', {
@@ -123,6 +150,14 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
             if (line.startsWith('data: ')) {
               try {
                 const data = JSON.parse(line.slice(6))
+
+                // Handle duplicate detection
+                if (data.stage === 'duplicate') {
+                  const duplicateInfo = JSON.parse(data.message) as DuplicateInfo
+                  setDuplicateInfo({ file, info: duplicateInfo })
+                  setPendingFile(file)
+                  return // Exit, wait for user decision
+                }
 
                 if (data.stage === 'error') {
                   throw new Error(data.message || 'Processing failed')
@@ -247,6 +282,10 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
       }
 
       try {
+        // Log folder for debugging
+        if (folder) {
+          console.log(`[DocumentUploader] Uploading ${file.name} to folder: ${folder}`)
+        }
         await uploadFileWithRetry(file)
       } catch (error) {
         // Errore già gestito in uploadFileWithRetry con retry logic
@@ -255,6 +294,8 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
     }
 
     setUploading(false)
+    // Reset folder after upload
+    setFolder(null)
   }
 
   const handleRetry = async (fileName: string) => {
@@ -276,6 +317,41 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
     } catch (error) {
       console.error(`Retry failed for ${fileName}:`, error)
     }
+  }
+
+  const handleReplace = async () => {
+    if (!pendingFile || !duplicateInfo) return
+
+    setDuplicateInfo(null)
+    setPendingFile(null)
+
+    try {
+      await uploadFileWithRetry(pendingFile, 3, 1000, 'replace')
+    } catch (error) {
+      console.error('Replace failed:', error)
+    }
+  }
+
+  const handleVersion = async () => {
+    if (!pendingFile || !duplicateInfo) return
+
+    setDuplicateInfo(null)
+    setPendingFile(null)
+
+    try {
+      await uploadFileWithRetry(pendingFile, 3, 1000, 'version')
+    } catch (error) {
+      console.error('Version creation failed:', error)
+    }
+  }
+
+  const handleCancelDuplicate = () => {
+    if (!pendingFile) return
+
+    // Remove the file from queue
+    removeFile(pendingFile.name)
+    setDuplicateInfo(null)
+    setPendingFile(null)
   }
 
   const removeFile = (fileName: string) => {
@@ -319,6 +395,14 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
 
   return (
     <div className="max-w-4xl">
+      {/* Folder Selector */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Cartella
+        </label>
+        <FolderSelector value={folder} onChange={setFolder} allowCreate={true} />
+      </div>
+
       <div
         className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center mb-6 hover:border-gray-400 transition-colors bg-gray-50"
         onDrop={handleDrop}
@@ -348,6 +432,18 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
           Seleziona File
         </label>
       </div>
+
+      {/* Version Dialog */}
+      {duplicateInfo && (
+        <VersionDialog
+          isOpen={true}
+          existingDocument={duplicateInfo.info.existingDocument}
+          maxVersion={duplicateInfo.info.maxVersion}
+          onReplace={handleReplace}
+          onVersion={handleVersion}
+          onCancel={handleCancelDuplicate}
+        />
+      )}
 
       {files.length > 0 && (
         <div className="mb-6">

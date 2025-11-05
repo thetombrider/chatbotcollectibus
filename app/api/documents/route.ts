@@ -12,9 +12,21 @@ export async function GET(req: NextRequest) {
     const sortBy = searchParams.get('sort') || 'created_at'
     const order = searchParams.get('order') || 'desc'
     const limit = parseInt(searchParams.get('limit') || '100')
+    const folder = searchParams.get('folder') || undefined
 
     // Fetch documenti dal database
-    const documents = await listDocuments(limit)
+    let documents = await listDocuments(limit)
+    
+    // Filter by folder if provided
+    if (folder !== undefined) {
+      if (folder === '') {
+        // Show documents without folder (null)
+        documents = documents.filter((doc) => !doc.folder)
+      } else {
+        // Show documents in specific folder
+        documents = documents.filter((doc) => doc.folder === folder)
+      }
+    }
 
     // Filtra per search term (client-side per semplicità)
     let filtered = documents
