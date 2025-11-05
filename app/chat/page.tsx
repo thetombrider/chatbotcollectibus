@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
   const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>>([])
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -149,6 +150,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage])
     setInput('')
     setLoading(true)
+    setStatusMessage(null) // Reset status message for new request
 
     // Crea conversazione se non esiste
     const wasNewConversation = !conversationId
@@ -213,7 +215,12 @@ export default function ChatPage() {
             try {
               const data = JSON.parse(line.slice(6))
 
-              if (data.type === 'text') {
+              if (data.type === 'status') {
+                // Update or clear status message
+                setStatusMessage(data.message || null)
+              } else if (data.type === 'text') {
+                // Hide status message when text streaming starts
+                setStatusMessage(null)
                 assistantMessage.content += data.content
                 setMessages((prev) => {
                   const newMessages = [...prev]
@@ -229,6 +236,8 @@ export default function ChatPage() {
                   return newMessages
                 })
               } else if (data.type === 'done') {
+                // Clear status message
+                setStatusMessage(null)
                 // Ricevi sources nel messaggio done
                 if (data.sources) {
                   assistantMessage.sources = data.sources
@@ -244,6 +253,8 @@ export default function ChatPage() {
                   window.history.replaceState(null, '', `/chat/${currentConversationId}`)
                 }
               } else if (data.type === 'error') {
+                // Clear status message on error
+                setStatusMessage(null)
                 console.error('Stream error:', data.error)
                 setLoading(false)
                 setMessages((prev) => prev.slice(0, -1))
@@ -344,16 +355,15 @@ export default function ChatPage() {
                 {loading && (
                   <div className="flex gap-4 justify-start">
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                      <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      <svg className="w-5 h-5 text-gray-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3">
-                      <div className="flex gap-1">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                      </div>
+                      <p className="text-gray-600 text-sm">
+                        {statusMessage || 'Elaborazione in corso...'}
+                      </p>
                     </div>
                   </div>
                 )}

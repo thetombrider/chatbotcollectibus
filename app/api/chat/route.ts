@@ -281,38 +281,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // STEP 1: Query Enhancement (before embedding and caching)
-    // Uses LLM to detect if query is generic/broad/incomplete and expands it
-    console.log('[api/chat] Step 1: Query enhancement')
-    const enhancementResult = await enhanceQueryIfNeeded(message)
-    const queryToEmbed = enhancementResult.enhanced
-    const wasEnhanced = enhancementResult.shouldEnhance
-    
-    console.log('[api/chat] Enhancement result:', {
-      original: message.substring(0, 50),
-      enhanced: queryToEmbed.substring(0, 100),
-      wasEnhanced,
-      fromCache: enhancementResult.fromCache,
-    })
+    // Create stream early to send status messages during processing
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // STEP 1: Query Enhancement (before embedding and caching)
+          // Uses LLM to detect if query is generic/broad/incomplete and expands it
+          console.log('[api/chat] Step 1: Query enhancement')
+          
+          // Send status message: Analisi della query
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Analisi della query...' })}\n\n`)
+          )
+          
+          const enhancementResult = await enhanceQueryIfNeeded(message)
+          const queryToEmbed = enhancementResult.enhanced
+          const wasEnhanced = enhancementResult.shouldEnhance
+          
+          console.log('[api/chat] Enhancement result:', {
+            original: message.substring(0, 50),
+            enhanced: queryToEmbed.substring(0, 100),
+            wasEnhanced,
+            fromCache: enhancementResult.fromCache,
+          })
 
-    // STEP 2: Check semantic cache (using enhanced query for embedding)
-    console.log('[api/chat] Step 2: Semantic cache lookup')
-    const queryEmbedding = await generateEmbedding(queryToEmbed)
-    const cached = await findCachedResponse(queryEmbedding)
+          // STEP 2: Check semantic cache (using enhanced query for embedding)
+          console.log('[api/chat] Step 2: Semantic cache lookup')
+          const queryEmbedding = await generateEmbedding(queryToEmbed)
+          const cached = await findCachedResponse(queryEmbedding)
 
-    if (cached) {
-      console.log('[api/chat] Found cached response')
-      console.log('[api/chat] Cached response_text length:', cached.response_text?.length || 0)
-      console.log('[api/chat] Cached response_text preview:', cached.response_text?.substring(0, 100) || 'EMPTY')
-      
-      if (!cached.response_text || cached.response_text.trim().length === 0) {
-        console.error('[api/chat] ERROR: Cached response is empty!')
-        // Continue with normal flow instead of using cache
-      } else {
-        // Return cached response
-        const stream = new ReadableStream({
-          async start(controller) {
-            try {
+          if (cached) {
+            console.log('[api/chat] Found cached response')
+            console.log('[api/chat] Cached response_text length:', cached.response_text?.length || 0)
+            console.log('[api/chat] Cached response_text preview:', cached.response_text?.substring(0, 100) || 'EMPTY')
+            
+            if (!cached.response_text || cached.response_text.trim().length === 0) {
+              console.error('[api/chat] ERROR: Cached response is empty!')
+              // Continue with normal flow instead of using cache
+            } else {
               // Send cached response
               controller.enqueue(
                 new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text', content: cached.response_text })}\n\n`)
@@ -345,128 +351,121 @@ export async function POST(req: NextRequest) {
                 new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
               )
               controller.close()
-            } catch (error) {
-              console.error('[api/chat] Error in cached response:', error)
-              controller.enqueue(
-                new TextEncoder().encode(
-                  `data: ${JSON.stringify({ type: 'error', error: 'Failed to process cached response' })}\n\n`
-                )
-              )
-              controller.close()
+              return
             }
-          },
-        })
+          }
 
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          },
-        })
-      }
-    }
+          // STEP 3: Vector search per context con hybrid search migliorata
+          // Rileva se è una query comparativa e usa strategia multi-query
+          console.log('[api/chat] Step 3: Vector search')
+          
+          // Use enhanced query for comparative detection (better pattern matching)
+          const comparativeTerms = detectComparativeQuery(message, wasEnhanced ? queryToEmbed : undefined)
+          
+          // Send status message for search
+          if (comparativeTerms) {
+            console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
+            const statusMessage = `Analisi comparativa tra ${comparativeTerms.join(' e ')}...`
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: statusMessage })}\n\n`)
+            )
+          } else {
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Ricerca documenti nella knowledge base...' })}\n\n`)
+            )
+          }
+          
+          let searchResults
+          
+          if (comparativeTerms) {
+            // Usa strategia multi-query per query comparative
+            // Pass flag to indicate query is already enhanced (avoid double expansion)
+            searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced)
+          } else {
+            // Query standard: hybrid search normale
+            // Use enhanced query for better results
+            // Parametri: top-10, threshold 0.3, vector_weight 0.7
+            searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7)
+          }
+          
+          // Log dei risultati per debugging
+          console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
+            filename: r.document_filename,
+            similarity: r.similarity.toFixed(3),
+            vector_score: r.vector_score?.toFixed(3),
+            text_score: r.text_score?.toFixed(3),
+            preview: r.content.substring(0, 100) + '...'
+          })))
+          
+          // Threshold per filtrare i risultati rilevanti
+          const RELEVANCE_THRESHOLD = 0.40
+          const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
+          
+          console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
+          if (relevantResults.length > 0) {
+            const avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
+            console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
+            console.log('[api/chat] Similarity range:', 
+              Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
+              '-', 
+              Math.max(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3)
+            )
+            
+            // Per query comparative, mostra distribuzione documenti
+            if (comparativeTerms) {
+              const documentDistribution = new Map<string, number>()
+              relevantResults.forEach((r: SearchResult) => {
+                const filename = r.document_filename || 'Unknown'
+                documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
+              })
+              console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
+            }
+          }
 
-    // STEP 3: Vector search per context con hybrid search migliorata
-    // Rileva se è una query comparativa e usa strategia multi-query
-    console.log('[api/chat] Step 3: Vector search')
-    
-    // Use enhanced query for comparative detection (better pattern matching)
-    const comparativeTerms = detectComparativeQuery(message, wasEnhanced ? queryToEmbed : undefined)
-    let searchResults
-    
-    if (comparativeTerms) {
-      console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
-      // Usa strategia multi-query per query comparative
-      // Pass flag to indicate query is already enhanced (avoid double expansion)
-      searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced)
-    } else {
-      // Query standard: hybrid search normale
-      // Use enhanced query for better results
-      // Parametri: top-10, threshold 0.3, vector_weight 0.7
-      searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7)
-    }
-    
-    // Log dei risultati per debugging
-    console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
-      filename: r.document_filename,
-      similarity: r.similarity.toFixed(3),
-      vector_score: r.vector_score?.toFixed(3),
-      text_score: r.text_score?.toFixed(3),
-      preview: r.content.substring(0, 100) + '...'
-    })))
-    
-    // Filtra solo risultati con similarity >= 0.20 per evitare citazioni a documenti non rilevanti
-    // Threshold ridotto a 0.20 per permettere match anche con similarity bassa (utile per query generiche)
-    // Nota: con questo threshold, anche chunks con vector_score ~0.30 passeranno il filtro
-    // TODO: Considerare di aumentare quando si migliora la qualità degli embeddings
-    const RELEVANCE_THRESHOLD = 0.20
-    const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
-    
-    console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
-    if (relevantResults.length > 0) {
-      const avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
-      console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
-      console.log('[api/chat] Similarity range:', 
-        Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
-        '-', 
-        Math.max(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3)
-      )
-      
-      // Per query comparative, mostra distribuzione documenti
-      if (comparativeTerms) {
-        const documentDistribution = new Map<string, number>()
-        relevantResults.forEach((r: SearchResult) => {
-          const filename = r.document_filename || 'Unknown'
-          documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
-        })
-        console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
-      }
-    }
+          // Build context solo se ci sono risultati rilevanti
+          const context = relevantResults.length > 0
+            ? relevantResults
+                .map((r: SearchResult, index: number) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
+                .join('\n\n')
+            : null
 
-    // Build context solo se ci sono risultati rilevanti
-    const context = relevantResults.length > 0
-      ? relevantResults
-          .map((r: SearchResult, index: number) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
-          .join('\n\n')
-      : null
+          // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
+          // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
+          const sources = relevantResults.length > 0
+            ? relevantResults.map((r: SearchResult, index: number) => ({
+                index: index + 1,
+                documentId: r.document_id,
+                filename: r.document_filename || 'Documento sconosciuto',
+                similarity: r.similarity,
+                content: r.content.substring(0, 1000) + (r.content.length > 1000 ? '...' : ''), // Preview del chunk
+                chunkIndex: r.chunk_index, // Indice del chunk nel documento
+              }))
+            : []
+          
+          // Log per verificare che i dati del chunk siano presenti
+          if (sources.length > 0) {
+            console.log('[api/chat] Sources with content:', sources.map(s => ({
+              index: s.index,
+              filename: s.filename,
+              hasContent: !!s.content,
+              contentLength: s.content?.length || 0,
+              chunkIndex: s.chunkIndex,
+              similarity: s.similarity,
+              similarityPercent: (s.similarity * 100).toFixed(1) + '%'
+            })))
+            console.log('[api/chat] Similarity score verification:')
+            sources.forEach(s => {
+              console.log(`  Source ${s.index}: raw=${s.similarity}, display=${(s.similarity * 100).toFixed(1)}%`)
+            })
+          }
 
-    // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
-    // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
-    const sources = relevantResults.length > 0
-      ? relevantResults.map((r: SearchResult, index: number) => ({
-          index: index + 1,
-          documentId: r.document_id,
-          filename: r.document_filename || 'Documento sconosciuto',
-          similarity: r.similarity,
-          content: r.content.substring(0, 1000) + (r.content.length > 1000 ? '...' : ''), // Preview del chunk
-          chunkIndex: r.chunk_index, // Indice del chunk nel documento
-        }))
-      : []
-    
-    // Log per verificare che i dati del chunk siano presenti
-    if (sources.length > 0) {
-      console.log('[api/chat] Sources with content:', sources.map(s => ({
-        index: s.index,
-        filename: s.filename,
-        hasContent: !!s.content,
-        contentLength: s.content?.length || 0,
-        chunkIndex: s.chunkIndex,
-        similarity: s.similarity,
-        similarityPercent: (s.similarity * 100).toFixed(1) + '%'
-      })))
-      console.log('[api/chat] Similarity score verification:')
-      sources.forEach(s => {
-        console.log(`  Source ${s.index}: raw=${s.similarity}, display=${(s.similarity * 100).toFixed(1)}%`)
-      })
-    }
+          // Send status message before generation
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Generazione risposta...' })}\n\n`)
+          )
 
-    // Stream response from agent
-    const stream = new ReadableStream({
-      async start(controller) {
-        let fullResponse = ''
+          let fullResponse = ''
 
-        try {
           console.log('[api/chat] Starting agent stream...')
           console.log('[api/chat] Context available:', context !== null)
           console.log('[api/chat] Relevant results count:', relevantResults.length)
@@ -573,10 +572,19 @@ ${context}`
             if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
               console.log('[api/chat] Found async iterable stream')
               // Mastra stream restituisce un oggetto con textStream
+              let firstChunk = true
               for await (const chunk of streamSource) {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
                 if (content) {
+                  // Hide status message when first text chunk arrives
+                  if (firstChunk) {
+                    controller.enqueue(
+                      new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: null })}\n\n`)
+                    )
+                    firstChunk = false
+                  }
+                  
                   fullResponse += content
 
                   // NON inviare sources ad ogni chunk - troppo grande e può causare errori di parsing
@@ -650,6 +658,11 @@ ${context}`
             
             // Stream la risposta completa in chunks per simulare lo streaming
             if (fullResponse) {
+              // Hide status message when starting to stream text
+              controller.enqueue(
+                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: null })}\n\n`)
+              )
+              
               const words = fullResponse.split(/\s+/)
               for (const word of words) {
                 const chunk = word + ' '
