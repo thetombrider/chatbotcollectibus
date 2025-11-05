@@ -313,11 +313,9 @@ async function chunkMarkdownBySentences(
         chunkIndex: chunkIndex++,
         metadata: {
           ...chunk.metadata,
-          // @ts-expect-error - Adding section info
           section: section.header,
-          // @ts-expect-error - Adding level info
           level: section.level,
-        },
+        } as any, // Add markdown section metadata
       })
     }
   }
