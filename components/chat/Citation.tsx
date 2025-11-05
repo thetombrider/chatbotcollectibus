@@ -6,9 +6,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 
+import type { Source, SourceDetail, MessageWithCitationsProps, SourceDetailPanelProps } from '@/types/chat'
+
 interface CitationProps {
   index: number
-  sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>
+  sources: Source[]
   onOpenSources?: () => void
 }
 
@@ -151,7 +153,7 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
 
 interface CitationMultipleProps {
   indices: number[]
-  sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>
+  sources: Source[]
   onOpenSources?: () => void
 }
 
@@ -293,7 +295,7 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
 }
 
 interface SourcesPanelProps {
-  sources: Array<{ index: number; filename: string; documentId: string; similarity: number }>
+  sources: Source[]
 }
 
 /**
@@ -319,19 +321,7 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
   )
 }
 
-interface SourceDetailPanelProps {
-  isOpen: boolean
-  sources: Array<{ 
-    index: number
-    filename: string
-    documentId: string
-    similarity: number
-    content?: string
-    chunkIndex?: number
-    originalIndex?: number // Indice originale prima della rinumerazione relativa
-  }>
-  onClose: () => void
-}
+import type { SourceDetailPanelProps } from '@/types/chat'
 
 /**
  * Componente per visualizzare il pannello dettagliato delle fonti
@@ -346,7 +336,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
   if (sources.length === 0) {
     return (
-      <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`}>
+      <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
         <div className="h-full flex flex-col">
           <div className="p-4 border-b border-gray-200 flex-shrink-0">
             <div className="flex justify-between items-center">
@@ -471,12 +461,6 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
       </div>
     </div>
   )
-}
-
-interface MessageWithCitationsProps {
-  content: string
-  sources?: Array<{ index: number; filename: string; documentId: string; similarity: number; content?: string; chunkIndex?: number }>
-  onOpenSources?: () => void
 }
 
 /**
