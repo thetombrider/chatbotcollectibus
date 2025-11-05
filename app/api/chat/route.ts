@@ -5,6 +5,7 @@ import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-
 import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
+import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
 
 /**
  * Estrae tutti gli indici citati dal contenuto del messaggio (versione server-side)
@@ -39,9 +40,14 @@ export const maxDuration = 60 // 60 secondi per Vercel
  * 1. Primo step: Cerca keyword comparative + normative note (veloce e accurato)
  * 2. Secondo step: Prova pattern regex migliorati
  * 3. Validazione: Verifica che i termini siano normative note
+ * 
+ * @param message - Original user message
+ * @param enhancedMessage - Enhanced message with expanded context (used for better pattern matching)
  */
-function detectComparativeQuery(message: string): string[] | null {
-  const lowerMessage = message.toLowerCase()
+function detectComparativeQuery(message: string, enhancedMessage?: string): string[] | null {
+  // Use enhanced message for detection if available (better pattern matching)
+  const messageToAnalyze = enhancedMessage || message
+  const lowerMessage = messageToAnalyze.toLowerCase()
   
   // Normative riconosciute (deve essere in sync con quelle nel knowledge base)
   const knownRegulations = ['ESPR', 'PPWR', 'CSRD', 'CSDDD', 'GDPR', 'REACH', 'CCPA', 'RGPD', 'ISO']
@@ -115,7 +121,7 @@ function detectComparativeQuery(message: string): string[] | null {
   ]
   
   for (const pattern of improvedPatterns) {
-    const match = message.match(pattern)
+    const match = messageToAnalyze.match(pattern)
     if (match && match[1] && match[2]) {
       const term1 = match[1].toUpperCase()
       const term2 = match[2].toUpperCase()
@@ -137,19 +143,31 @@ function detectComparativeQuery(message: string): string[] | null {
 
 /**
  * Esegue ricerche multiple per query comparative e combina i risultati
+ * 
+ * @param terms - Regulation terms to search for (e.g., ["GDPR", "ESPR"])
+ * @param originalQuery - Original user query (may already be enhanced)
+ * @param originalEmbedding - Embedding of the original query
+ * @param queryAlreadyEnhanced - Whether the originalQuery has already been enhanced (skip re-enhancement)
  */
 async function performMultiQuerySearch(
   terms: string[], 
   originalQuery: string,
-  originalEmbedding: number[]
+  originalEmbedding: number[],
+  queryAlreadyEnhanced: boolean = false
 ): Promise<SearchResult[]> {
   console.log('[api/chat] Performing multi-query search for terms:', terms)
+  console.log('[api/chat] Query already enhanced:', queryAlreadyEnhanced)
   
   // Esegui una ricerca per ogni termine
   const searchPromises = terms.map(async (term) => {
     try {
       // Crea una query mirata per questo termine
-      const targetedQuery = `${term} ${originalQuery}`
+      // Se la query è già stata enhanced, usa solo il termine senza aggiungere la query
+      // per evitare doppia espansione
+      const targetedQuery = queryAlreadyEnhanced 
+        ? `${term} ${originalQuery}` 
+        : `${term} ${originalQuery}`
+      
       const targetedEmbedding = await generateEmbedding(targetedQuery)
       
       // Ricerca con threshold più alto per risultati più rilevanti
@@ -263,8 +281,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Check semantic cache
-    const queryEmbedding = await generateEmbedding(message)
+    // STEP 1: Query Enhancement (before embedding and caching)
+    // Uses LLM to detect if query is generic/broad/incomplete and expands it
+    console.log('[api/chat] Step 1: Query enhancement')
+    const enhancementResult = await enhanceQueryIfNeeded(message)
+    const queryToEmbed = enhancementResult.enhanced
+    const wasEnhanced = enhancementResult.shouldEnhance
+    
+    console.log('[api/chat] Enhancement result:', {
+      original: message.substring(0, 50),
+      enhanced: queryToEmbed.substring(0, 100),
+      wasEnhanced,
+      fromCache: enhancementResult.fromCache,
+    })
+
+    // STEP 2: Check semantic cache (using enhanced query for embedding)
+    console.log('[api/chat] Step 2: Semantic cache lookup')
+    const queryEmbedding = await generateEmbedding(queryToEmbed)
     const cached = await findCachedResponse(queryEmbedding)
 
     if (cached) {
@@ -334,19 +367,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Vector search per context con hybrid search migliorata
+    // STEP 3: Vector search per context con hybrid search migliorata
     // Rileva se è una query comparativa e usa strategia multi-query
-    const comparativeTerms = detectComparativeQuery(message)
+    console.log('[api/chat] Step 3: Vector search')
+    
+    // Use enhanced query for comparative detection (better pattern matching)
+    const comparativeTerms = detectComparativeQuery(message, wasEnhanced ? queryToEmbed : undefined)
     let searchResults
     
     if (comparativeTerms) {
       console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
       // Usa strategia multi-query per query comparative
-      searchResults = await performMultiQuerySearch(comparativeTerms, message, queryEmbedding)
+      // Pass flag to indicate query is already enhanced (avoid double expansion)
+      searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced)
     } else {
       // Query standard: hybrid search normale
+      // Use enhanced query for better results
       // Parametri: top-10, threshold 0.3, vector_weight 0.7
-      searchResults = await hybridSearch(queryEmbedding, message, 10, 0.3, 0.7)
+      searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7)
     }
     
     // Log dei risultati per debugging
@@ -646,9 +684,9 @@ ${context}`
             return
           }
 
-          // Save to cache
+          // Save to cache (use enhanced query for embedding key)
           try {
-            await saveCachedResponse(message, queryEmbedding, fullResponse)
+            await saveCachedResponse(queryToEmbed, queryEmbedding, fullResponse)
           } catch (err) {
             console.error('[api/chat] Failed to save cache:', err)
           }
@@ -751,6 +789,9 @@ ${context}`
                     similarity: r.similarity,
                   })),
                   sources: filteredSources, // Salva solo le sources citate (già rinumerate)
+                  query_enhanced: wasEnhanced, // Track if query was enhanced
+                  original_query: message, // Keep original for reference
+                  enhanced_query: wasEnhanced ? queryToEmbed : undefined, // Enhanced version if applicable
                 },
               }
               
