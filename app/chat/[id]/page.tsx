@@ -35,7 +35,6 @@ export default function ChatPageWithId({
     setInput,
     messagesEndRef,
     handleSend: handleSendOriginal,
-    scrollToBottom,
   } = useChat({
     conversationId,
     onConversationCreated: (id) => {
@@ -80,7 +79,7 @@ export default function ChatPageWithId({
     }
 
     loadConversation()
-  }, [params])
+  }, [params, setMessages])
 
   const handleSend = async () => {
     if (!conversationId) return

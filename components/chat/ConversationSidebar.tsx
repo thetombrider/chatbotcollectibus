@@ -7,7 +7,6 @@ import { useConversation } from '@/hooks/useConversation'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
 import { ConversationSkeleton } from '@/components/ui/Skeleton'
-import type { ConversationListItem } from '@/types/chat'
 
 interface ConversationSidebarProps {
   isOpen?: boolean

@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
  * DELETE /api/settings/logo
  * Remove company logo
  */
-export async function DELETE(req: NextRequest) {
+export async function DELETE(_req: NextRequest) {
   try {
     // Get current logo path
     const { data: settings } = await supabaseAdmin

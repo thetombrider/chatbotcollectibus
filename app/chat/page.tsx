@@ -28,9 +28,8 @@ export default function ChatPage() {
     setInput,
     messagesEndRef,
     handleSend: handleSendOriginal,
-    scrollToBottom,
   } = useChat({
-    onConversationCreated: (id) => {
+    onConversationCreated: (_id) => {
       // Handle conversation creation if needed
     },
   })

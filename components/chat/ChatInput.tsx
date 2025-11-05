@@ -18,9 +18,9 @@ export function ChatInput({
   loading,
   disabled = false,
   onSend,
-  statusMessage,
+  statusMessage: _statusMessage,
 }: ChatInputProps) {
-  const { textareaRef, handleInputChange, resetHeight } = useTextareaResize()
+  const { textareaRef, handleInputChange } = useTextareaResize()
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

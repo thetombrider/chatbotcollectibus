@@ -5,7 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
  * GET /api/settings
  * Get application settings (public read)
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     const { data, error } = await supabaseAdmin
       .from('app_settings')
