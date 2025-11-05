@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -321,8 +321,6 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
   )
 }
 
-import type { SourceDetailPanelProps } from '@/types/chat'
-
 /**
  * Componente per visualizzare il pannello dettagliato delle fonti
  * Ogni fonte mostra direttamente il chunk estratto dal vector store
@@ -336,7 +334,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
   if (sources.length === 0) {
     return (
-      <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
+      <div className={`fixed lg:static inset-y-0 right-0 z-50 lg:z-auto h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-full sm:w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
         <div className="h-full flex flex-col">
           <div className="p-4 border-b border-gray-200 flex-shrink-0">
             <div className="flex justify-between items-center">
@@ -362,37 +360,53 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
   // Ordina per indice di citazione (numerazione relativa) invece che per similarity
   // Le sources già sono state filtrate e rinumerate in app/chat/page.tsx
-  const sortedSources = [...sources].sort((a, b) => {
-    // Se hanno originalIndex, mantieni l'ordine originale (ordine di citazione)
-    // Altrimenti ordina per similarity
-    if ('originalIndex' in a && 'originalIndex' in b) {
-      return (a.originalIndex as number) - (b.originalIndex as number)
-    }
-    return (a.index || 0) - (b.index || 0)
-  })
+  const sortedSources = useMemo(() => {
+    return [...sources].sort((a, b) => {
+      // Se hanno originalIndex, mantieni l'ordine originale (ordine di citazione)
+      // Altrimenti ordina per similarity
+      if ('originalIndex' in a && 'originalIndex' in b) {
+        return (a.originalIndex as number) - (b.originalIndex as number)
+      }
+      return (a.index || 0) - (b.index || 0)
+    })
+  }, [sources])
+
+  const handleExpand = useCallback((idx: number) => {
+    setExpandedIndex((prev) => (prev === idx ? null : idx))
+  }, [])
 
   return (
-    <div className={`h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-96' : 'w-0'}`}>
-      <div className="h-full flex flex-col">
-        <div className="p-4 border-b border-gray-200 flex-shrink-0">
-          <div className="flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-              title="Chiudi pannello"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <div className={`fixed lg:static inset-y-0 right-0 z-50 lg:z-auto h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-full sm:w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
+        <div className="h-full flex flex-col">
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
+              <button
+                onClick={onClose}
+                className="text-gray-500 hover:text-gray-700 transition-colors"
+                title="Chiudi pannello"
+                aria-label="Chiudi pannello fonti"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
 
         {/* Lista Fonti con Chunk Espandibili - Scrollabile */}
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-3">
-          {sortedSources.map((source, idx) => {
+          {sortedSources.map((source: SourceDetail, idx: number) => {
             const isExpanded = expandedIndex === idx
             
             return (
@@ -402,12 +416,14 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
               >
                 {/* Header Fonte - Sempre Visibile */}
                 <button
-                  onClick={() => setExpandedIndex(isExpanded ? null : idx)}
+                  onClick={() => handleExpand(idx)}
                   className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+                  aria-expanded={isExpanded}
+                  aria-controls={`source-content-${idx}`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1 pr-2">
-                      <div className="font-medium text-sm text-gray-900 mb-1">
+                      <div id={`source-header-${idx}`} className="font-medium text-sm text-gray-900 mb-1">
                         {source.filename}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-600">
@@ -431,7 +447,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
                 {/* Contenuto Espandibile */}
                 {isExpanded && (
-                  <div className="p-3 bg-white border-t border-gray-200">
+                  <div id={`source-content-${idx}`} className="p-3 bg-white border-t border-gray-200" role="region" aria-labelledby={`source-header-${idx}`}>
                     {/* Testo del Chunk */}
                     <div className="mb-3">
                       <h4 className="text-xs font-semibold text-gray-700 mb-2">
@@ -459,7 +475,8 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 
@@ -522,7 +539,7 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
   // Non serve validazione o mappatura aggiuntiva
   
   // Pre-processa il contenuto sostituendo le citazioni con placeholder univoci
-  const processedContent = React.useMemo(() => {
+  const processedContent = useMemo(() => {
     citationMapRef.current.clear()
     elementCounterRef.current = 0
     

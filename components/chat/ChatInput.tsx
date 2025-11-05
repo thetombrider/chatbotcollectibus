@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback } from 'react'
 import { useTextareaResize } from '@/hooks/useTextareaResize'
 
 interface ChatInputProps {
@@ -21,21 +22,21 @@ export function ChatInput({
 }: ChatInputProps) {
   const { textareaRef, handleInputChange, resetHeight } = useTextareaResize()
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onSend()
     }
-  }
+  }, [onSend])
 
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
     handleInputChange(e)
-  }
+  }, [setInput, handleInputChange])
 
   return (
     <div className="relative z-10 backdrop-blur-xl bg-transparent shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
-      <div className="max-w-3xl mx-auto px-4 py-4">
+      <div className="max-w-3xl mx-auto px-4 py-4 pb-safe">
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <textarea

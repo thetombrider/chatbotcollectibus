@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import type { Message, Source } from '@/types/chat'
 
 interface UseChatOptions {
@@ -30,6 +30,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  const onConversationCreatedRef = useRef(onConversationCreated)
+  
+  useEffect(() => {
+    onConversationCreatedRef.current = onConversationCreated
+  }, [onConversationCreated])
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -37,7 +43,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages, scrollToBottom])
+  }, [messages.length, scrollToBottom])
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || loading) return
@@ -66,7 +72,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         const { conversation } = await res.json()
         currentConversationId = conversation.id
         setConversationId(conversation.id)
-        onConversationCreated?.(conversation.id)
+        onConversationCreatedRef.current?.(conversation.id)
       } catch (error) {
         console.error('Failed to create conversation:', error)
         setLoading(false)

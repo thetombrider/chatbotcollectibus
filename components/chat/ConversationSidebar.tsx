@@ -1,124 +1,176 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { useConversation } from '@/hooks/useConversation'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/components/ui/Toast'
+import { ConversationSkeleton } from '@/components/ui/Skeleton'
+import type { ConversationListItem } from '@/types/chat'
 
-interface Conversation {
-  id: string
-  title: string | null
-  created_at: string
-  updated_at: string
+interface ConversationSidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
 }
 
-export function ConversationSidebar() {
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [loading, setLoading] = useState(true)
+export function ConversationSidebar({ isOpen = true, onClose }: ConversationSidebarProps) {
   const pathname = usePathname()
+  const router = useRouter()
+  const { showToast } = useToast()
+  const { conversations, loading, deleteConversation, createNewConversation } = useConversation()
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false)
 
-  useEffect(() => {
-    loadConversations()
-  }, [])
+  const handleDeleteClick = (id: string) => {
+    setDeleteTargetId(id)
+    setIsConfirmOpen(true)
+  }
 
-  const loadConversations = async () => {
-    try {
-      const res = await fetch('/api/conversations')
-      const data = await res.json()
-      setConversations(data.conversations || [])
-    } catch (error) {
-      console.error('Failed to load conversations:', error)
-    } finally {
-      setLoading(false)
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return
+
+    const success = await deleteConversation(deleteTargetId)
+    if (success) {
+      showToast('Conversazione eliminata con successo', 'success')
+      // Se stiamo visualizzando la conversazione eliminata, torna alla chat principale
+      if (pathname === `/chat/${deleteTargetId}`) {
+        router.push('/chat')
+      }
+    } else {
+      showToast('Errore durante l\'eliminazione della conversazione', 'error')
+    }
+    setIsConfirmOpen(false)
+    setDeleteTargetId(null)
+  }
+
+  const handleCreateNew = async () => {
+    const conversation = await createNewConversation()
+    if (conversation) {
+      router.push(`/chat/${conversation.id}`)
+      onClose?.() // Close sidebar on mobile after creating conversation
+    } else {
+      showToast('Errore durante la creazione della conversazione', 'error')
     }
   }
 
-  const deleteConversation = async (id: string) => {
-    if (!confirm('Sei sicuro di voler eliminare questa conversazione?')) {
-      return
-    }
-
-    try {
-      await fetch(`/api/conversations/${id}`, {
-        method: 'DELETE',
-      })
-      setConversations(conversations.filter((c) => c.id !== id))
-    } catch (error) {
-      console.error('Failed to delete conversation:', error)
-      alert('Errore durante l\'eliminazione')
-    }
-  }
-
-  const createNewConversation = async () => {
-    try {
-      const res = await fetch('/api/conversations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Nuova conversazione' }),
-      })
-      const { conversation } = await res.json()
-      setConversations([conversation, ...conversations])
-      window.location.href = `/chat/${conversation.id}`
-    } catch (error) {
-      console.error('Failed to create conversation:', error)
-    }
+  const handleLinkClick = () => {
+    onClose?.() // Close sidebar on mobile when clicking a conversation
   }
 
   return (
-    <div className="w-64 bg-gray-50 border-r border-gray-200 h-screen flex flex-col">
-      <div className="p-3 border-b border-gray-200">
-        <button
-          onClick={createNewConversation}
-          className="w-full bg-transparent border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
-        >
-          + Nuova Conversazione
-        </button>
-      </div>
+    <>
+      {/* Mobile overlay */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
 
-      <div className="flex-1 overflow-y-auto p-2">
-        {loading ? (
-          <div className="text-center text-gray-500 mt-4 text-sm">Caricamento...</div>
-        ) : conversations.length === 0 ? (
-          <div className="text-center text-gray-500 mt-4 text-sm">
-            Nessuna conversazione
+      {/* Sidebar */}
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-64 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] flex flex-col transform transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+        }`}
+        role="complementary"
+        aria-label="Lista conversazioni"
+      >
+        <div className="p-3 border-b border-gray-200">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={handleCreateNew}
+              className="flex-1 bg-transparent border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
+              aria-label="Crea nuova conversazione"
+            >
+              + Nuova Conversazione
+            </button>
+            <button
+              onClick={onClose}
+              className="lg:hidden p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              aria-label="Chiudi sidebar"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
           </div>
-        ) : (
-          <div className="space-y-1">
-            {conversations.map((conv) => (
-              <div
-                key={conv.id}
-                className={`group flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-100 transition-colors ${
-                  pathname === `/chat/${conv.id}` ? 'bg-gray-100' : ''
-                }`}
-              >
-                <Link
-                  href={`/chat/${conv.id}`}
-                  className="flex-1 min-w-0 truncate"
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading ? (
+            <ConversationSkeleton />
+          ) : conversations.length === 0 ? (
+            <div className="text-center text-gray-500 mt-4 text-sm">
+              Nessuna conversazione
+            </div>
+          ) : (
+            <nav className="space-y-1" role="list" aria-label="Conversazioni">
+              {conversations.map((conv) => (
+                <div
+                  key={conv.id}
+                  className={`group flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-100 transition-colors ${
+                    pathname === `/chat/${conv.id}` ? 'bg-gray-100' : ''
+                  }`}
+                  role="listitem"
                 >
-                  <div className="text-sm font-medium text-gray-900 truncate">
-                    {conv.title || 'Senza titolo'}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {new Date(conv.updated_at).toLocaleDateString('it-IT')}
-                  </div>
-                </Link>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault()
-                    deleteConversation(conv.id)
-                  }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 ml-2 p-1 rounded hover:bg-gray-200 transition-colors"
-                  title="Elimina conversazione"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+                  <Link
+                    href={`/chat/${conv.id}`}
+                    className="flex-1 min-w-0 truncate"
+                    onClick={handleLinkClick}
+                    aria-label={`Apri conversazione: ${conv.title || 'Senza titolo'}`}
+                  >
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {conv.title || 'Senza titolo'}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {new Date(conv.updated_at).toLocaleDateString('it-IT')}
+                    </div>
+                  </Link>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      handleDeleteClick(conv.id)
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 ml-2 p-1 rounded hover:bg-gray-200 transition-colors"
+                    title="Elimina conversazione"
+                    aria-label={`Elimina conversazione: ${conv.title || 'Senza titolo'}`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </nav>
+          )}
+        </div>
+      </aside>
+
+      <ConfirmDialog
+        isOpen={isConfirmOpen}
+        title="Elimina conversazione"
+        message="Sei sicuro di voler eliminare questa conversazione? Questa azione non può essere annullata."
+        confirmText="Elimina"
+        cancelText="Annulla"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          setIsConfirmOpen(false)
+          setDeleteTargetId(null)
+        }}
+      />
+    </>
   )
 }
-

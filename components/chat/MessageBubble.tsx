@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MessageWithCitations } from '@/components/chat/Citation'
@@ -12,7 +12,16 @@ interface MessageBubbleProps {
   onOpenSources?: (sources: SourceDetail[]) => void
 }
 
-export function MessageBubble({ message, onOpenSources }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, onOpenSources }: MessageBubbleProps) {
+  const handleOpenSources = useCallback(() => {
+    if (message.sources && onOpenSources) {
+      onOpenSources(message.sources as SourceDetail[])
+    }
+  }, [message.sources, onOpenSources])
+
+  const hasSources = useMemo(() => {
+    return message.role === 'assistant' && message.sources && message.sources.length > 0
+  }, [message.role, message.sources])
   return (
     <div
       className={`flex gap-4 ${
@@ -47,11 +56,11 @@ export function MessageBubble({ message, onOpenSources }: MessageBubbleProps) {
         } px-4 py-3`}
         style={{ overflow: 'visible' }}
       >
-        {message.role === 'assistant' && message.sources && message.sources.length > 0 ? (
+        {hasSources ? (
           <MessageWithCitations
             content={message.content}
             sources={message.sources as SourceDetail[]}
-            onOpenSources={() => onOpenSources?.(message.sources as SourceDetail[])}
+            onOpenSources={handleOpenSources}
           />
         ) : message.role === 'assistant' ? (
           <div className="prose prose-sm max-w-none">
@@ -76,5 +85,5 @@ export function MessageBubble({ message, onOpenSources }: MessageBubbleProps) {
       )}
     </div>
   )
-}
+})
 

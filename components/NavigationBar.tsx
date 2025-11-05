@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toast'
 import type { User } from '@supabase/supabase-js'
 
 /**
@@ -12,6 +13,7 @@ import type { User } from '@supabase/supabase-js'
 export function NavigationBar() {
   const pathname = usePathname()
   const router = useRouter()
+  const { showToast } = useToast()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
@@ -49,7 +51,7 @@ export function NavigationBar() {
       router.refresh()
     } catch (error) {
       console.error('Logout error:', error)
-      alert('Errore durante il logout. Riprova.')
+      showToast('Errore durante il logout. Riprova.', 'error')
     }
   }
 

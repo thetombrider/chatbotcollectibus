@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
 import { SourceDetailPanel } from '@/components/chat/Citation'
 import { MessageBubble } from '@/components/chat/MessageBubble'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { MessageSkeleton } from '@/components/ui/Skeleton'
 import { useChat } from '@/hooks/useChat'
 import { useToast } from '@/components/ui/Toast'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import type { Conversation, Message, SourceDetail } from '@/types/chat'
 
 export default function ChatPageWithId({
@@ -14,9 +17,11 @@ export default function ChatPageWithId({
 }: {
   params: Promise<{ id: string }>
 }) {
+  const router = useRouter()
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [loadingConversation, setLoadingConversation] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
   const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<SourceDetail[]>([])
   const { showToast } = useToast()
@@ -95,17 +100,56 @@ export default function ChatPageWithId({
     setIsSourcesPanelOpen(true)
   }
 
+  // Keyboard shortcuts
+  useKeyboardShortcuts([
+    {
+      key: 'k',
+      metaKey: true, // Cmd+K on Mac
+      ctrlKey: true, // Ctrl+K on Windows/Linux
+      handler: () => {
+        router.push('/chat')
+      },
+      description: 'Nuova conversazione',
+    },
+    {
+      key: 'Escape',
+      handler: () => {
+        if (isSourcesPanelOpen) {
+          setIsSourcesPanelOpen(false)
+        }
+      },
+      description: 'Chiudi pannello',
+    },
+  ])
+
 
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-white relative">
-      <ConversationSidebar />
+      <ConversationSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       <div className="flex-1 flex flex-col relative">
+        {/* Mobile menu button */}
+        <button
+          onClick={() => setIsSidebarOpen(true)}
+          className="lg:hidden fixed top-20 left-4 z-30 p-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors"
+          aria-label="Apri menu conversazioni"
+        >
+          <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
         <div className="flex-1 flex overflow-hidden relative">
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-4 py-8">
               {loadingConversation ? (
-                <div className="text-center mt-20">
-                  <div className="animate-pulse text-gray-500">Caricamento conversazione...</div>
+                <div className="space-y-6 mt-20">
+                  <MessageSkeleton />
+                  <MessageSkeleton />
+                  <MessageSkeleton />
                 </div>
               ) : !conversation ? (
                 <div className="text-center mt-20">
@@ -123,13 +167,27 @@ export default function ChatPageWithId({
                   </a>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="text-center mt-20">
+                <div className="text-center mt-20 space-y-4">
                   <h1 className="text-4xl font-semibold text-gray-900 mb-4">
                     {conversation?.title || 'Conversazione'}
                   </h1>
-                  <p className="text-gray-600">
+                  <p className="text-gray-600 mb-8">
                     Fai una domanda per iniziare la conversazione
                   </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto mt-8">
+                    <div className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                      <h3 className="font-semibold text-gray-900 mb-2">Continuare la conversazione</h3>
+                      <p className="text-sm text-gray-600">
+                        Fai una domanda per continuare il dialogo
+                      </p>
+                    </div>
+                    <div className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                      <h3 className="font-semibold text-gray-900 mb-2">Chiedi informazioni</h3>
+                      <p className="text-sm text-gray-600">
+                        Il chatbot può rispondere a domande sui documenti
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-6">

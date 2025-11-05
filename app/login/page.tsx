@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useToast } from '@/components/ui/Toast'
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
+  const { showToast } = useToast()
 
   useEffect(() => {
     // Load company logo
@@ -46,6 +48,7 @@ export default function LoginPage() {
 
         if (signInError) {
           setError(signInError.message)
+          showToast(signInError.message, 'error')
           return
         }
       } else {
@@ -63,6 +66,7 @@ export default function LoginPage() {
 
         if (signUpError) {
           setError(signUpError.message)
+          showToast(signUpError.message, 'error')
           return
         }
 
@@ -73,7 +77,9 @@ export default function LoginPage() {
         })
 
         if (signInError) {
-          setError('Account created but login failed. Please try logging in.')
+          const errorMsg = 'Account created but login failed. Please try logging in.'
+          setError(errorMsg)
+          showToast(errorMsg, 'error')
           return
         }
       }
@@ -82,7 +88,9 @@ export default function LoginPage() {
       router.push('/chat')
       router.refresh()
     } catch (err) {
-      setError('An unexpected error occurred. Please try again.')
+      const errorMsg = 'An unexpected error occurred. Please try again.'
+      setError(errorMsg)
+      showToast(errorMsg, 'error')
       console.error('Auth error:', err)
     } finally {
       setLoading(false)
