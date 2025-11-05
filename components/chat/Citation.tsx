@@ -723,16 +723,16 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     ),
     // Gestisci le liste
     ul: ({ children }) => (
-      <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul>
+      <ul className="list-disc list-outside mb-4 space-y-1 pl-6">{children}</ul>
     ),
     ol: ({ children }) => (
-      <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>
+      <ol className="list-decimal list-outside mb-4 space-y-1 pl-6">{children}</ol>
     ),
     li: ({ children }) => {
       // Genera un ID univoco per questo elemento li usando il counter
       const liId = `li-${elementCounterRef.current++}`
       return (
-        <li className="leading-relaxed">
+        <li className="leading-relaxed pl-2">
           {React.Children.map(children, (child, idx) => {
             if (typeof child === 'string') {
               return <TextWithCitations key={`${liId}-${idx}`} value={child} keyPrefix={`${liId}-${idx}-`} />
