@@ -94,11 +94,11 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8">
         {/* Logo */}
         {logoUrl && (
-          <div className="flex justify-center mb-4">
+          <div className="flex justify-center">
             <img
               src={logoUrl}
               alt="Company Logo"
-              className="max-h-24 max-w-full object-contain"
+              className="max-h-24 w-full max-w-full object-contain"
             />
           </div>
         )}
@@ -116,7 +116,7 @@ export default function LoginPage() {
         </div>
 
         {/* Form */}
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
