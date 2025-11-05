@@ -7,6 +7,8 @@ import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 
 import type { Source, SourceDetail, MessageWithCitationsProps, SourceDetailPanelProps } from '@/types/chat'
+import type { Document } from '@/lib/supabase/database.types'
+import { DocumentPreview } from '@/components/documents/DocumentPreview'
 
 interface CitationProps {
   index: number
@@ -137,7 +139,7 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
                 }}
                 className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
               >
-                Apri documento completo
+                Apri elenco fonti
               </button>
             )}
             <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
@@ -328,6 +330,9 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
 export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPanelProps) {
   // All hooks must be called before any conditional returns
   const [expandedIndex, setExpandedIndex] = React.useState<number | null>(0)
+  const [previewDocument, setPreviewDocument] = React.useState<Document | null>(null)
+  const [loadingDocument, setLoadingDocument] = React.useState(false)
+  const [documentError, setDocumentError] = React.useState<string | null>(null)
 
   // Ordina per indice di citazione (numerazione relativa) invece che per similarity
   // Le sources già sono state filtrate e rinumerate in app/chat/page.tsx
@@ -344,6 +349,33 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
   const handleExpand = useCallback((idx: number) => {
     setExpandedIndex((prev) => (prev === idx ? null : idx))
+  }, [])
+
+  const handleOpenDocument = useCallback(async (documentId: string) => {
+    setLoadingDocument(true)
+    setDocumentError(null)
+    try {
+      const response = await fetch(`/api/documents/${documentId}`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch document')
+      }
+      const data = await response.json()
+      if (data.success && data.document) {
+        setPreviewDocument(data.document)
+      } else {
+        throw new Error('Document not found')
+      }
+    } catch (err) {
+      console.error('[SourceDetailPanel] Error fetching document:', err)
+      setDocumentError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoadingDocument(false)
+    }
+  }, [])
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewDocument(null)
+    setDocumentError(null)
   }, [])
 
   // Conditional returns after all hooks
@@ -460,15 +492,19 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
                       </div>
                     </div>
 
-                    {/* Link al Documento Completo */}
-                    <a
-                      href={`/documents/${source.documentId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                    {/* Bottone per aprire il preview del documento */}
+                    <button
+                      onClick={() => handleOpenDocument(source.documentId)}
+                      disabled={loadingDocument}
+                      className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Apri Documento Completo
-                    </a>
+                      {loadingDocument ? 'Caricamento...' : 'Apri documento'}
+                    </button>
+                    {documentError && (
+                      <div className="mt-2 text-xs text-red-600">
+                        Errore: {documentError}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -478,6 +514,15 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
         </div>
       </div>
       </div>
+
+      {/* Document Preview Modal */}
+      {previewDocument && (
+        <DocumentPreview
+          document={previewDocument}
+          isOpen={true}
+          onClose={handleClosePreview}
+        />
+      )}
     </>
   )
 }

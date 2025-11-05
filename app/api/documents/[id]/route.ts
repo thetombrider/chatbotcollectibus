@@ -3,6 +3,49 @@ import { getDocument, deleteDocument } from '@/lib/supabase/document-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 /**
+ * GET /api/documents/[id]
+ * Recupera un documento singolo per ID
+ */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const documentId = params.id
+
+    if (!documentId) {
+      return NextResponse.json(
+        { error: 'Document ID is required' },
+        { status: 400 }
+      )
+    }
+
+    const document = await getDocument(documentId)
+
+    if (!document) {
+      return NextResponse.json(
+        { error: 'Document not found' },
+        { status: 404 }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      document,
+    })
+  } catch (error) {
+    console.error('[api/documents/[id]] Get failed:', error)
+    return NextResponse.json(
+      {
+        error: 'Failed to get document',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    )
+  }
+}
+
+/**
  * DELETE /api/documents/[id]
  * Elimina un documento e tutti i suoi chunks e embeddings
  * Rimuove anche il file dallo storage
