@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { extractTextUnified } from '@/lib/processing/document-processor'
-import { sentenceAwareChunking } from '@/lib/processing/sentence-aware-chunking'
+import { detectDocumentStructure } from '@/lib/processing/structure-detector'
+import { adaptiveChunking } from '@/lib/processing/adaptive-chunking'
 import { preprocessChunkContent } from '@/lib/processing/chunk-preprocessing'
 import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
@@ -187,12 +188,22 @@ export async function POST(req: NextRequest) {
           }
 
           // Fase 5: Chunking (50%)
-          sendProgress(controller, 'processing', 50, 'Chunking document text with sentence-aware chunking...')
+          sendProgress(controller, 'processing', 50, 'Detecting document structure and chunking...')
           
-          // Usa sentence-aware chunking per preservare integrità semantica
+          // Rileva struttura del documento (articoli, sezioni, capitoli)
+          const structure = detectDocumentStructure(text, format)
+          console.log(`[api/upload/stream] Detected structure: ${structure.type}, confidence: ${structure.confidence.toFixed(2)}`)
+          if (structure.patterns.articles) {
+            console.log(`[api/upload/stream] Found ${structure.patterns.articles.length} articles`)
+          }
+          if (structure.patterns.sections) {
+            console.log(`[api/upload/stream] Found ${structure.patterns.sections.length} sections`)
+          }
+          
+          // Usa adaptive chunking per preservare integrità strutturale
           // Target 350 token (sweet spot per text-embeddings-3-large)
-          // Migliora similarity score del 15-20% rispetto a fixed-size chunking
-          const chunks = await sentenceAwareChunking(text, {
+          // Chunk per articoli/sezioni quando rilevati, altrimenti sentence-aware
+          const chunks = await adaptiveChunking(text, structure, {
             targetTokens: 350,
             maxTokens: 450,
             minTokens: 200,
@@ -481,10 +492,20 @@ export async function POST(req: NextRequest) {
 
       console.log(`[api/upload] Extracted ${text.length} characters from ${file.name}`)
       
-      // Usa sentence-aware chunking per preservare integrità semantica
+      // Rileva struttura del documento (articoli, sezioni, capitoli)
+      const structure = detectDocumentStructure(text, format)
+      console.log(`[api/upload] Detected structure: ${structure.type}, confidence: ${structure.confidence.toFixed(2)}`)
+      if (structure.patterns.articles) {
+        console.log(`[api/upload] Found ${structure.patterns.articles.length} articles`)
+      }
+      if (structure.patterns.sections) {
+        console.log(`[api/upload] Found ${structure.patterns.sections.length} sections`)
+      }
+      
+      // Usa adaptive chunking per preservare integrità strutturale
       // Target 350 token (sweet spot per text-embeddings-3-large)
-      // Migliora similarity score del 15-20% rispetto a fixed-size chunking
-      const chunks = await sentenceAwareChunking(text, {
+      // Chunk per articoli/sezioni quando rilevati, altrimenti sentence-aware
+      const chunks = await adaptiveChunking(text, structure, {
         targetTokens: 350,
         maxTokens: 450,
         minTokens: 200,

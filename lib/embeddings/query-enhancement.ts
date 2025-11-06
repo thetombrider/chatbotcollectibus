@@ -29,6 +29,89 @@ export interface EnhancementResult {
   enhanced: string
   shouldEnhance: boolean
   fromCache: boolean
+  articleNumber?: number // Numero articolo rilevato, se presente
+}
+
+/**
+ * Rileva riferimenti ad articoli nella query
+ * Pattern: "articolo 28", "art. 28", "article 28", etc.
+ * 
+ * @param query - Query da analizzare
+ * @returns Numero articolo se rilevato, null altrimenti
+ */
+function detectArticleReference(query: string): number | null {
+  // Pattern per articoli in italiano e inglese
+  const articleRegexes = [
+    /(?:articolo|article)\s+(\d+)/i,
+    /art\.?\s+(\d+)/i,
+  ]
+
+  for (const regex of articleRegexes) {
+    const match = query.match(regex)
+    if (match) {
+      const articleNumber = parseInt(match[1], 10)
+      console.log(`[query-enhancement] Detected article reference: ${articleNumber}`)
+      return articleNumber
+    }
+  }
+
+  return null
+}
+
+/**
+ * Espande query con riferimenti ad articoli
+ * Aggiunge varianti e contesto semantico per migliorare la ricerca
+ * 
+ * @param query - Query originale
+ * @param articleNumber - Numero articolo rilevato
+ * @returns Query espansa con varianti e contesto
+ */
+async function expandArticleQuery(query: string, articleNumber: number): Promise<string> {
+  try {
+    // Espansione base: aggiungi varianti comuni
+    const variants = [
+      `Articolo ${articleNumber}`,
+      `Art. ${articleNumber}`,
+      `articolo ${articleNumber}`,
+      `art ${articleNumber}`,
+      `Article ${articleNumber}`,
+    ]
+
+    // Aggiungi contesto semantico
+    const contextTerms = [
+      'contenuto',
+      'disposizioni',
+      'norme',
+      'prescrizioni',
+      'content',
+      'provisions',
+      'requirements',
+    ]
+
+    // Costruisci query espansa
+    let expanded = query
+    
+    // Aggiungi varianti
+    expanded += ' ' + variants.join(' ')
+    
+    // Aggiungi contesto semantico
+    const contextPhrases = contextTerms.map(term => 
+      `${term} articolo ${articleNumber}`
+    )
+    expanded += ' ' + contextPhrases.join(' ')
+
+    console.log('[query-enhancement] Article query expansion:', {
+      original: query.substring(0, 50),
+      articleNumber,
+      expanded: expanded.substring(0, 100),
+    })
+
+    return expanded
+  } catch (error) {
+    console.error('[query-enhancement] Article expansion failed:', error)
+    // On error, return original query
+    return query
+  }
 }
 
 /**
@@ -190,6 +273,9 @@ export async function enhanceQueryIfNeeded(query: string): Promise<EnhancementRe
   }
   
   try {
+    // Step 0: Rileva riferimenti ad articoli (prima del cache check)
+    const articleNumber = detectArticleReference(query)
+    
     // Step 1: Check cache
     const cached = await findCachedEnhancement(query)
     
@@ -199,31 +285,42 @@ export async function enhanceQueryIfNeeded(query: string): Promise<EnhancementRe
         enhanced: cached.enhanced_query,
         shouldEnhance: cached.should_enhance,
         fromCache: true,
+        articleNumber: articleNumber || undefined,
       }
     }
     
-    // Step 2: Detect if enhancement is needed
-    console.log('[query-enhancement] Cache miss, detecting if enhancement needed...')
-    const shouldEnhance = await shouldEnhanceQuery(query)
-    
     let enhancedQuery = query
     
-    // Step 3: Expand if needed
-    if (shouldEnhance) {
-      console.log('[query-enhancement] Enhancement needed, expanding query...')
-      enhancedQuery = await expandQuery(query)
+    // Step 2: Se rilevato riferimento ad articolo, espandi con varianti
+    if (articleNumber !== null) {
+      console.log(`[query-enhancement] Article reference detected (${articleNumber}), expanding...`)
+      enhancedQuery = await expandArticleQuery(query, articleNumber)
+      // Per query con articoli, consideriamo sempre enhancement necessario
+      // per migliorare la ricerca semantica
     } else {
-      console.log('[query-enhancement] Enhancement not needed, using original query')
+      // Step 3: Detect if enhancement is needed (solo se non c'è articolo)
+      console.log('[query-enhancement] Cache miss, detecting if enhancement needed...')
+      const shouldEnhance = await shouldEnhanceQuery(query)
+      
+      // Step 4: Expand if needed
+      if (shouldEnhance) {
+        console.log('[query-enhancement] Enhancement needed, expanding query...')
+        enhancedQuery = await expandQuery(query)
+      } else {
+        console.log('[query-enhancement] Enhancement not needed, using original query')
+      }
     }
     
-    // Step 4: Cache the result
+    // Step 5: Cache the result
+    const shouldEnhance = articleNumber !== null || enhancedQuery !== query
     await saveCachedEnhancement(query, enhancedQuery, shouldEnhance)
     
-    // Step 5: Return result
+    // Step 6: Return result
     return {
       enhanced: enhancedQuery,
       shouldEnhance,
       fromCache: false,
+      articleNumber: articleNumber || undefined,
     }
   } catch (error) {
     console.error('[query-enhancement] Enhancement failed:', error)
