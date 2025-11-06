@@ -255,14 +255,6 @@ export async function POST(req: Request) {
 - Use for webhooks, scheduled tasks
 - Access Supabase directly without extra auth
 
-## Future Considerations (Don't implement yet)
-- Multi-tenancy for client documents (use RLS)
-- Fine-grained access control (Supabase Auth + RLS)
-- Advanced analytics dashboard (Supabase Realtime)
-- Custom embeddings fine-tuned on domain
-- Graph RAG for relationship extraction
-- Real-time collaboration (Supabase Realtime subscriptions)
-
 ## When in Doubt
 - Keep it simple (KISS principle)
 - Favor readability over cleverness

@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { FolderSelector } from './FolderSelector'
 import { VersionDialog } from './VersionDialog'
+import { createClient } from '@/lib/supabase/client'
 
 interface UploadStatus {
   status: 'pending' | 'uploading' | 'processing' | 'completed' | 'error'
@@ -95,8 +96,11 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
     action?: 'replace' | 'version'
   ): Promise<void> => {
     let retryCount = 0
+    const supabase = createClient()
 
     while (retryCount <= maxRetries) {
+      let storagePath: string | undefined
+
       try {
         setUploadStatuses((prev) => ({
           ...prev,
@@ -104,24 +108,52 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
             ...prev[file.name],
             status: retryCount > 0 ? 'processing' : 'uploading',
             progress: 0,
-            stageMessage: retryCount > 0 ? `Retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` : undefined,
+            stageMessage: retryCount > 0 ? `Retrying (attempt ${retryCount + 1}/${maxRetries + 1})...` : 'Uploading to storage...',
             retryCount,
           },
         }))
 
-        const formData = new FormData()
-        formData.append('file', file)
-        if (folder) {
-          formData.append('folder', folder)
-        }
-        if (action) {
-          formData.append('action', action)
+        // Step 1: Upload directly to Supabase Storage (bypasses Vercel limit)
+        const timestamp = Date.now()
+        storagePath = `temp-uploads/${timestamp}-${file.name}`
+        
+        const { error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(storagePath, file, {
+            contentType: file.type,
+            upsert: false,
+          })
+
+        if (uploadError) {
+          throw new Error(`Storage upload failed: ${uploadError.message}`)
         }
 
-        // Usa streaming per progress real-time
-        const res = await fetch('/api/upload?stream=true', {
+        // Step 2: Update progress
+        setUploadStatuses((prev) => ({
+          ...prev,
+          [file.name]: {
+            ...prev[file.name],
+            status: 'processing',
+            progress: 10,
+            stageMessage: 'File uploaded, starting processing...',
+            retryCount,
+          },
+        }))
+
+        // Step 3: Call API to process the file
+        const res = await fetch('/api/upload/process?stream=true', {
           method: 'POST',
-          body: formData,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            storagePath,
+            filename: file.name,
+            fileType: file.type,
+            fileSize: file.size,
+            folder,
+            action,
+          }),
         })
 
         if (!res.ok) {
@@ -200,6 +232,15 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
         return
       } catch (error) {
         console.error(`Error uploading ${file.name} (attempt ${retryCount + 1}):`, error)
+
+        // Cleanup: remove temporary file from storage if upload failed
+        if (storagePath) {
+          try {
+            await supabase.storage.from('documents').remove([storagePath])
+          } catch (cleanupError) {
+            console.error('Failed to cleanup temporary file:', cleanupError)
+          }
+        }
 
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
