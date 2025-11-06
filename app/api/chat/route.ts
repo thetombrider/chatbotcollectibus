@@ -6,6 +6,7 @@ import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
+import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-detection'
 
 /**
  * Estrae tutti gli indici citati dal contenuto del messaggio (versione server-side)
@@ -32,114 +33,6 @@ function extractCitedIndices(content: string): number[] {
 }
 
 export const maxDuration = 60 // 60 secondi per Vercel
-
-/**
- * Rileva se la query è comparativa e estrae i termini chiave da confrontare
- * 
- * Strategia:
- * 1. Primo step: Cerca keyword comparative + normative note (veloce e accurato)
- * 2. Secondo step: Prova pattern regex migliorati
- * 3. Validazione: Verifica che i termini siano normative note
- * 
- * @param message - Original user message
- * @param enhancedMessage - Enhanced message with expanded context (used for better pattern matching)
- */
-function detectComparativeQuery(message: string, enhancedMessage?: string): string[] | null {
-  // Use enhanced message for detection if available (better pattern matching)
-  const messageToAnalyze = enhancedMessage || message
-  const lowerMessage = messageToAnalyze.toLowerCase()
-  
-  // Normative riconosciute (deve essere in sync con quelle nel knowledge base)
-  const knownRegulations = ['ESPR', 'PPWR', 'CSRD', 'CSDDD', 'GDPR', 'REACH', 'CCPA', 'RGPD', 'ISO']
-  
-  // Parole chiave che indicano una query comparativa
-  const comparativeKeywords = [
-    'comune', 'comunanza', 'similari', 'similitudine', 'similare',
-    'differenz', 'differiscon', 'diversit', 'diverso',
-    'confronto', 'confronta', 'compara', 'confrontand',
-    'vs', 'versus', 'versus',
-    // Verbi di comparazione
-    'come', 'quale', 'cosa', 'chi', 'distingue', 'differisce',
-    'somiglia', 'uguaglia', 'uguale', 'pari',
-    // Espressioni comuni
-    'entramb', 'ambedu', 'ambo', 'recipro', 'mutu',
-    'punti in comune', 'punti comuni',
-  ]
-  
-  // Step 1: Verifica se ci sono keyword comparative
-  const hasComparativeKeyword = comparativeKeywords.some(kw => lowerMessage.includes(kw))
-  
-  if (!hasComparativeKeyword) {
-    return null
-  }
-  
-  // Step 2: Trova tutte le normative note menzionate nel messaggio
-  const mentionedRegulations = knownRegulations.filter(reg => 
-    lowerMessage.includes(reg.toLowerCase())
-  )
-  
-  // Step 3: Se sono menzionate 2+ normative + keyword comparativa → è comparativa
-  if (mentionedRegulations.length >= 2) {
-    console.log('[api/chat] Comparative query: found keywords + regulations:', mentionedRegulations)
-    
-    // Se sono più di 2 normative, prendi le prime 2 in ordine di comparsa
-    if (mentionedRegulations.length > 2) {
-      const positions = mentionedRegulations.map(reg => ({
-        reg,
-        index: lowerMessage.indexOf(reg.toLowerCase())
-      }))
-      positions.sort((a, b) => a.index - b.index)
-      
-      // Ritorna le prime 2 per evitare confusione
-      return [positions[0].reg, positions[1].reg]
-    }
-    
-    return mentionedRegulations
-  }
-  
-  // Step 4: Se non ha trovato 2+ normative, prova pattern regex migliorati
-  const improvedPatterns = [
-    // Pattern 1: "parola_comparativa tra/con/di X e Y"
-    // Es: "confronto tra ESPR e PPWR", "differenza con GDPR e REACH"
-    /(?:confronto|differenza|comune|simil|distinzione|rapporto)\s+(?:tra|con|di)\s+(?:la\s+)?([A-Z]{2,})\s+(?:e|ed|&)\s+(?:la\s+)?([A-Z]{2,})/i,
-    
-    // Pattern 2: "X e Y: parola_comparativa"
-    // Es: "ESPR e PPWR: punti in comune", "GDPR vs REACH - differenze"
-    /([A-Z]{2,})\s+(?:e|ed|&|vs|versus)\s+([A-Z]{2,})\s*[:,-]?\s*(?:confronto|differenza|comune|simil|distinzione)/i,
-    
-    // Pattern 3: "come/quale... X e Y"
-    // Es: "come si differenziano ESPR e PPWR", "quali sono i punti comuni tra GDPR e REACH"
-    /(?:come|quale|cosa|chi)\s+(?:[^.]*?)\s+([A-Z]{2,})\s+(?:e|ed|&)\s+([A-Z]{2,})/i,
-    
-    // Pattern 4: "entrambe/ambedue le normative X e Y"
-    // Es: "entrambe le norme ESPR e PPWR", "ambedue i regolamenti"
-    /(?:entramb|ambedu|ambo)\s+(?:le\s+)?(?:norm|regolament|direttiv|standard)\s+(?:sono\s+)?([A-Z]{2,})\s+(?:e|ed|&)\s+([A-Z]{2,})/i,
-    
-    // Pattern 5: "X e Y: cosa/quali/come" (inverso del pattern 3)
-    // Es: "ESPR e PPWR: quali sono le differenze", "GDPR e REACH: come si differenziano"
-    /([A-Z]{2,})\s+(?:e|ed|&)\s+([A-Z]{2,})\s*[:,-]?\s*(?:cosa|quale|come|chi)\s+(?:[^.]*?)/i,
-  ]
-  
-  for (const pattern of improvedPatterns) {
-    const match = messageToAnalyze.match(pattern)
-    if (match && match[1] && match[2]) {
-      const term1 = match[1].toUpperCase()
-      const term2 = match[2].toUpperCase()
-      
-      // Validazione: i termini devono essere normative note (evita falsi positivi come "Mario e Luigi")
-      if (knownRegulations.includes(term1) && knownRegulations.includes(term2)) {
-        console.log('[api/chat] Comparative query: pattern matched:', [term1, term2])
-        return [term1, term2]
-      }
-    }
-  }
-  
-  // Step 5: Fallback - se la query ha keyword comparativa ma non abbiamo trovato termini specifici,
-  // potrebbe essere una query comparativa generica (es: "quali sono gli obblighi comuni delle direttive EU?")
-  // Ma non ritorniamo nulla perché non sappiamo su cosa fare la multi-query search
-  console.log('[api/chat] Comparative keywords found but no specific regulations matched')
-  return null
-}
 
 /**
  * Esegue ricerche multiple per query comparative e combina i risultati
@@ -439,7 +332,7 @@ export async function POST(req: NextRequest) {
           console.log('[api/chat] Step 3: Vector search')
           
           // Use enhanced query for comparative detection (better pattern matching)
-          const comparativeTerms = detectComparativeQuery(message, wasEnhanced ? queryToEmbed : undefined)
+          const comparativeTerms = await detectComparativeQueryLLM(message, wasEnhanced ? queryToEmbed : undefined)
           
           // Send status message for search
           if (comparativeTerms) {
