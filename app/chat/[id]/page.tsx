@@ -24,6 +24,7 @@ export default function ChatPageWithId({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
   const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<SourceDetail[]>([])
+  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const { showToast } = useToast()
 
   const {
@@ -80,6 +81,23 @@ export default function ChatPageWithId({
 
     loadConversation()
   }, [params, setMessages])
+
+  useEffect(() => {
+    // Load company logo
+    const loadLogo = async () => {
+      try {
+        const response = await fetch('/api/settings')
+        if (response.ok) {
+          const data = await response.json()
+          setLogoUrl(data.company_logo?.url || null)
+        }
+      } catch (err) {
+        console.error('Error loading logo:', err)
+        // Fail silently - logo is optional
+      }
+    }
+    loadLogo()
+  }, [])
 
   const handleSend = async () => {
     if (!conversationId) return
@@ -167,8 +185,17 @@ export default function ChatPageWithId({
                 </div>
               ) : messages.length === 0 ? (
                 <div className="text-center mt-20 space-y-4">
+                  {logoUrl && (
+                    <div className="flex justify-center mb-8">
+                      <img
+                        src={logoUrl}
+                        alt="Company Logo"
+                        className="max-w-xs max-h-32 object-contain"
+                      />
+                    </div>
+                  )}
                   <h1 className="text-4xl font-semibold text-gray-900 mb-4">
-                    {conversation?.title || 'Conversazione'}
+                    Nuova conversazione
                   </h1>
                   <p className="text-gray-600 mb-8">
                     Fai una domanda per iniziare la conversazione
