@@ -85,6 +85,31 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
   }, [])
 
   /**
+   * Sanitizza il nome del file per renderlo compatibile con le chiavi di storage
+   * Rimuove caratteri non validi e li sostituisce con underscore
+   */
+  const sanitizeFileName = (fileName: string): string => {
+    // Estrai estensione
+    const lastDot = fileName.lastIndexOf('.')
+    const name = lastDot > 0 ? fileName.slice(0, lastDot) : fileName
+    const extension = lastDot > 0 ? fileName.slice(lastDot) : ''
+    
+    // Sostituisci caratteri non validi con underscore
+    // Mantieni lettere, numeri, trattini, underscore e punti
+    const sanitized = name
+      .normalize('NFD') // Normalizza caratteri Unicode (es. à -> a + accent)
+      .replace(/[\u0300-\u036f]/g, '') // Rimuovi diacritici
+      .replace(/[^a-zA-Z0-9._-]/g, '_') // Sostituisci caratteri non validi
+      .replace(/_{2,}/g, '_') // Rimuovi underscore multipli
+      .replace(/^_+|_+$/g, '') // Rimuovi underscore all'inizio/fine
+    
+    // Se il nome è vuoto dopo la sanitizzazione, usa un nome di default
+    const finalName = sanitized || 'file'
+    
+    return `${finalName}${extension}`
+  }
+
+  /**
    * Helper per retry con exponential backoff
    */
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -115,7 +140,8 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
 
         // Step 1: Upload directly to Supabase Storage (bypasses Vercel limit)
         const timestamp = Date.now()
-        storagePath = `temp-uploads/${timestamp}-${file.name}`
+        const sanitizedFileName = sanitizeFileName(file.name)
+        storagePath = `temp-uploads/${timestamp}-${sanitizedFileName}`
         
         const { error: uploadError } = await supabase.storage
           .from('documents')
