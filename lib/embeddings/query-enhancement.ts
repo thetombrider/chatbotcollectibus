@@ -34,7 +34,7 @@ export interface EnhancementResult {
 
 /**
  * Rileva riferimenti ad articoli nella query
- * Pattern: "articolo 28", "art. 28", "article 28", etc.
+ * Pattern: "articolo 28", "art. 28", "article 28", "il 34", "al 28", etc.
  * 
  * @param query - Query da analizzare
  * @returns Numero articolo se rilevato, null altrimenti
@@ -42,16 +42,24 @@ export interface EnhancementResult {
 function detectArticleReference(query: string): number | null {
   // Pattern per articoli in italiano e inglese
   const articleRegexes = [
+    // Pattern formali: "articolo 28", "article 28"
     /(?:articolo|article)\s+(\d+)/i,
+    // Pattern abbreviati: "art. 28", "art 28"
     /art\.?\s+(\d+)/i,
+    // Pattern colloquiali per follow-up: "il 34", "al 28", "del 15", "l'articolo 20", "nell'articolo 5"
+    // Limitato a 1-3 cifre per evitare falsi positivi come "il 2024"
+    /\b(?:il|al|del|nell'?|l')\s+(?:articolo\s+)?(\d{1,3})\b/i,
   ]
 
   for (const regex of articleRegexes) {
     const match = query.match(regex)
     if (match) {
       const articleNumber = parseInt(match[1], 10)
-      console.log(`[query-enhancement] Detected article reference: ${articleNumber}`)
-      return articleNumber
+      // Sanity check: articoli solitamente sono tra 1 e 999
+      if (articleNumber >= 1 && articleNumber <= 999) {
+        console.log(`[query-enhancement] Detected article reference: ${articleNumber}`)
+        return articleNumber
+      }
     }
   }
 
