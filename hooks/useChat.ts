@@ -4,6 +4,7 @@ import type { Message, Source } from '@/types/chat'
 interface UseChatOptions {
   conversationId?: string | null
   onConversationCreated?: (id: string) => void
+  webSearchEnabled?: boolean
 }
 
 interface UseChatReturn {
@@ -16,6 +17,8 @@ interface UseChatReturn {
   messagesEndRef: React.RefObject<HTMLDivElement>
   handleSend: () => Promise<void>
   scrollToBottom: () => void
+  webSearchEnabled: boolean
+  setWebSearchEnabled: (enabled: boolean) => void
 }
 
 /**
@@ -23,12 +26,13 @@ interface UseChatReturn {
  * Handles message streaming, conversation creation, and state management
  */
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
-  const { conversationId: initialConversationId, onConversationCreated } = options
+  const { conversationId: initialConversationId, onConversationCreated, webSearchEnabled: initialWebSearchEnabled = false } = options
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(initialWebSearchEnabled)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   const onConversationCreatedRef = useRef(onConversationCreated)
@@ -83,13 +87,18 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
     // Streaming response
     try {
+      const requestBody = {
+        message: messageContent,
+        conversationId: currentConversationId,
+        webSearchEnabled,
+      }
+      
+      console.log('[useChat] Sending request with webSearchEnabled:', webSearchEnabled)
+      
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageContent,
-          conversationId: currentConversationId,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!res.ok) {
@@ -173,7 +182,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       setMessages((prev) => prev.slice(0, -1))
       throw error
     }
-  }, [input, loading, conversationId, onConversationCreated])
+  }, [input, loading, conversationId, onConversationCreated, webSearchEnabled])
 
   return {
     messages,
@@ -185,6 +194,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     messagesEndRef,
     handleSend,
     scrollToBottom,
+    webSearchEnabled,
+    setWebSearchEnabled,
   }
 }
 

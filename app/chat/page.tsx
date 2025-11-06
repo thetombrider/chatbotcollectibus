@@ -28,6 +28,8 @@ export default function ChatPage() {
     setInput,
     messagesEndRef,
     handleSend: handleSendOriginal,
+    webSearchEnabled,
+    setWebSearchEnabled,
   } = useChat({
     onConversationCreated: (_id) => {
       // Handle conversation creation if needed
@@ -196,6 +198,8 @@ export default function ChatPage() {
           loading={loading}
           onSend={handleSend}
           statusMessage={statusMessage}
+          webSearchEnabled={webSearchEnabled}
+          onWebSearchToggle={setWebSearchEnabled}
         />
       </div>
     </div>

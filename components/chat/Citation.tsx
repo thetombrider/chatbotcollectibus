@@ -122,14 +122,43 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
         >
           <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
             <div className="font-semibold mb-2 text-white">Fonte:</div>
-            {citationSources.map((source, idx) => (
-              <div key={idx} className="mb-2 last:mb-3">
-                <div className="font-medium text-white">{source.filename}</div>
-                <div className="text-gray-400 text-xs mt-0.5">
-                  Similarità: {(source.similarity * 100).toFixed(1)}%
+            {citationSources.map((source, idx) => {
+              const isWebSource = source.type === 'web'
+              return (
+                <div key={idx} className="mb-2 last:mb-3">
+                  {isWebSource ? (
+                    <>
+                      <div className="font-medium text-white">{source.title || source.filename}</div>
+                      {source.url && (
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {source.url}
+                        </a>
+                      )}
+                      {'content' in source && source.content && typeof source.content === 'string' && (
+                        <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                          {source.content.substring(0, 150)}...
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-medium text-white">{source.filename}</div>
+                      {source.similarity !== undefined && (
+                        <div className="text-gray-400 text-xs mt-0.5">
+                          Similarità: {(source.similarity * 100).toFixed(1)}%
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {onOpenSources && (
               <button
                 onClick={(e) => {
@@ -140,6 +169,207 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
                 className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
               >
                 Apri elenco fonti
+              </button>
+            )}
+            <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
+              <div className="border-4 border-transparent border-t-gray-900"></div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+interface CitationHybridProps {
+  kbIndices: number[]
+  webIndices: number[]
+  kbSources: Source[]
+  webSources: Source[]
+  onOpenSources?: () => void
+}
+
+/**
+ * Componente per renderizzare citazioni ibride [cit:1, web:1] o [cit:1, cit:2, web:1, web:3]
+ */
+export function CitationHybrid({ kbIndices, webIndices, kbSources, webSources, onOpenSources }: CitationHybridProps) {
+  const [showTooltip, setShowTooltip] = useState(false)
+  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 })
+  const citationRef = useRef<HTMLSpanElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Filtra sources KB e web basate sugli indici
+  const kbCitationSources = kbSources.filter((s) => kbIndices.includes(s.index))
+  const webCitationSources = webSources.filter((s) => webIndices.includes(s.index))
+  
+  const hasKbSources = kbCitationSources.length > 0
+  const hasWebSources = webCitationSources.length > 0
+
+  const handleShowTooltip = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+    setShowTooltip(true)
+  }
+
+  const handleHideTooltip = () => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setShowTooltip(false)
+    }, 200)
+  }
+
+  useEffect(() => {
+    const updatePosition = () => {
+      if (citationRef.current && showTooltip) {
+        const rect = citationRef.current.getBoundingClientRect()
+        setTooltipPosition({
+          top: rect.top - 10,
+          left: rect.left + rect.width / 2,
+        })
+      }
+    }
+
+    if (showTooltip) {
+      updatePosition()
+      window.addEventListener('scroll', updatePosition)
+      window.addEventListener('resize', updatePosition)
+      return () => {
+        window.removeEventListener('scroll', updatePosition)
+        window.removeEventListener('resize', updatePosition)
+      }
+    }
+  }, [showTooltip])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        tooltipRef.current && 
+        !tooltipRef.current.contains(event.target as Node) &&
+        citationRef.current &&
+        !citationRef.current.contains(event.target as Node)
+      ) {
+        setShowTooltip(false)
+      }
+    }
+
+    if (showTooltip) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showTooltip])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  if (!hasKbSources && !hasWebSources) {
+    return null
+  }
+
+  // Costruisci il testo della citazione combinando indici KB e web
+  // Mostra solo i numeri, non "cit:" o "web:" per mantenere coerenza con le altre citazioni
+  const allIndices: number[] = []
+  if (hasKbSources) {
+    allIndices.push(...kbIndices.sort((a, b) => a - b))
+  }
+  if (hasWebSources) {
+    allIndices.push(...webIndices.sort((a, b) => a - b))
+  }
+  
+  // Rimuovi duplicati e ordina
+  const uniqueIndices = Array.from(new Set(allIndices)).sort((a, b) => a - b)
+
+  return (
+    <>
+      <span ref={citationRef} className="relative inline-block">
+        <sup
+          className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
+          onClick={() => setShowTooltip(true)}
+        >
+          [{uniqueIndices.join(',')}]
+        </sup>
+      </span>
+      {showTooltip && typeof window !== 'undefined' && createPortal(
+        <div 
+          ref={tooltipRef}
+          className="fixed z-[9999] w-80 pointer-events-auto"
+          style={{
+            top: `${tooltipPosition.top}px`,
+            left: `${tooltipPosition.left}px`,
+            transform: 'translate(-50%, -100%)',
+            marginBottom: '8px',
+          }}
+          onMouseEnter={handleShowTooltip}
+          onMouseLeave={handleHideTooltip}
+        >
+          <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
+            <div className="font-semibold mb-2 text-white">Fonti (KB + Web):</div>
+            
+            {/* Sources KB */}
+            {hasKbSources && (
+              <>
+                <div className="text-gray-400 text-xs mb-1 mt-2">Knowledge Base:</div>
+                {kbCitationSources.map((source, idx) => (
+                  <div key={`kb-${idx}`} className="mb-2">
+                    <div className="font-medium text-white">{source.filename}</div>
+                    {source.similarity !== undefined && (
+                      <div className="text-gray-400 text-xs mt-0.5">
+                        Similarità: {(source.similarity * 100).toFixed(1)}%
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+            
+            {/* Sources Web */}
+            {hasWebSources && (
+              <>
+                <div className="text-gray-400 text-xs mb-1 mt-2">Web:</div>
+                {webCitationSources.map((source, idx) => (
+                  <div key={`web-${idx}`} className="mb-2">
+                    <div className="font-medium text-white">{source.title || source.filename}</div>
+                    {source.url && (
+                      <a
+                        href={source.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {source.url}
+                      </a>
+                    )}
+                    {'content' in source && source.content && typeof source.content === 'string' ? (
+                      <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                        {(source.content as string).substring(0, 150)}...
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </>
+            )}
+            
+            {onOpenSources && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenSources()
+                  setShowTooltip(false)
+                }}
+                className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
+              >
+                Apri tutte le fonti
               </button>
             )}
             <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
@@ -265,14 +495,43 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
         >
           <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
             <div className="font-semibold mb-2 text-white">Fonti:</div>
-            {citationSources.map((source, idx) => (
-              <div key={idx} className="mb-2 last:mb-3">
-                <div className="font-medium text-white">{source.filename}</div>
-                <div className="text-gray-400 text-xs mt-0.5">
-                  Similarità: {(source.similarity * 100).toFixed(1)}%
+            {citationSources.map((source, idx) => {
+              const isWebSource = source.type === 'web'
+              return (
+                <div key={idx} className="mb-2 last:mb-3">
+                  {isWebSource ? (
+                    <>
+                      <div className="font-medium text-white">{source.title || source.filename}</div>
+                      {source.url && (
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {source.url}
+                        </a>
+                      )}
+                      {'content' in source && source.content && typeof source.content === 'string' && (
+                        <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                          {source.content.substring(0, 150)}...
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-medium text-white">{source.filename}</div>
+                      {source.similarity !== undefined && (
+                        <div className="text-gray-400 text-xs mt-0.5">
+                          Similarità: {(source.similarity * 100).toFixed(1)}%
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {onOpenSources && (
               <button
                 onClick={(e) => {
@@ -314,9 +573,11 @@ export function SourcesPanel({ sources }: SourcesPanelProps) {
       {sources.map((source, idx) => (
         <div key={idx} className="mb-1 last:mb-0">
           <div className="font-medium">{source.filename}</div>
-          <div className="text-gray-600 text-xs">
-            Similarità: {(source.similarity * 100).toFixed(1)}%
-          </div>
+          {source.similarity !== undefined && (
+            <div className="text-gray-600 text-xs">
+              Similarità: {(source.similarity * 100).toFixed(1)}%
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -442,6 +703,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
           <div className="space-y-3">
           {sortedSources.map((source: SourceDetail, idx: number) => {
             const isExpanded = expandedIndex === idx
+            const isWebSource = source.type === 'web'
             
             return (
               <div
@@ -458,14 +720,25 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
                   <div className="flex justify-between items-start">
                     <div className="flex-1 pr-2">
                       <div id={`source-header-${idx}`} className="font-medium text-sm text-gray-900 mb-1">
-                        {source.filename}
+                        {isWebSource ? (source.title || source.filename) : source.filename}
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-gray-600">
-                        <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">
-                          Fonte #{source.index}
+                      <div className="flex items-center gap-2 text-xs text-gray-600 flex-wrap">
+                        <span className={`px-2 py-0.5 rounded font-medium ${
+                          isWebSource 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {isWebSource ? 'Web' : 'KB'} #{source.index}
                         </span>
-                        <span>Similarità: {(source.similarity * 100).toFixed(1)}%</span>
-                        <span>Chunk #{source.chunkIndex}</span>
+                        {!isWebSource && source.similarity !== undefined && (
+                          <span>Similarità: {(source.similarity * 100).toFixed(1)}%</span>
+                        )}
+                        {!isWebSource && source.chunkIndex !== undefined && (
+                          <span>Chunk #{source.chunkIndex}</span>
+                        )}
+                        {isWebSource && source.url && (
+                          <span className="text-blue-600 truncate max-w-xs">{source.url}</span>
+                        )}
                       </div>
                     </div>
                     <svg 
@@ -482,28 +755,73 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
                 {/* Contenuto Espandibile */}
                 {isExpanded && (
                   <div id={`source-content-${idx}`} className="p-3 bg-white border-t border-gray-200" role="region" aria-labelledby={`source-header-${idx}`}>
-                    {/* Testo del Chunk */}
-                    <div className="mb-3">
-                      <h4 className="text-xs font-semibold text-gray-700 mb-2">
-                        Testo Estratto dal Vector Store:
-                      </h4>
-                      <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
-                        {source.content || <span className="text-gray-400 italic">Contenuto non disponibile</span>}
-                      </div>
-                    </div>
+                    {isWebSource ? (
+                      <>
+                        {/* Source Web: Titolo, URL e Snippet */}
+                        {source.title && (
+                          <div className="mb-3">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-1">
+                              Titolo:
+                            </h4>
+                            <div className="text-sm text-gray-900 font-medium">
+                              {source.title}
+                            </div>
+                          </div>
+                        )}
+                        {source.url && (
+                          <div className="mb-3">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-1">
+                              URL:
+                            </h4>
+                            <a
+                              href={source.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-xs break-all"
+                            >
+                              {source.url}
+                            </a>
+                          </div>
+                        )}
+                        {source.content && (
+                          <div className="mb-3">
+                            <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                              Snippet:
+                            </h4>
+                            <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
+                              {source.content}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Source KB: Testo del Chunk */}
+                        <div className="mb-3">
+                          <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                            Testo Estratto dal Vector Store:
+                          </h4>
+                          <div className="bg-gray-50 border border-gray-200 rounded p-3 text-xs text-gray-800 leading-relaxed max-h-64 overflow-y-auto">
+                            {source.content || <span className="text-gray-400 italic">Contenuto non disponibile</span>}
+                          </div>
+                        </div>
 
-                    {/* Bottone per aprire il preview del documento */}
-                    <button
-                      onClick={() => handleOpenDocument(source.documentId)}
-                      disabled={loadingDocument}
-                      className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {loadingDocument ? 'Caricamento...' : 'Apri documento'}
-                    </button>
-                    {documentError && (
-                      <div className="mt-2 text-xs text-red-600">
-                        Errore: {documentError}
-                      </div>
+                        {/* Bottone per aprire il preview del documento */}
+                        {source.documentId && (
+                          <button
+                            onClick={() => handleOpenDocument(source.documentId!)}
+                            disabled={loadingDocument}
+                            className="inline-block w-full text-center px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {loadingDocument ? 'Caricamento...' : 'Apri documento'}
+                          </button>
+                        )}
+                        {documentError && (
+                          <div className="mt-2 text-xs text-red-600">
+                            Errore: {documentError}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -585,18 +903,75 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
   // Le sources sono già filtrate e rinumerate dal backend (1, 2, 3...)
   // Non serve validazione o mappatura aggiuntiva
   
+  // Separa sources KB e web
+  const kbSources = useMemo(() => sources.filter(s => !s.type || s.type === 'kb'), [sources])
+  const webSources = useMemo(() => sources.filter(s => s.type === 'web'), [sources])
+  
   // Pre-processa il contenuto sostituendo le citazioni con placeholder univoci
   const processedContent = useMemo(() => {
     citationMapRef.current.clear()
     elementCounterRef.current = 0
     
-    // Regex che gestisce sia [cit:1,2,3] che [cit 1,2,3] e [cit 1, 2, 3]
-    const processed = content.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+    let processed = content
+    
+    // PRIMA: Processa citazioni ibride che contengono sia cit: che web:
+    // Esempi: [cit:1, web:1], [cit:1, cit:2, web:1, web:3], [cit 1, web 1]
+    // Regex che matcha parentesi quadre che contengono sia "cit" che "web"
+    processed = processed.replace(/\[([^\]]*(?:cit|web)[^\]]*(?:cit|web)[^\]]*)\]/g, (match, innerContent) => {
+      // Verifica che contenga effettivamente sia cit che web
+      const hasCit = /cit[\s:]+/.test(innerContent)
+      const hasWeb = /web[\s:]+/.test(innerContent)
+      
+      if (!hasCit || !hasWeb) {
+        // Non è una citazione ibrida, lascia passare per il processing normale
+        return match
+      }
+      
+      // Estrai tutti i pattern cit:N e web:N dalla citazione ibrida
+      const citMatches = Array.from(innerContent.matchAll(/cit[\s:]+(\d+(?:\s*,\s*\d+)*)/g)) as RegExpMatchArray[]
+      const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*\d+)*)/g)) as RegExpMatchArray[]
+      
+      const kbIndices: number[] = []
+      const webIndices: number[] = []
+      
+      // Estrai indici KB
+      for (const citMatch of citMatches) {
+        const indicesStr = citMatch[1]
+        const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+        kbIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+      }
+      
+      // Estrai indici web
+      for (const webMatch of webMatches) {
+        const indicesStr = webMatch[1]
+        const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+        webIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+      }
+      
+      // Filtra solo indici validi
+      const validKbIndices = Array.from(new Set(kbIndices)).filter((idx: number) => kbSources.some(s => s.index === idx))
+      const validWebIndices = Array.from(new Set(webIndices)).filter((idx: number) => webSources.some(s => s.index === idx))
+      
+      // Se non ci sono indici validi, rimuovi la citazione
+      if (validKbIndices.length === 0 && validWebIndices.length === 0) {
+        return ''
+      }
+      
+      // Crea placeholder ibrido che contiene sia indici KB che web
+      const placeholder = `{{CITE_HYBRID_${citationMapRef.current.size}}}`
+      // Salva come oggetto con indici KB e web separati
+      citationMapRef.current.set(placeholder, { kb: validKbIndices, web: validWebIndices } as any)
+      
+      return placeholder
+    })
+    
+    // POI: Processa citazioni KB separate (solo se non sono già state processate come ibride)
+    processed = processed.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
       // Rimuovi spazi prima di fare split
       const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
       
-      // Filtra solo indici validi (che esistono nelle sources)
-      const validIndices = indices.filter((idx: number) => sources.some(s => s.index === idx))
+      // Filtra solo indici validi (che esistono nelle sources KB)
+      const validIndices = indices.filter((idx: number) => kbSources.some(s => s.index === idx))
       
       // Se non ci sono indici validi, rimuovi la citazione
       if (validIndices.length === 0) {
@@ -604,14 +979,34 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
       }
       
       // Crea placeholder semplice
-      const placeholder = `{{CITE_${citationMapRef.current.size}}}`
+      const placeholder = `{{CITE_KB_${citationMapRef.current.size}}}`
+      citationMapRef.current.set(placeholder, validIndices)
+      
+      return placeholder
+    })
+    
+    // POI: Processa citazioni web separate (solo se non sono già state processate come ibride)
+    processed = processed.replace(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
+      // Rimuovi spazi prima di fare split
+      const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+      
+      // Filtra solo indici validi (che esistono nelle sources web)
+      const validIndices = indices.filter((idx: number) => webSources.some(s => s.index === idx))
+      
+      // Se non ci sono indici validi, rimuovi la citazione
+      if (validIndices.length === 0) {
+        return ''
+      }
+      
+      // Crea placeholder semplice
+      const placeholder = `{{CITE_WEB_${citationMapRef.current.size}}}`
       citationMapRef.current.set(placeholder, validIndices)
       
       return placeholder
     })
     
     return processed
-  }, [content, sources])
+  }, [content, kbSources, webSources])
 
   // Componente per processare il testo e sostituire i placeholder con le citazioni
   // Usa un counter locale che si resetta ad ogni chiamata
@@ -624,8 +1019,8 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     let lastIndex = 0
     let localCounter = 0 // Counter locale per questa specifica stringa
     
-    // Regex per trovare i placeholder {{CITE_N}}
-    const placeholderRegex = /\{\{CITE_(\d+)\}\}/g
+    // Prima cerca i placeholder {{CITE_KB_N}}, {{CITE_WEB_N}} e {{CITE_HYBRID_N}} (già processati)
+    const placeholderRegex = /\{\{CITE_(KB|WEB|HYBRID)_(\d+)\}\}/g
     let match
 
     while ((match = placeholderRegex.exec(value)) !== null) {
@@ -637,10 +1032,28 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
 
       // Trova la citazione corrispondente
       const placeholder = match[0]
-      const relativeIndices = citationMapRef.current.get(placeholder)
+      const sourceType = match[1] // 'KB', 'WEB' o 'HYBRID'
+      const citationData = citationMapRef.current.get(placeholder)
       
-      if (relativeIndices && relativeIndices.length > 0) {
-        // Usa placeholder + offset nella stringa per key unica e stabile
+      if (sourceType === 'HYBRID' && citationData && typeof citationData === 'object' && 'kb' in citationData && 'web' in citationData) {
+        // Citazione ibrida: contiene sia indici KB che web
+        const hybridData = citationData as { kb: number[]; web: number[] }
+        const uniqueKey = `${keyPrefix}${placeholder}-at-${match.index}`
+        
+        parts.push(
+          <CitationHybrid
+            key={uniqueKey}
+            kbIndices={hybridData.kb}
+            webIndices={hybridData.web}
+            kbSources={kbSources}
+            webSources={webSources}
+            onOpenSources={onOpenSources}
+          />
+        )
+      } else if (sourceType !== 'HYBRID' && Array.isArray(citationData) && citationData.length > 0) {
+        // Citazione normale (KB o WEB)
+        const relativeIndices = citationData
+        const relevantSources = sourceType === 'WEB' ? webSources : kbSources
         const uniqueKey = `${keyPrefix}${placeholder}-at-${match.index}`
         
         // Le sources sono già rinumerate dal backend, usale direttamente
@@ -649,7 +1062,7 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
             <Citation 
               key={uniqueKey} 
               index={relativeIndices[0]} 
-              sources={sources} 
+              sources={relevantSources} 
               onOpenSources={onOpenSources} 
             />
           )
@@ -658,7 +1071,7 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
             <CitationMultiple 
               key={uniqueKey} 
               indices={relativeIndices} 
-              sources={sources} 
+              sources={relevantSources} 
               onOpenSources={onOpenSources} 
             />
           )
@@ -666,6 +1079,168 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
       }
 
       lastIndex = match.index + match[0].length
+    }
+
+    // Se ci sono ancora citazioni non processate (fallback)
+    // Questo può accadere se ReactMarkdown ha processato il contenuto in modo diverso
+    // IMPORTANTE: Verifica che non ci siano già placeholder processati nel testo rimanente
+    const remainingText = value.slice(lastIndex)
+    const hasPlaceholders = /\{\{CITE_(KB|WEB|HYBRID)_\d+\}\}/.test(remainingText)
+    
+    // Solo se non ci sono placeholder e ci sono citazioni non processate, processale
+    if (!hasPlaceholders && (remainingText.includes('[web:') || remainingText.includes('[cit:'))) {
+      // PRIMA: Processa citazioni ibride non processate [cit:1, web:1]
+      const hybridCitationRegex = /\[([^\]]*(?:cit|web)[^\]]*(?:cit|web)[^\]]*)\]/g
+      let hybridMatch
+      
+      while ((hybridMatch = hybridCitationRegex.exec(remainingText)) !== null) {
+        const matchIndex = hybridMatch.index + lastIndex
+        const innerContent = hybridMatch[1]
+        
+        // Verifica che contenga effettivamente sia cit che web
+        const hasCit = /cit[\s:]+/.test(innerContent)
+        const hasWeb = /web[\s:]+/.test(innerContent)
+        
+        if (hasCit && hasWeb) {
+          // È una citazione ibrida
+          // Aggiungi testo prima della citazione
+          if (matchIndex > lastIndex) {
+            const textContent = value.slice(lastIndex, matchIndex)
+            parts.push(<React.Fragment key={`${keyPrefix}text-${localCounter++}`}>{textContent}</React.Fragment>)
+          }
+          
+          // Estrai indici KB e web
+          const citMatches = Array.from(innerContent.matchAll(/cit[\s:]+(\d+(?:\s*,\s*\d+)*)/g))
+          const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*\d+)*)/g))
+          
+          const kbIndices: number[] = []
+          const webIndices: number[] = []
+          
+          for (const citMatch of citMatches) {
+            const indicesStr = citMatch[1]
+            const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+            kbIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+          }
+          
+          for (const webMatch of webMatches) {
+            const indicesStr = webMatch[1]
+            const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+            webIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+          }
+          
+          const validKbIndices = Array.from(new Set(kbIndices)).filter((idx: number) => kbSources.some(s => s.index === idx))
+          const validWebIndices = Array.from(new Set(webIndices)).filter((idx: number) => webSources.some(s => s.index === idx))
+          
+          if (validKbIndices.length > 0 || validWebIndices.length > 0) {
+            const uniqueKey = `${keyPrefix}hybrid-${matchIndex}`
+            parts.push(
+              <CitationHybrid
+                key={uniqueKey}
+                kbIndices={validKbIndices}
+                webIndices={validWebIndices}
+                kbSources={kbSources}
+                webSources={webSources}
+                onOpenSources={onOpenSources}
+              />
+            )
+          }
+          
+          lastIndex = matchIndex + hybridMatch[0].length
+        }
+      }
+      
+      // POI: Processa citazioni separate non processate [web:N] e [cit:N]
+      const webCitationRegex = /\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+      const kbCitationRegex = /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+      
+      let textIndex = 0
+      let nextMatch: { index: number; type: 'web' | 'kb'; match: RegExpMatchArray } | null = null
+      
+      // Trova la prossima citazione (web o kb) che non è già stata processata come ibrida
+      while (true) {
+        webCitationRegex.lastIndex = textIndex
+        kbCitationRegex.lastIndex = textIndex
+        
+        const webMatchResult = webCitationRegex.exec(remainingText)
+        const kbMatchResult = kbCitationRegex.exec(remainingText)
+        
+        if (!webMatchResult && !kbMatchResult) break
+        
+        // Verifica che non sia già stata processata come ibrida
+        const checkHybrid = (match: RegExpMatchArray) => {
+          const start = match.index
+          if (start === undefined) return false
+          const end = start + match[0].length
+          // Cerca se c'è una citazione ibrida che contiene questa posizione
+          hybridCitationRegex.lastIndex = 0
+          let hybridCheck
+          while ((hybridCheck = hybridCitationRegex.exec(remainingText)) !== null) {
+            const hybridStart = hybridCheck.index
+            if (hybridStart === undefined) continue
+            const hybridEnd = hybridStart + hybridCheck[0].length
+            if (start >= hybridStart && end <= hybridEnd) {
+              return true // È già stata processata come ibrida
+            }
+          }
+          return false
+        }
+        
+        if (webMatchResult && (!kbMatchResult || webMatchResult.index < kbMatchResult.index)) {
+          if (!checkHybrid(webMatchResult)) {
+            nextMatch = { index: webMatchResult.index + lastIndex, type: 'web', match: webMatchResult }
+          }
+        } else if (kbMatchResult) {
+          if (!checkHybrid(kbMatchResult)) {
+            nextMatch = { index: kbMatchResult.index + lastIndex, type: 'kb', match: kbMatchResult }
+          }
+        }
+        
+        if (nextMatch) {
+          // Aggiungi testo prima della citazione
+          if (nextMatch.index > lastIndex) {
+            const textContent = value.slice(lastIndex, nextMatch.index)
+            parts.push(<React.Fragment key={`${keyPrefix}text-${localCounter++}`}>{textContent}</React.Fragment>)
+          }
+          
+          // Processa la citazione
+          const indicesStr = nextMatch.match[1]
+          const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+          const relevantSources = nextMatch.type === 'web' ? webSources : kbSources
+          const validIndices = indices.filter((idx: number) => {
+            return relevantSources.some(s => s.index === idx)
+          })
+          
+          if (validIndices.length > 0) {
+            const uniqueKey = `${keyPrefix}${nextMatch.type}-${nextMatch.index}`
+            
+            if (validIndices.length === 1) {
+              parts.push(
+                <Citation 
+                  key={uniqueKey} 
+                  index={validIndices[0]} 
+                  sources={relevantSources} 
+                  onOpenSources={onOpenSources} 
+                />
+              )
+            } else {
+              parts.push(
+                <CitationMultiple 
+                  key={uniqueKey} 
+                  indices={validIndices} 
+                  sources={relevantSources} 
+                  onOpenSources={onOpenSources} 
+                />
+              )
+            }
+          }
+          
+          lastIndex = nextMatch.index + nextMatch.match[0].length
+          textIndex = nextMatch.index + nextMatch.match[0].length - lastIndex + (lastIndex - nextMatch.index)
+          nextMatch = null
+        } else {
+          break
+        }
+      }
     }
 
     // Aggiungi testo finale

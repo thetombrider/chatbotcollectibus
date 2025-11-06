@@ -4,9 +4,13 @@
 
 export interface Source {
   index: number
+  type?: 'kb' | 'web' // Tipo di source: 'kb' per knowledge base, 'web' per ricerca web
   filename: string
-  documentId: string
-  similarity: number
+  documentId?: string // Opzionale per sources web
+  similarity?: number // Opzionale per sources web
+  // Campi per sources web
+  title?: string // Titolo della fonte web
+  url?: string // URL della fonte web
 }
 
 export interface SourceDetail extends Source {

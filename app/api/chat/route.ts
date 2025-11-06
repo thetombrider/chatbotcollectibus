@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ragAgent } from '@/lib/mastra/agent'
+import { ragAgent, getWebSearchResults, clearWebSearchResults } from '@/lib/mastra/agent'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
@@ -16,6 +16,30 @@ import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-de
 function extractCitedIndices(content: string): number[] {
   const indices = new Set<number>()
   const regex = /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+  const matches = content.matchAll(regex)
+  
+  for (const match of matches) {
+    const indicesStr = match[1]
+    const nums = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    
+    nums.forEach(n => {
+      if (!isNaN(n) && n > 0) {
+        indices.add(n)
+      }
+    })
+  }
+  
+  return Array.from(indices).sort((a, b) => a - b)
+}
+
+/**
+ * Estrae tutti gli indici delle citazioni web dal contenuto del messaggio
+ * @param content - Contenuto del messaggio con citazioni web [web:1,2,3] o [web:8,9]
+ * @returns Array di indici unici citati, ordinati
+ */
+function extractWebCitedIndices(content: string): number[] {
+  const indices = new Set<number>()
+  const regex = /\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
   const matches = content.matchAll(regex)
   
   for (const match of matches) {
@@ -118,7 +142,14 @@ async function performMultiQuerySearch(
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, conversationId } = await req.json()
+    const { message, conversationId, webSearchEnabled = false } = await req.json()
+    
+    console.log('[api/chat] Request received:', {
+      messageLength: message?.length || 0,
+      conversationId: conversationId || 'none',
+      webSearchEnabled,
+      webSearchEnabledType: typeof webSearchEnabled,
+    })
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json(
@@ -378,8 +409,9 @@ export async function POST(req: NextRequest) {
           const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
           
           console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
+          let avgSimilarity = 0
           if (relevantResults.length > 0) {
-            const avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
+            avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
             console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
             console.log('[api/chat] Similarity range:', 
               Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
@@ -397,6 +429,22 @@ export async function POST(req: NextRequest) {
               console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
             }
           }
+          
+          // Valuta se le fonti sono sufficienti
+          // Le fonti sono INSUFFICIENTI se ALMENO UNA delle seguenti condizioni è vera (OR logico):
+          // 1. Non ci sono risultati rilevanti (relevantResults.length === 0)
+          // 2. La similarità media è troppo bassa (< 0.25)
+          // Basta che UNA delle due condizioni sia vera per considerare le fonti insufficienti
+          const SOURCES_INSUFFICIENT = relevantResults.length === 0 || avgSimilarity < 0.5
+          console.log('[api/chat] Sources sufficient?', !SOURCES_INSUFFICIENT, {
+            resultsCount: relevantResults.length,
+            avgSimilarity: avgSimilarity.toFixed(3),
+            webSearchEnabled,
+          })
+          
+          // Se le fonti non sono sufficienti e la ricerca web è abilitata, 
+          // il tool web_search verrà chiamato automaticamente dall'agent
+          // quando genererà la risposta (vedi systemPrompt più avanti)
 
           // Build context solo se ci sono risultati rilevanti
           const context = relevantResults.length > 0
@@ -454,6 +502,17 @@ export async function POST(req: NextRequest) {
               // Conta quanti documenti ci sono nel contesto per fornire un esempio chiaro
               const documentCount = relevantResults.length
               
+              // Se le fonti sono insufficienti e la ricerca web è abilitata, aggiungi istruzioni per web_search
+              const webSearchInstruction = (webSearchEnabled && SOURCES_INSUFFICIENT) 
+                ? `\n\nIMPORTANTE - RICERCA WEB:
+- Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
+- DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
+- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
+- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
+- Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
+                : ''
+              
               // Per query comparative, aggiungi informazioni sui documenti disponibili
               if (comparativeTerms) {
                 const uniqueDocuments = [...new Set(relevantResults.map((r: SearchResult) => r.document_filename))]
@@ -461,7 +520,7 @@ export async function POST(req: NextRequest) {
 
 Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments.join(', ')}.
 
-Usa SOLO il seguente contesto dai documenti per rispondere. 
+Usa il seguente contesto dai documenti per rispondere.${webSearchInstruction} 
 
 CITAZIONI - REGOLE IMPORTANTI:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
@@ -494,7 +553,7 @@ ${context}`
                   ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
                   : ''
                 
-                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}
+                systemPrompt = `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${webSearchInstruction}
 
 CITAZIONI - REGOLE IMPORTANTI:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
@@ -523,7 +582,39 @@ Contesto dai documenti:
 ${context}`
               }
             } else {
-              systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+              // Nessun documento rilevante nella KB
+              if (webSearchEnabled && SOURCES_INSUFFICIENT) {
+                // Se la ricerca web è abilitata e le fonti non sono sufficienti,
+                // istruisci l'agent a usare il tool web_search
+                systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
+
+IMPORTANTE - RICERCA WEB:
+- Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
+- DEVI usare il tool web_search per cercare informazioni aggiornate sul web
+- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
+- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base
+- Usa [web:N] per citare le fonti web trovate
+
+Rispondi in modo completo combinando le tue conoscenze generali con le informazioni trovate sul web.`
+              } else {
+                // Nessun documento rilevante nella KB e ricerca web disabilitata
+                // NON rispondere genericamente - informa l'utente che non ci sono informazioni sufficienti
+                systemPrompt = `Sei un assistente per un team di consulenza. 
+
+IMPORTANTE - SITUAZIONE ATTUALE:
+- Non ci sono documenti rilevanti nella knowledge base per questa domanda
+- La ricerca web non è abilitata
+
+ISTRUZIONI:
+- NON rispondere usando conoscenze generali o informazioni non verificate
+- NON inventare informazioni o fare supposizioni
+- DEVI informare l'utente che non ci sono informazioni sufficienti nella knowledge base per rispondere a questa domanda
+- Suggerisci all'utente di abilitare la ricerca web se vuole informazioni aggiornate dal web
+- Sii onesto e trasparente: se non hai informazioni rilevanti, dillo chiaramente
+
+Rispondi in modo breve e diretto, informando l'utente che non ci sono informazioni sufficienti nella knowledge base.`
+              }
             }
             
             const messages = [
@@ -540,8 +631,11 @@ ${context}`
             
             // Mastra Agent stream() accepts string or message array with proper typing
             // Quando abbiamo già il context, disabilitiamo i tools per evitare ricerche duplicate
+            // MA: se le fonti non sono sufficienti e la ricerca web è abilitata, permettiamo l'uso del tool web_search
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const streamOptions = context ? { maxToolRoundtrips: 0 } : {}  // Disable tools only when we have context
+            const streamOptions = (context && !(webSearchEnabled && SOURCES_INSUFFICIENT)) 
+              ? { maxToolRoundtrips: 0 } 
+              : {}  // Disable tools only when we have sufficient context
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const result = await ragAgent.stream(messages as any, streamOptions as any)
 
@@ -586,7 +680,19 @@ ${context}`
             let systemPrompt
             if (context) {
               const documentCount = relevantResults.length
-              systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.
+              
+              // Se le fonti sono insufficienti e la ricerca web è abilitata, aggiungi istruzioni per web_search
+              const webSearchInstruction = (webSearchEnabled && SOURCES_INSUFFICIENT) 
+                ? `\n\nIMPORTANTE - RICERCA WEB:
+- Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
+- DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
+- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
+- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
+- Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
+                : ''
+              
+              systemPrompt = `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${webSearchInstruction}
 
 CITAZIONI - REGOLE IMPORTANTI:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
@@ -614,7 +720,39 @@ IMPORTANTE:
 Contesto dai documenti:
 ${context}`
             } else {
-              systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda. Rispondi usando le tue conoscenze generali. IMPORTANTE: NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base.`
+              // Nessun documento rilevante nella KB
+              if (webSearchEnabled && SOURCES_INSUFFICIENT) {
+                // Se la ricerca web è abilitata e le fonti non sono sufficienti,
+                // istruisci l'agent a usare il tool web_search
+                systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
+
+IMPORTANTE - RICERCA WEB:
+- Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
+- DEVI usare il tool web_search per cercare informazioni aggiornate sul web
+- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
+- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base
+- Usa [web:N] per citare le fonti web trovate
+
+Rispondi in modo completo combinando le tue conoscenze generali con le informazioni trovate sul web.`
+              } else {
+                // Nessun documento rilevante nella KB e ricerca web disabilitata
+                // NON rispondere genericamente - informa l'utente che non ci sono informazioni sufficienti
+                systemPrompt = `Sei un assistente per un team di consulenza. 
+
+IMPORTANTE - SITUAZIONE ATTUALE:
+- Non ci sono documenti rilevanti nella knowledge base per questa domanda
+- La ricerca web non è abilitata
+
+ISTRUZIONI:
+- NON rispondere usando conoscenze generali o informazioni non verificate
+- NON inventare informazioni o fare supposizioni
+- DEVI informare l'utente che non ci sono informazioni sufficienti nella knowledge base per rispondere a questa domanda
+- Suggerisci all'utente di abilitare la ricerca web se vuole informazioni aggiornate dal web
+- Sii onesto e trasparente: se non hai informazioni rilevanti, dillo chiaramente
+
+Rispondi in modo breve e diretto, informando l'utente che non ci sono informazioni sufficienti nella knowledge base.`
+              }
             }
             
             const messages = [
@@ -686,9 +824,85 @@ ${context}`
           console.log('[api/chat] Cited indices in LLM response:', citedIndices)
           console.log('[api/chat] All available sources indices:', sources.map(s => s.index))
           
+          // Estrai gli indici delle citazioni web dalla risposta LLM
+          const webCitedIndices = extractWebCitedIndices(fullResponse)
+          console.log('[api/chat] Web cited indices in LLM response:', webCitedIndices)
+          
+          // Recupera i risultati della ricerca web dal contesto
+          const webSearchResults = getWebSearchResults()
+          console.log('[api/chat] Web search results from context:', webSearchResults.length)
+          
+          // Costruisci array di sources web basato sulle citazioni
+          let webSources: Array<{
+            index: number
+            type: 'web'
+            title: string
+            filename: string // Per compatibilità con i tipi esistenti
+            url: string
+            content: string
+          }> = []
+          
+          if (webCitedIndices.length > 0 && webSearchResults.length > 0) {
+            // Mappa gli indici citati ai risultati della ricerca web
+            const sortedWebCitedIndices = Array.from(new Set(webCitedIndices)).sort((a, b) => a - b)
+            webSources = sortedWebCitedIndices
+              .map((citedIndex, idx) => {
+                // Gli indici nella risposta partono da 1, quindi sottraiamo 1 per accedere all'array
+                const webResult = webSearchResults[citedIndex - 1]
+                if (webResult) {
+                  return {
+                    index: idx + 1, // Rinumerazione sequenziale (1, 2, 3...)
+                    type: 'web' as const,
+                    title: webResult.title || 'Senza titolo',
+                    filename: webResult.title || 'Senza titolo', // Per compatibilità
+                    url: webResult.url || '',
+                    content: webResult.content || '',
+                  }
+                }
+                return null
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== null)
+            
+            console.log('[api/chat] Web sources built:', webSources.length)
+          }
+          
           // Filtra le sources per includere solo quelle citate nel testo
           let filteredSources = sources
           let responseWithRenumberedCitations = fullResponse
+          
+          // Rinumerazione citazioni web se presenti
+          if (webCitedIndices.length > 0 && webSources.length > 0) {
+            // Crea mappatura da indice originale a nuovo indice per le citazioni web
+            const sortedWebCitedIndices = Array.from(new Set(webCitedIndices)).sort((a, b) => a - b)
+            const webIndexMapping = new Map<number, number>()
+            sortedWebCitedIndices.forEach((originalIndex, idx) => {
+              webIndexMapping.set(originalIndex, idx + 1)
+              console.log(`[api/chat] Web citation mapping: original ${originalIndex} -> new ${idx + 1}`)
+            })
+            
+            // Sostituisci citazioni web nel testo con indici rinumerati
+            responseWithRenumberedCitations = responseWithRenumberedCitations.replace(
+              /\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g,
+              (match, indicesStr) => {
+                const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+                const newIndices = indices
+                  .map((oldIdx: number) => webIndexMapping.get(oldIdx))
+                  .filter((newIdx: number | undefined): newIdx is number => newIdx !== undefined)
+                  .sort((a: number, b: number) => a - b)
+                
+                if (newIndices.length === 0) {
+                  return '' // Rimuovi citazione se non c'è corrispondenza
+                }
+                
+                return `[web:${newIndices.join(',')}]`
+              }
+            )
+            
+            console.log('[api/chat] Web citations renumbered:', {
+              original: fullResponse.match(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
+              renumbered: responseWithRenumberedCitations.match(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
+            })
+          }
           
           if (citedIndices.length > 0) {
             // Deduplica: per ogni indice citato, prendi solo la source con similarity più alta
@@ -761,6 +975,23 @@ ${context}`
             console.log('[api/chat] No citations found in response, no sources to send')
             filteredSources = [] // Nessuna citazione = nessuna source da mostrare
           }
+          
+          // Combina sources KB e web per il frontend
+          // Le sources KB usano indici [cit:N], le sources web usano indici [web:N]
+          // Nel frontend, le distingueremo tramite il campo `type`
+          const allSources = [
+            ...filteredSources.map(s => ({ ...s, type: 'kb' as const })),
+            ...webSources,
+          ]
+          
+          console.log('[api/chat] All sources (KB + Web):', {
+            kbSources: filteredSources.length,
+            webSources: webSources.length,
+            total: allSources.length,
+          })
+          
+          // Pulisci il contesto della ricerca web dopo aver recuperato i risultati
+          clearWebSearchResults()
 
           // Save assistant message to database
           if (conversationId) {
@@ -778,7 +1009,7 @@ ${context}`
                     id: r.id,
                     similarity: r.similarity,
                   })),
-                  sources: filteredSources, // Salva solo le sources citate (già rinumerate)
+                  sources: allSources, // Salva tutte le sources (KB + web) citate
                   query_enhanced: wasEnhanced, // Track if query was enhanced
                   original_query: message, // Keep original for reference
                   enhanced_query: wasEnhanced ? queryToEmbed : undefined, // Enhanced version if applicable
@@ -821,8 +1052,8 @@ ${context}`
             }
           }
 
-          // Invia sources filtrate (solo quelle citate) e testo rinumerato alla fine
-          console.log('[api/chat] Sending filtered sources to frontend:', filteredSources.length)
+          // Invia tutte le sources (KB + web) e testo rinumerato alla fine
+          console.log('[api/chat] Sending all sources to frontend:', allSources.length)
           console.log('[api/chat] Sending renumbered response to frontend')
           
           // Invia il testo completo rinumerato in un messaggio separato prima del "done"
@@ -832,7 +1063,7 @@ ${context}`
           )
           
           controller.enqueue(
-            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: filteredSources })}\n\n`)
+            new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: allSources })}\n\n`)
           )
           
           // Save to cache (use enhanced query for embedding key)

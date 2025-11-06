@@ -36,6 +36,8 @@ export default function ChatPageWithId({
     setInput,
     messagesEndRef,
     handleSend: handleSendOriginal,
+    webSearchEnabled,
+    setWebSearchEnabled,
   } = useChat({
     conversationId,
     onConversationCreated: (id) => {
@@ -268,6 +270,8 @@ export default function ChatPageWithId({
           disabled={!conversationId}
           onSend={handleSend}
           statusMessage={statusMessage}
+          webSearchEnabled={webSearchEnabled}
+          onWebSearchToggle={setWebSearchEnabled}
         />
       </div>
     </div>

@@ -10,6 +10,8 @@ interface ChatInputProps {
   disabled?: boolean
   onSend: () => void
   statusMessage?: string | null
+  webSearchEnabled?: boolean
+  onWebSearchToggle?: (enabled: boolean) => void
 }
 
 export function ChatInput({
@@ -19,6 +21,8 @@ export function ChatInput({
   disabled = false,
   onSend,
   statusMessage: _statusMessage,
+  webSearchEnabled = false,
+  onWebSearchToggle,
 }: ChatInputProps) {
   const { textareaRef, handleInputChange } = useTextareaResize()
 
@@ -70,9 +74,34 @@ export function ChatInput({
           </div>
         </div>
         <div className="flex justify-between items-center mt-2">
-          <p className="text-xs text-gray-500">
-            Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-gray-500">
+              Il chatbot può commettere errori. Verifica sempre le informazioni importanti.
+            </p>
+            {onWebSearchToggle && (
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={webSearchEnabled}
+                  onChange={(e) => onWebSearchToggle(e.target.checked)}
+                  disabled={loading || disabled}
+                  className="sr-only"
+                />
+                <div className={`relative w-11 h-6 rounded-full transition-colors ${
+                  webSearchEnabled ? 'bg-gray-900' : 'bg-gray-300'
+                } ${loading || disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                    webSearchEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`} />
+                </div>
+                <span className={`text-xs transition-colors ${
+                  webSearchEnabled ? 'text-gray-900 font-medium' : 'text-gray-500'
+                } ${loading || disabled ? 'opacity-50' : ''}`}>
+                  Ricerca web
+                </span>
+              </label>
+            )}
+          </div>
           <p className="text-xs text-gray-400">{input.length} caratteri</p>
         </div>
       </div>
