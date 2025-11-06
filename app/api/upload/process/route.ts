@@ -148,8 +148,10 @@ export async function POST(req: NextRequest) {
           }
 
           // Delete temp file
-          await supabaseAdmin.storage.from('documents').remove([tempStoragePath])
-          tempStoragePath = undefined // Mark as cleaned up
+          if (tempStoragePath) {
+            await supabaseAdmin.storage.from('documents').remove([tempStoragePath])
+            tempStoragePath = undefined // Mark as cleaned up
+          }
 
           // Fase 4: Crea record documento (30%)
           sendProgress(controller, 'processing', 30, 'Creating document record...')
@@ -324,33 +326,37 @@ export async function POST(req: NextRequest) {
 
             // Se document esiste, fa cleanup completo
             if (document && document.id) {
-              await supabaseAdmin
-                .from('documents')
-                .update({
-                  processing_status: 'error',
-                  error_message: errorMessage,
-                })
-                .eq('id', document.id)
-                .catch(() => {})
+              try {
+                await supabaseAdmin
+                  .from('documents')
+                  .update({
+                    processing_status: 'error',
+                    error_message: errorMessage,
+                  })
+                  .eq('id', document.id)
+              } catch {}
 
-              await supabaseAdmin
-                .from('document_chunks')
-                .delete()
-                .eq('document_id', document.id)
-                .catch(() => {})
+              try {
+                await supabaseAdmin
+                  .from('document_chunks')
+                  .delete()
+                  .eq('document_id', document.id)
+              } catch {}
 
-              await supabaseAdmin
-                .from('documents')
-                .delete()
-                .eq('id', document.id)
-                .catch(() => {})
+              try {
+                await supabaseAdmin
+                  .from('documents')
+                  .delete()
+                  .eq('id', document.id)
+              } catch {}
 
               // Elimina file permanente se esiste
               if (finalStoragePath) {
-                await supabaseAdmin.storage
-                  .from('documents')
-                  .remove([finalStoragePath])
-                  .catch(() => {})
+                try {
+                  await supabaseAdmin.storage
+                    .from('documents')
+                    .remove([finalStoragePath])
+                } catch {}
               }
 
               console.log(`[api/upload/process] Cleaned up failed document ${document.id}`)
