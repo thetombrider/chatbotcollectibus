@@ -50,9 +50,6 @@ export async function adaptiveChunking(
   options: AdaptiveChunkOptions = {}
 ): Promise<AdaptiveChunk[]> {
   const {
-    targetTokens = 350,
-    maxTokens = 450,
-    minTokens = 200,
     preserveStructure = true,
     format = 'plain',
   } = options
