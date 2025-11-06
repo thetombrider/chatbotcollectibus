@@ -50,3 +50,4 @@ COMMENT ON COLUMN query_enhancement_cache.hit_count IS 'Number of times this cac
 COMMENT ON COLUMN query_enhancement_cache.last_accessed_at IS 'Last time this cache entry was accessed (for analytics)';
 
 
+
