@@ -148,12 +148,14 @@ function detectComparativeQuery(message: string, enhancedMessage?: string): stri
  * @param originalQuery - Original user query (may already be enhanced)
  * @param originalEmbedding - Embedding of the original query
  * @param queryAlreadyEnhanced - Whether the originalQuery has already been enhanced (skip re-enhancement)
+ * @param articleNumber - Optional article number to filter results
  */
 async function performMultiQuerySearch(
   terms: string[], 
   originalQuery: string,
   originalEmbedding: number[],
-  queryAlreadyEnhanced: boolean = false
+  queryAlreadyEnhanced: boolean = false,
+  articleNumber?: number
 ): Promise<SearchResult[]> {
   console.log('[api/chat] Performing multi-query search for terms:', terms)
   console.log('[api/chat] Query already enhanced:', queryAlreadyEnhanced)
@@ -171,7 +173,8 @@ async function performMultiQuerySearch(
       const targetedEmbedding = await generateEmbedding(targetedQuery)
       
       // Ricerca con threshold più alto per risultati più rilevanti
-      const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7)
+      // Pass articleNumber to filter by article if specified
+      const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7, articleNumber)
       
       console.log(`[api/chat] Results for ${term}:`, results.length, 
         results.length > 0 ? `(best: ${results[0]?.similarity.toFixed(3)})` : '')
@@ -204,7 +207,7 @@ async function performMultiQuerySearch(
   // Se abbiamo pochi risultati dalla multi-query, aggiungi anche dalla query originale
   if (combined.length < 10) {
     console.log('[api/chat] Adding results from original query to boost coverage')
-    const originalResults = await hybridSearch(originalEmbedding, originalQuery, 10, 0.25, 0.7)
+    const originalResults = await hybridSearch(originalEmbedding, originalQuery, 10, 0.25, 0.7, articleNumber)
     
     originalResults.forEach((result: SearchResult) => {
       if (!combinedMap.has(result.id)) {
@@ -297,12 +300,14 @@ export async function POST(req: NextRequest) {
           const enhancementResult = await enhanceQueryIfNeeded(message)
           const queryToEmbed = enhancementResult.enhanced
           const wasEnhanced = enhancementResult.shouldEnhance
+          const articleNumber = enhancementResult.articleNumber // Extract article number if detected
           
           console.log('[api/chat] Enhancement result:', {
             original: message.substring(0, 50),
             enhanced: queryToEmbed.substring(0, 100),
             wasEnhanced,
             fromCache: enhancementResult.fromCache,
+            articleNumber,
           })
 
           // STEP 2: Check semantic cache (using enhanced query for embedding)
@@ -454,12 +459,13 @@ export async function POST(req: NextRequest) {
           if (comparativeTerms) {
             // Usa strategia multi-query per query comparative
             // Pass flag to indicate query is already enhanced (avoid double expansion)
-            searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced)
+            searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced, articleNumber)
           } else {
             // Query standard: hybrid search normale
             // Use enhanced query for better results
             // Parametri: top-10, threshold 0.3, vector_weight 0.7
-            searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7)
+            // Pass articleNumber if detected to filter chunks by article
+            searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7, articleNumber)
           }
           
           // Log dei risultati per debugging

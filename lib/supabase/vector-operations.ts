@@ -35,6 +35,7 @@ export async function searchSimilarChunks(
  * @param limit - Numero massimo di risultati
  * @param threshold - Soglia minima di similarity
  * @param vectorWeight - Peso per vector similarity (0-1, default 0.7). Il resto va al full-text search.
+ * @param articleNumber - Optional: filtra chunks per numero articolo specifico (es. 28 per "articolo 28")
  * @returns Array di SearchResult ordinati per similarity
  */
 export async function hybridSearch(
@@ -42,7 +43,8 @@ export async function hybridSearch(
   queryText: string,
   limit: number = 5,
   threshold: number = 0.7,
-  vectorWeight: number = 0.7
+  vectorWeight: number = 0.7,
+  articleNumber?: number
 ): Promise<SearchResult[]> {
   const { data, error } = await supabaseAdmin.rpc('hybrid_search', {
     query_embedding: queryEmbedding,
@@ -50,11 +52,17 @@ export async function hybridSearch(
     match_threshold: threshold,
     match_count: limit,
     vector_weight: vectorWeight,
+    article_number: articleNumber ?? null,
   })
 
   if (error) {
     console.error('[vector-operations] Hybrid search failed:', error)
     throw new Error(`Hybrid search failed: ${error.message}`)
+  }
+
+  // Log filtro articolo se presente
+  if (articleNumber) {
+    console.log(`[vector-operations] Article filter applied: ${articleNumber}`)
   }
 
   // Log similarity values per verifica
@@ -64,6 +72,13 @@ export async function hybridSearch(
       console.log(`  [${idx + 1}] Similarity: ${result.similarity} (raw), ${((result.similarity as number) * 100).toFixed(1)}% (display)`)
       if (result.vector_score !== undefined) {
         console.log(`      Vector score: ${result.vector_score}, Text score: ${result.text_score || 'N/A'}`)
+      }
+      // Log article number se presente nei metadati
+      if (result.metadata && typeof result.metadata === 'object') {
+        const metadata = result.metadata as Record<string, unknown>
+        if (metadata.articleNumber) {
+          console.log(`      Article number: ${metadata.articleNumber}`)
+        }
       }
     })
   }
