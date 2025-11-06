@@ -478,7 +478,10 @@ export async function POST(req: NextRequest) {
           })))
           
           // Threshold per filtrare i risultati rilevanti
-          const RELEVANCE_THRESHOLD = 0.40
+          // Se viene filtrato per articolo specifico, abbassa la soglia perché 
+          // l'utente ha chiesto esplicitamente quell'articolo
+          const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.40
+          console.log('[api/chat] Relevance threshold:', RELEVANCE_THRESHOLD, articleNumber ? `(lowered for article ${articleNumber})` : '(standard)')
           const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
           
           console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
