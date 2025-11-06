@@ -596,7 +596,12 @@ IMPORTANTE:
 Contesto dai documenti:
 ${context}`
               } else {
-                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.
+                // Se c'è un articolo specifico richiesto, menzionalo nel prompt
+                const articleContext = articleNumber 
+                  ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
+                  : ''
+                
+                systemPrompt = `Sei un assistente per un team di consulenza. Usa SOLO il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}
 
 CITAZIONI - REGOLE IMPORTANTI:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
@@ -641,8 +646,11 @@ ${context}`
             ]
             
             // Mastra Agent stream() accepts string or message array with proper typing
+            // Quando abbiamo già il context, disabilitiamo i tools per evitare ricerche duplicate
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result = await ragAgent.stream(messages as any)
+            const streamOptions = context ? { maxToolRoundtrips: 0 } : {}  // Disable tools only when we have context
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await ragAgent.stream(messages as any, streamOptions as any)
 
             console.log('[api/chat] Agent stream result:', result)
             console.log('[api/chat] Result type:', typeof result)
