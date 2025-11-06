@@ -146,49 +146,37 @@ export default function ChatPage() {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {messages.map((msg, idx) => (
-                    <MessageBubble
-                      key={msg.id || `msg-${idx}`}
-                      message={msg}
-                      onOpenSources={openSourcesPanel}
-                    />
-                  ))}
-                  {loading && (
-                    <div className="space-y-4">
-                      <MessageSkeleton />
-                      {statusMessage && (
-                        <div className="flex gap-4 justify-start">
-                          <div
-                            className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0"
-                            aria-label="Caricamento in corso"
-                          >
-                            <svg
-                              className="w-5 h-5 text-gray-600 animate-spin"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                              ></circle>
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                              ></path>
-                            </svg>
-                          </div>
-                          <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3">
-                            <p className="text-gray-600 text-sm">{statusMessage}</p>
-                          </div>
+                  {messages
+                    .filter((msg) => !(msg.role === 'assistant' && !msg.content))
+                    .map((msg, idx) => (
+                      <MessageBubble
+                        key={msg.id || `msg-${idx}`}
+                        message={msg}
+                        onOpenSources={openSourcesPanel}
+                      />
+                    ))}
+                  {loading && (() => {
+                    const lastMessage = messages[messages.length - 1]
+                    const isStreaming = lastMessage?.role === 'assistant' && lastMessage.content.length > 0
+                    
+                    // Show phase label + skeletons only before streaming starts
+                    if (!isStreaming) {
+                      return (
+                        <div className="space-y-3">
+                          {statusMessage && (
+                            <div className="flex gap-4 justify-start">
+                              <div className="text-gray-500 text-sm font-medium px-2">
+                                {statusMessage}
+                              </div>
+                            </div>
+                          )}
+                          <MessageSkeleton />
                         </div>
-                      )}
-                    </div>
-                  )}
+                      )
+                    }
+                    // When streaming, the message is already rendered above, so nothing to show here
+                    return null
+                  })()}
                   <div ref={messagesEndRef} />
                 </div>
               )}
