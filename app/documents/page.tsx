@@ -17,9 +17,9 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex-shrink-0">
+    <div className="flex h-[calc(100vh-56px)] bg-gray-50 overflow-hidden">
+      {/* Sidebar - Fixed */}
+      <aside className="fixed left-0 top-14 h-[calc(100vh-56px)] w-64 bg-white border-r border-gray-200 flex-shrink-0 overflow-y-auto z-10">
         <div className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">
             Gestione Documenti
@@ -106,10 +106,10 @@ export default function DocumentsPage() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto px-8 py-8">
-          {activeTab === 'upload' && (
-            <div>
+      <main className="flex-1 ml-64 h-[calc(100vh-56px)] overflow-hidden flex flex-col">
+        {activeTab === 'upload' && (
+          <div className="h-full overflow-y-auto">
+            <div className="max-w-7xl mx-auto px-8 py-8">
               <div className="mb-8">
                 <h1 className="text-3xl font-semibold text-gray-900 mb-2">
                   Carica Documenti
@@ -121,11 +121,13 @@ export default function DocumentsPage() {
               </div>
               <DocumentUploader onUploadComplete={handleUploadComplete} />
             </div>
-          )}
+          </div>
+        )}
 
-          {activeTab === 'manage' && (
-            <div>
-              <div className="mb-8">
+        {activeTab === 'manage' && (
+          <div className="h-full overflow-hidden flex flex-col min-h-0">
+            <div className="max-w-7xl mx-auto px-8 w-full flex-1 flex flex-col overflow-hidden min-h-0">
+              <div className="flex-shrink-0 pt-6 pb-3">
                 <h1 className="text-3xl font-semibold text-gray-900 mb-2">
                   Gestisci Documenti
                 </h1>
@@ -133,10 +135,12 @@ export default function DocumentsPage() {
                   Visualizza, cerca ed elimina i documenti presenti nella knowledge base.
                 </p>
               </div>
-              <DocumentsTable refreshTrigger={refreshTrigger} />
+              <div className="flex-1 overflow-hidden min-h-0">
+                <DocumentsTable refreshTrigger={refreshTrigger} />
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   )

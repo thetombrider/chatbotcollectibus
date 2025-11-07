@@ -14,6 +14,8 @@ interface DocumentsTableProps {
 type SortField = 'filename' | 'file_size' | 'created_at' | 'chunks_count'
 type SortOrder = 'asc' | 'desc'
 
+const ITEMS_PER_PAGE = 10
+
 export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,12 +31,18 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [previewDocument, setPreviewDocument] = useState<Document | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
 
   useEffect(() => {
     fetchDocuments()
     fetchFolders()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshTrigger, selectedFolder])
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, selectedFolder])
 
   const fetchDocuments = async () => {
     setLoading(true)
@@ -169,10 +177,47 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
   }
 
   const handleSelectAll = () => {
-    if (selectedDocuments.size === filteredAndSorted.length) {
-      setSelectedDocuments(new Set())
+    // Calculate current page documents
+    const filtered = documents.filter((doc) =>
+      doc.filename.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    const sorted = [...filtered].sort((a, b) => {
+      let comparison = 0
+      switch (sortField) {
+        case 'filename':
+          comparison = a.filename.localeCompare(b.filename)
+          break
+        case 'file_size':
+          comparison = a.file_size - b.file_size
+          break
+        case 'created_at':
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          break
+        case 'chunks_count':
+          comparison = (a.chunks_count || 0) - (b.chunks_count || 0)
+          break
+      }
+      return sortOrder === 'asc' ? comparison : -comparison
+    })
+    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE
+    const endIdx = startIdx + ITEMS_PER_PAGE
+    const currentPageDocs = sorted.slice(startIdx, endIdx).map((doc) => doc.id)
+    const allCurrentPageSelected = currentPageDocs.every((id) => selectedDocuments.has(id))
+    
+    if (allCurrentPageSelected) {
+      // Deselect all on current page
+      setSelectedDocuments((prev) => {
+        const newSet = new Set(prev)
+        currentPageDocs.forEach((id) => newSet.delete(id))
+        return newSet
+      })
     } else {
-      setSelectedDocuments(new Set(filteredAndSorted.map((doc) => doc.id)))
+      // Select all on current page
+      setSelectedDocuments((prev) => {
+        const newSet = new Set(prev)
+        currentPageDocs.forEach((id) => newSet.add(id))
+        return newSet
+      })
     }
   }
 
@@ -218,6 +263,12 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
 
       return sortOrder === 'asc' ? comparison : -comparison
     })
+
+  // Pagination
+  const totalPages = Math.ceil(filteredAndSorted.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const paginatedDocuments = filteredAndSorted.slice(startIndex, endIndex)
 
   const formatFileSize = (bytes: number): string => {
     return (bytes / 1024 / 1024).toFixed(2) + ' MB'
@@ -316,11 +367,43 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
   }
 
   return (
-    <div className="max-w-7xl">
-      {/* Folder Filter and Breadcrumbs */}
-      <div className="mb-6">
-        <div className="flex items-center gap-4 mb-4">
+    <div className="h-full flex flex-col overflow-hidden min-h-0">
+      {/* Batch Actions Toolbar */}
+      <div className="flex-shrink-0 mb-3">
+        <BatchActionsToolbar
+          selectedCount={selectedDocuments.size}
+          onDelete={handleBatchDelete}
+          onMove={handleBatchMove}
+          onClearSelection={() => setSelectedDocuments(new Set())}
+        />
+      </div>
+
+      {/* Search bar and Folder Filter */}
+      <div className="flex-shrink-0 mb-3">
+        <div className="flex items-end gap-4">
+          {/* Search bar */}
           <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Cerca documenti
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Cerca documenti..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm"
+              />
+            </div>
+          </div>
+          
+          {/* Folder Filter */}
+          <div className="w-64">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Filtra per cartella
             </label>
@@ -334,47 +417,25 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
             />
           </div>
         </div>
-        {selectedFolder && (
-          <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
-            <button
-              onClick={() => setSelectedFolder(null)}
-              className="text-gray-500 hover:text-gray-700 underline"
-            >
-              Tutte le cartelle
-            </button>
-            <span>/</span>
-            <span className="font-medium">{selectedFolder}</span>
-          </div>
-        )}
-      </div>
-
-      {/* Batch Actions Toolbar */}
-      <BatchActionsToolbar
-        selectedCount={selectedDocuments.size}
-        onDelete={handleBatchDelete}
-        onMove={handleBatchMove}
-        onClearSelection={() => setSelectedDocuments(new Set())}
-      />
-
-      {/* Search bar */}
-      <div className="mb-6">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <input
-            type="text"
-            placeholder="Cerca documenti..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm"
-          />
+        
+        {/* Results count and breadcrumb */}
+        <div className="mt-3 flex items-center justify-between">
+          <p className="text-sm text-gray-600">
+            {filteredAndSorted.length} document{filteredAndSorted.length !== 1 ? 'i' : 'o'} trovato
+          </p>
+          {selectedFolder && (
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <button
+                onClick={() => setSelectedFolder(null)}
+                className="text-gray-500 hover:text-gray-700 underline"
+              >
+                Tutte le cartelle
+              </button>
+              <span>/</span>
+              <span className="font-medium">{selectedFolder}</span>
+            </div>
+          )}
         </div>
-        <p className="mt-2 text-sm text-gray-600">
-          {filteredAndSorted.length} document{filteredAndSorted.length !== 1 ? 'i' : 'o'} trovato
-        </p>
       </div>
 
       {/* Empty state */}
@@ -396,15 +457,15 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
 
       {/* Table */}
       {filteredAndSorted.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="flex flex-col bg-white border border-gray-200 rounded-lg">
+          <div className="overflow-auto">
             <table className="w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-2 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider w-10">
                   <input
                     type="checkbox"
-                    checked={selectedDocuments.size === filteredAndSorted.length && filteredAndSorted.length > 0}
+                    checked={paginatedDocuments.length > 0 && paginatedDocuments.every((doc) => selectedDocuments.has(doc.id))}
                     onChange={handleSelectAll}
                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                   />
@@ -460,7 +521,7 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredAndSorted.map((doc) => (
+              {paginatedDocuments.map((doc) => (
                 <>
                   <tr
                     key={doc.id}
@@ -592,6 +653,94 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
             </tbody>
           </table>
           </div>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex-shrink-0 px-4 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
+              <div className="flex-1 flex justify-between sm:hidden">
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Precedente
+                </button>
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Successivo
+                </button>
+              </div>
+              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Mostrando <span className="font-medium">{startIndex + 1}</span> a{' '}
+                    <span className="font-medium">{Math.min(endIndex, filteredAndSorted.length)}</span> di{' '}
+                    <span className="font-medium">{filteredAndSorted.length}</span> risultati
+                  </p>
+                </div>
+                <div>
+                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                    <button
+                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="sr-only">Precedente</span>
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      // Show first page, last page, current page, and pages around current
+                      const showPage = 
+                        page === 1 ||
+                        page === totalPages ||
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      
+                      if (!showPage) {
+                        // Show ellipsis
+                        if (page === currentPage - 2 || page === currentPage + 2) {
+                          return (
+                            <span key={page} className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                              ...
+                            </span>
+                          )
+                        }
+                        return null
+                      }
+                      
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                            page === currentPage
+                              ? 'z-10 bg-gray-900 border-gray-900 text-white'
+                              : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    })}
+                    <button
+                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="sr-only">Successivo</span>
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
