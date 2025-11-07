@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import JSZip from 'jszip'
 import { FolderSelector } from './FolderSelector'
 import { VersionDialog } from './VersionDialog'
 import { createClient } from '@/lib/supabase/client'
@@ -43,39 +44,153 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const [folderCreatedMessage, setFolderCreatedMessage] = useState<string | null>(null)
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const droppedFiles = Array.from(e.dataTransfer.files).filter((file) => {
-      const allowedTypes = [
-        'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain',
-      ]
-      return allowedTypes.includes(file.type)
-    })
-    setFiles((prev) => [...prev, ...droppedFiles])
-    
-    droppedFiles.forEach((file) => {
-      setUploadStatuses((prev) => ({
-        ...prev,
-        [file.name]: { status: 'pending' },
-      }))
-    })
-  }, [])
+  /**
+   * Verifica se un file è un ZIP
+   */
+  const isZipFile = (file: File): boolean => {
+    return (
+      file.type === 'application/zip' ||
+      file.type === 'application/x-zip-compressed' ||
+      file.name.toLowerCase().endsWith('.zip')
+    )
+  }
 
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selectedFiles = Array.from(e.target.files).filter((file) => {
-        const allowedTypes = [
-          'application/pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'text/plain',
-        ]
-        return allowedTypes.includes(file.type)
-      })
-      setFiles((prev) => [...prev, ...selectedFiles])
+  /**
+   * Verifica se un file è supportato (PDF, DOCX, TXT)
+   */
+  const isSupportedFile = (file: File): boolean => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+    ]
+    return allowedTypes.includes(file.type)
+  }
+
+  /**
+   * Determina il MIME type di un file basandosi sull'estensione
+   */
+  const getMimeTypeFromExtension = (filename: string): string => {
+    const ext = filename.toLowerCase().split('.').pop()
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf'
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      case 'txt':
+        return 'text/plain'
+      default:
+        return 'application/octet-stream'
+    }
+  }
+
+  /**
+   * Decomprime un file ZIP e estrae solo i file supportati
+   */
+  const extractFilesFromZip = async (zipFile: File): Promise<File[]> => {
+    try {
+      const zip = await JSZip.loadAsync(zipFile)
+      const extractedFiles: File[] = []
+      const seenFilenames = new Set<string>()
+
+      // Itera su tutti i file nel ZIP
+      for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+        // Salta directory e file nascosti
+        if (zipEntry.dir || relativePath.startsWith('__MACOSX/') || relativePath.includes('/.')) {
+          continue
+        }
+
+        // Estrai solo file supportati
+        const filename = relativePath.split('/').pop() || relativePath
+        const mimeType = getMimeTypeFromExtension(filename)
+
+        if (
+          mimeType === 'application/pdf' ||
+          mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+          mimeType === 'text/plain'
+        ) {
+          // Gestisci file con nomi duplicati: se il nome è già stato visto,
+          // usa il percorso relativo come parte del nome
+          let finalFilename = filename
+          if (seenFilenames.has(filename)) {
+            // Usa il percorso relativo per creare un nome univoco
+            const pathParts = relativePath.split('/').filter((p) => p && p !== filename)
+            if (pathParts.length > 0) {
+              finalFilename = `${pathParts.join('_')}_${filename}`
+            } else {
+              // Se non c'è percorso, aggiungi un timestamp
+              finalFilename = `${Date.now()}_${filename}`
+            }
+          }
+          seenFilenames.add(filename)
+
+          // Estrai il contenuto del file
+          const fileData = await zipEntry.async('blob')
+          
+          // Crea un oggetto File dal blob
+          const extractedFile = new File([fileData], finalFilename, {
+            type: mimeType,
+            lastModified: zipEntry.date?.getTime() || Date.now(),
+          })
+
+          extractedFiles.push(extractedFile)
+        }
+      }
+
+      return extractedFiles
+    } catch (error) {
+      console.error('[DocumentUploader] Error extracting ZIP:', error)
+      throw new Error(`Failed to extract ZIP file: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Processa file (normali o ZIP) e aggiunge alla lista
+   */
+  const processFiles = useCallback(async (fileList: File[]) => {
+    const filesToAdd: File[] = []
+
+    for (const file of fileList) {
+      if (isZipFile(file)) {
+        try {
+          // Decomprimi ZIP e estrai file supportati
+          const extractedFiles = await extractFilesFromZip(file)
+          
+          if (extractedFiles.length === 0) {
+            console.warn(`[DocumentUploader] No supported files found in ZIP: ${file.name}`)
+            // Mostra errore per il ZIP
+            setUploadStatuses((prev) => ({
+              ...prev,
+              [file.name]: {
+                status: 'error',
+                error: 'Nessun file supportato trovato nel ZIP (PDF, DOCX, TXT)',
+              },
+            }))
+            continue
+          }
+
+          filesToAdd.push(...extractedFiles)
+        } catch (error) {
+          console.error(`[DocumentUploader] Error processing ZIP ${file.name}:`, error)
+          // Mostra errore per il ZIP
+          setUploadStatuses((prev) => ({
+            ...prev,
+            [file.name]: {
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Errore durante la decompressione del ZIP',
+            },
+          }))
+        }
+      } else if (isSupportedFile(file)) {
+        filesToAdd.push(file)
+      }
+    }
+
+    // Aggiungi file alla lista
+    if (filesToAdd.length > 0) {
+      setFiles((prev) => [...prev, ...filesToAdd])
       
-      selectedFiles.forEach((file) => {
+      filesToAdd.forEach((file) => {
         setUploadStatuses((prev) => ({
           ...prev,
           [file.name]: { status: 'pending' },
@@ -83,6 +198,38 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
       })
     }
   }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const droppedFiles = Array.from(e.dataTransfer.files)
+    
+    // Filtra solo file supportati o ZIP
+    const validFiles = droppedFiles.filter((file) => {
+      return isSupportedFile(file) || isZipFile(file)
+    })
+
+    if (validFiles.length > 0) {
+      await processFiles(validFiles)
+    }
+  }, [processFiles])
+
+  const handleFileInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selectedFiles = Array.from(e.target.files)
+      
+      // Filtra solo file supportati o ZIP
+      const validFiles = selectedFiles.filter((file) => {
+        return isSupportedFile(file) || isZipFile(file)
+      })
+
+      if (validFiles.length > 0) {
+        await processFiles(validFiles)
+      }
+
+      // Reset input per permettere di selezionare lo stesso file di nuovo
+      e.target.value = ''
+    }
+  }, [processFiles])
 
   /**
    * Sanitizza il nome del file per renderlo compatibile con le chiavi di storage
@@ -509,12 +656,12 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
           Trascina file qui o clicca per selezionare
         </p>
         <p className="text-sm text-gray-500 mb-4">
-          Formati supportati: PDF, DOCX, TXT (max 50MB)
+          Formati supportati: PDF, DOCX, TXT, ZIP (max 50MB)
         </p>
         <input
           type="file"
           multiple
-          accept=".pdf,.docx,.txt"
+          accept=".pdf,.docx,.txt,.zip"
           onChange={handleFileInput}
           className="hidden"
           id="file-input"
