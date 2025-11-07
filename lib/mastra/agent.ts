@@ -85,10 +85,19 @@ async function webSearchTool({ query }: { query: string }) {
       resultsCount: results.results?.length || 0,
     })
 
+    // Formatta i risultati con indici numerici espliciti per le citazioni
+    const formattedResults = (results.results || []).map((result, index) => ({
+      index: index + 1, // Indice numerico per citazione (1, 2, 3...)
+      title: result.title || 'Senza titolo',
+      url: result.url || '',
+      content: result.content || '',
+    }))
+
     return {
-      results: results.results || [],
+      results: formattedResults,
       query: results.query,
       contextKey, // Includiamo la chiave nel risultato per poterla recuperare
+      citationFormat: 'IMPORTANTE: Cita questi risultati usando il formato [web:N] dove N è l\'indice numerico (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, ecc. NON usare il contextKey o altri identificatori.',
     }
   } catch (error) {
     console.error('[mastra/agent] Web search failed:', error)
@@ -352,7 +361,7 @@ export const ragAgent = new Agent({
     web_search: {
       id: 'web_search',
       name: 'web_search',
-      description: 'Cerca informazioni sul web quando i documenti nella knowledge base non sono sufficienti per rispondere completamente alla domanda. Usa questo tool solo quando le fonti disponibili non coprono completamente la query dell\'utente.',
+      description: 'Cerca informazioni sul web quando i documenti nella knowledge base non sono sufficienti per rispondere completamente alla domanda. Usa questo tool solo quando le fonti disponibili non coprono completamente la query dell\'utente. IMPORTANTE: Quando citi i risultati della ricerca web nella tua risposta, usa SEMPRE il formato [web:N] dove N è l\'indice numerico del risultato (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, [web:1,2,3] per più risultati. NON usare altri formati o identificatori.',
       parameters: {
         type: 'object',
         properties: {

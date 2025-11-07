@@ -59,7 +59,9 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 - Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
 - DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
 - Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- Cita le fonti web SEMPRE con il formato [web:N] dove N è l'indice numerico del risultato (1, 2, 3, ecc.)
+- Esempi corretti: [web:1], [web:2], [web:1,2,3]
+- NON usare altri formati come [web_search_...], [web_...] o altri identificatori
 - Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
 - Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
     }
@@ -157,7 +159,9 @@ IMPORTANTE - RICERCA WEB:
 - Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
 - DEVI usare il tool web_search per cercare informazioni aggiornate sul web
 - Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
+- Cita le fonti web SEMPRE con il formato [web:N] dove N è l'indice numerico del risultato (1, 2, 3, ecc.)
+- Esempi corretti: [web:1], [web:2], [web:1,2,3]
+- NON usare altri formati come [web_search_...], [web_...] o altri identificatori
 - NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base
 - Usa [web:N] per citare le fonti web trovate
 

@@ -34,6 +34,26 @@ function extractCitedIndices(content: string): number[] {
 }
 
 /**
+ * Normalizza le citazioni web errate nel formato corretto [web:N]
+ * Gestisce formati errati come [web_search_...] o altri pattern non standard
+ * @param content - Contenuto del messaggio con possibili citazioni web errate
+ * @returns Contenuto con citazioni web normalizzate nel formato [web:N]
+ */
+function normalizeWebCitations(content: string): string {
+  let normalized = content
+  
+  // Pattern 1: [web_search_TIMESTAMP_QUERY] -> rimuovi completamente (non è un formato valido)
+  // Questo pattern non può essere mappato a un indice, quindi lo rimuoviamo
+  normalized = normalized.replace(/\[web_search_\d+_[^\]]+\]/g, '')
+  
+  // Pattern 2: Altri formati errati che contengono "web" ma non seguono [web:N]
+  // Rimuovi pattern come [web_...] che non sono nel formato corretto
+  normalized = normalized.replace(/\[web_[^\]]+\]/g, '')
+  
+  return normalized
+}
+
+/**
  * Estrae tutti gli indici delle citazioni web dal contenuto del messaggio
  * @param content - Contenuto del messaggio con citazioni web [web:1,2,3] o [web:1, web:2, web:4, web:5]
  * @returns Array di indici unici citati, ordinati
@@ -674,6 +694,10 @@ export async function POST(req: NextRequest) {
             controller.close()
             return
           }
+
+          // Normalizza le citazioni web errate nel formato corretto [web:N]
+          fullResponse = normalizeWebCitations(fullResponse)
+          console.log('[api/chat] Response normalized for web citations')
 
           // Estrai gli indici citati dalla risposta LLM e filtra le sources
           const citedIndices = extractCitedIndices(fullResponse)
