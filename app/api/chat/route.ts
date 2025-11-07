@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ragAgent, getWebSearchResults, clearWebSearchResults, getMetaQueryDocuments, clearMetaQueryDocuments } from '@/lib/mastra/agent'
+import { ragAgent, getWebSearchResults, clearWebSearchResults, getMetaQueryDocuments } from '@/lib/mastra/agent'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
@@ -509,7 +509,7 @@ export async function POST(req: NextRequest) {
               context: context || undefined,
               documentCount: relevantResults.length,
               uniqueDocumentNames,
-              comparativeTerms,
+              comparativeTerms: comparativeTerms || undefined,
               articleNumber,
               webSearchEnabled,
               sourcesInsufficient: SOURCES_INSUFFICIENT,
@@ -587,7 +587,7 @@ export async function POST(req: NextRequest) {
               context: context || undefined,
               documentCount: relevantResults.length,
               uniqueDocumentNames,
-              comparativeTerms,
+              comparativeTerms: comparativeTerms || undefined,
               articleNumber,
               webSearchEnabled,
               sourcesInsufficient: SOURCES_INSUFFICIENT,
@@ -687,8 +687,10 @@ export async function POST(req: NextRequest) {
                 documentId: doc.id,
                 filename: doc.filename,
                 type: 'kb' as const,
-                // Non includiamo content perché il riferimento è all'intero documento, non a un chunk specifico
-                content: undefined,
+                // Per query meta, non abbiamo similarity o chunkIndex perché il riferimento è all'intero documento
+                similarity: 1.0, // Similarity fittizia per query meta (non usata)
+                content: '', // Content vuoto perché il riferimento è all'intero documento, non a un chunk specifico
+                chunkIndex: 0, // ChunkIndex fittizio per query meta (non usato)
               }))
             
             // Sostituisci completamente le sources con quelle meta (per query meta list)

@@ -1,5 +1,4 @@
 import { supabaseAdmin } from './admin'
-import type { Document } from './database.types'
 
 /**
  * Meta queries for database statistics and metadata
