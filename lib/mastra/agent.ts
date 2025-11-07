@@ -58,6 +58,10 @@ async function semanticCacheTool({ query }: { query: string }) {
 // Questo ci permette di accedere ai risultati dopo che l'agent ha finito
 const webSearchResultsContext = new Map<string, any[]>()
 
+// Context globale per salvare i documenti dalle query meta
+// Questo ci permette di accedere ai documenti dopo che l'agent ha finito
+const metaQueryDocumentsContext = new Map<string, Array<{ id: string; filename: string; index: number }>>()
+
 // Tool per ricerca web con Tavily
 async function webSearchTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
@@ -197,17 +201,35 @@ async function metaQueryTool({ query }: { query: string }) {
         limit,
       })
       
+      // Salva i documenti nel context con indici numerati per le citazioni
+      const contextKey = `meta_query_${Date.now()}_${query.substring(0, 50)}`
+      const documentsWithIndex = documents.map((doc, idx) => ({
+        id: doc.id,
+        filename: doc.filename,
+        index: idx + 1, // Indici partono da 1 per le citazioni
+      }))
+      metaQueryDocumentsContext.set(contextKey, documentsWithIndex)
+      
+      console.log('[mastra/agent] Meta query documents saved to context:', {
+        contextKey,
+        documentsCount: documentsWithIndex.length,
+      })
+      
       return {
         isMeta: true,
         metaType: 'list',
         data: {
-          documents,
+          documents: documents.map((doc, idx) => ({
+            ...doc,
+            citationIndex: idx + 1, // Indice per citazione [cit:N]
+          })),
           count: documents.length,
           filters: {
             folder,
             file_type: fileType,
             limit,
           },
+          contextKey, // Includiamo la chiave per recuperare i documenti dopo
         },
       }
     } else {
@@ -251,6 +273,35 @@ export function clearWebSearchResults(contextKey?: string): void {
     webSearchResultsContext.delete(contextKey)
   } else {
     webSearchResultsContext.clear()
+  }
+}
+
+/**
+ * Recupera i documenti dalle query meta dal contesto
+ * @param contextKey - Chiave del contesto (opzionale, se non fornita restituisce tutti i documenti)
+ * @returns Array di documenti con id, filename e index
+ */
+export function getMetaQueryDocuments(contextKey?: string): Array<{ id: string; filename: string; index: number }> {
+  if (contextKey) {
+    return metaQueryDocumentsContext.get(contextKey) || []
+  }
+  // Se non c'è una chiave specifica, restituisce tutti i documenti più recenti
+  const allDocuments: Array<{ id: string; filename: string; index: number }> = []
+  metaQueryDocumentsContext.forEach((documents) => {
+    allDocuments.push(...documents)
+  })
+  return allDocuments
+}
+
+/**
+ * Pulisce i documenti dalle query meta dal contesto
+ * @param contextKey - Chiave del contesto (opzionale, se non fornita pulisce tutto)
+ */
+export function clearMetaQueryDocuments(contextKey?: string): void {
+  if (contextKey) {
+    metaQueryDocumentsContext.delete(contextKey)
+  } else {
+    metaQueryDocumentsContext.clear()
   }
 }
 

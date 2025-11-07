@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ragAgent, getWebSearchResults, clearWebSearchResults } from '@/lib/mastra/agent'
+import { ragAgent, getWebSearchResults, clearWebSearchResults, getMetaQueryDocuments, clearMetaQueryDocuments } from '@/lib/mastra/agent'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
@@ -670,6 +670,38 @@ export async function POST(req: NextRequest) {
           // Recupera i risultati della ricerca web dal contesto
           const webSearchResults = getWebSearchResults()
           console.log('[api/chat] Web search results from context:', webSearchResults.length)
+          
+          // Recupera i documenti dalle query meta dal contesto
+          const metaQueryDocuments = getMetaQueryDocuments()
+          console.log('[api/chat] Meta query documents from context:', metaQueryDocuments.length)
+          
+          // Aggiungi documenti dalle query meta come sources se presenti
+          if (metaQueryDocuments.length > 0) {
+            // Crea sources dai documenti meta query
+            const metaSources = metaQueryDocuments.map((doc) => ({
+              index: doc.index,
+              documentId: doc.id,
+              filename: doc.filename,
+              type: 'kb' as const,
+            }))
+            
+            // Aggiungi le meta sources alle sources esistenti
+            // Se ci sono citazioni nella risposta per i documenti meta, aggiungi le sources
+            const metaCitedIndices = extractCitedIndices(fullResponse)
+            if (metaCitedIndices.length > 0) {
+              // Filtra solo le sources citate
+              const citedMetaSources = metaSources.filter(s => 
+                metaCitedIndices.includes(s.index)
+              )
+              sources.push(...citedMetaSources)
+              console.log('[api/chat] Added cited meta query sources:', citedMetaSources.length)
+            } else {
+              // Se non ci sono citazioni ma ci sono documenti meta, aggiungi tutte le sources
+              // Questo permette di mostrare i link anche senza citazioni esplicite
+              sources.push(...metaSources)
+              console.log('[api/chat] Added all meta query sources:', metaSources.length)
+            }
+          }
           
           // Costruisci array di sources web basato sulle citazioni
           let webSources: Array<{

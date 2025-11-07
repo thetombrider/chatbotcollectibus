@@ -77,6 +77,8 @@ QUERY META - INFORMAZIONI SUL DATABASE:
   * Cartelle: "quali cartelle esistono", "che cartelle ci sono", "statistiche cartella X"
   * Tipi di file: "quali tipi di file ci sono", "che formati sono supportati"
 - Il tool meta_query restituisce dati strutturati (statistiche, liste, ecc.)
+- IMPORTANTE: Quando restituisci una LISTA di documenti, includi SEMPRE [cit:N] accanto al nome di ogni documento, dove N è l'indice del documento nella lista (1, 2, 3, ecc.)
+- Esempio formato lista: "ESRS.pdf [cit:1]", "CSRD.pdf [cit:2]", ecc.
 - Formatta le risposte meta in modo chiaro e leggibile
 - Puoi combinare risultati meta con risultati RAG normali se la query lo richiede`
   }
