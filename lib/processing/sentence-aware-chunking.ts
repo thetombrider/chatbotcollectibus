@@ -33,7 +33,7 @@ async function getTiktoken() {
       // Se import dinamico fallisce, prova con require (solo server-side)
       try {
         if (typeof require !== 'undefined') {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
           const tiktoken = require('@dqbd/tiktoken')
           if (tiktoken && tiktoken.encoding_for_model) {
             encoding_for_model = tiktoken.encoding_for_model

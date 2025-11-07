@@ -222,17 +222,25 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
                   throw new Error(data.message || 'Processing failed')
                 }
 
-                setUploadStatuses((prev) => ({
-                  ...prev,
-                  [file.name]: {
-                    status: data.stage === 'completed' ? 'completed' : data.stage === 'uploading' ? 'uploading' : 'processing',
-                    progress: data.progress || 0,
-                    stageMessage: data.message,
-                    documentId: data.documentId,
-                    chunksCount: data.chunksCount,
-                    retryCount,
-                  },
-                }))
+                setUploadStatuses((prev) => {
+                  const currentStatus = prev[file.name]
+                  const currentProgress = currentStatus?.progress || 0
+                  const newProgress = data.progress || 0
+                  // Se completato, imposta sempre 100%, altrimenti mantieni il progresso più alto
+                  const finalProgress = data.stage === 'completed' ? 100 : Math.max(currentProgress, newProgress)
+                  
+                  return {
+                    ...prev,
+                    [file.name]: {
+                      status: data.stage === 'completed' ? 'completed' : data.stage === 'uploading' ? 'uploading' : 'processing',
+                      progress: finalProgress,
+                      stageMessage: data.message,
+                      documentId: data.documentId,
+                      chunksCount: data.chunksCount,
+                      retryCount,
+                    },
+                  }
+                })
 
                 // Salva documentId per callback
                 if (data.documentId) {
