@@ -928,8 +928,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
       }
       
       // Estrai tutti i pattern cit:N e web:N dalla citazione ibrida
+      // Per web, supporta sia [web:1,2,3] che [web:1, web:2, web:4, web:5]
       const citMatches = Array.from(innerContent.matchAll(/cit[\s:]+(\d+(?:\s*,\s*\d+)*)/g)) as RegExpMatchArray[]
-      const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*\d+)*)/g)) as RegExpMatchArray[]
+      const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)/g)) as RegExpMatchArray[]
       
       const kbIndices: number[] = []
       const webIndices: number[] = []
@@ -941,11 +942,13 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
         kbIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
       }
       
-      // Estrai indici web
+      // Estrai indici web (supporta formato con prefisso ripetuto)
       for (const webMatch of webMatches) {
         const indicesStr = webMatch[1]
-        const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
-        webIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+        // Estrai tutti i numeri, gestendo sia formato compatto che con prefisso ripetuto
+        const allNumbers = indicesStr.match(/\d+/g) || []
+        const indices = allNumbers.map((n: string) => parseInt(n, 10)).filter((idx: number) => !isNaN(idx) && idx > 0)
+        webIndices.push(...indices)
       }
       
       // Filtra solo indici validi
@@ -986,9 +989,12 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     })
     
     // POI: Processa citazioni web separate (solo se non sono già state processate come ibride)
-    processed = processed.replace(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, (match, indicesStr) => {
-      // Rimuovi spazi prima di fare split
-      const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    // Supporta sia [web:1,2,3] che [web:1, web:2, web:4, web:5]
+    processed = processed.replace(/\[web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)\]/g, (match, indicesStr) => {
+      // Estrai tutti i numeri, gestendo sia formato compatto che con prefisso ripetuto
+      // Esempi: "1,2,3" o "1, web:2, web:4, web:5"
+      const allNumbers = indicesStr.match(/\d+/g) || []
+      const indices = allNumbers.map((n: string) => parseInt(n, 10)).filter((idx: number) => !isNaN(idx) && idx > 0)
       
       // Filtra solo indici validi (che esistono nelle sources web)
       const validIndices = indices.filter((idx: number) => webSources.some(s => s.index === idx))
@@ -1110,8 +1116,9 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
           }
           
           // Estrai indici KB e web
+          // Per web, supporta sia [web:1,2,3] che [web:1, web:2, web:4, web:5]
           const citMatches = Array.from(innerContent.matchAll(/cit[\s:]+(\d+(?:\s*,\s*\d+)*)/g))
-          const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*\d+)*)/g))
+          const webMatches = Array.from(innerContent.matchAll(/web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)/g))
           
           const kbIndices: number[] = []
           const webIndices: number[] = []
@@ -1124,8 +1131,10 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
           
           for (const webMatch of webMatches) {
             const indicesStr = webMatch[1]
-            const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
-            webIndices.push(...indices.filter((idx: number) => !isNaN(idx) && idx > 0))
+            // Estrai tutti i numeri, gestendo sia formato compatto che con prefisso ripetuto
+            const allNumbers = indicesStr.match(/\d+/g) || []
+            const indices = allNumbers.map((n: string) => parseInt(n, 10)).filter((idx: number) => !isNaN(idx) && idx > 0)
+            webIndices.push(...indices)
           }
           
           const validKbIndices = Array.from(new Set(kbIndices)).filter((idx: number) => kbSources.some(s => s.index === idx))
@@ -1150,7 +1159,8 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
       }
       
       // POI: Processa citazioni separate non processate [web:N] e [cit:N]
-      const webCitationRegex = /\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+      // Supporta sia [web:1,2,3] che [web:1, web:2, web:4, web:5]
+      const webCitationRegex = /\[web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)\]/g
       const kbCitationRegex = /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
       
       let textIndex = 0
@@ -1204,7 +1214,11 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
           
           // Processa la citazione
           const indicesStr = nextMatch.match[1]
-          const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+          // Per citazioni web, estrai tutti i numeri (supporta formato con prefisso ripetuto)
+          // Per citazioni KB, usa il formato normale
+          const indices = nextMatch.type === 'web' 
+            ? (indicesStr.match(/\d+/g) || []).map((n: string) => parseInt(n, 10)).filter((idx: number) => !isNaN(idx) && idx > 0)
+            : indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10)).filter((idx: number) => !isNaN(idx) && idx > 0)
           const relevantSources = nextMatch.type === 'web' ? webSources : kbSources
           const validIndices = indices.filter((idx: number) => {
             return relevantSources.some(s => s.index === idx)

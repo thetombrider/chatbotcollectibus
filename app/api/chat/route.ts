@@ -35,17 +35,20 @@ function extractCitedIndices(content: string): number[] {
 
 /**
  * Estrae tutti gli indici delle citazioni web dal contenuto del messaggio
- * @param content - Contenuto del messaggio con citazioni web [web:1,2,3] o [web:8,9]
+ * @param content - Contenuto del messaggio con citazioni web [web:1,2,3] o [web:1, web:2, web:4, web:5]
  * @returns Array di indici unici citati, ordinati
  */
 function extractWebCitedIndices(content: string): number[] {
   const indices = new Set<number>()
-  const regex = /\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+  // Supporta sia [web:1,2,3] che [web:1, web:2, web:4, web:5]
+  const regex = /\[web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)\]/g
   const matches = content.matchAll(regex)
   
   for (const match of matches) {
     const indicesStr = match[1]
-    const nums = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    // Estrai tutti i numeri, gestendo sia formato compatto che con prefisso ripetuto
+    const allNumbers = indicesStr.match(/\d+/g) || []
+    const nums = allNumbers.map((n: string) => parseInt(n, 10))
     
     nums.forEach(n => {
       if (!isNaN(n) && n > 0) {
