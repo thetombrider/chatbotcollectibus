@@ -456,7 +456,7 @@ export async function POST(req: NextRequest) {
 
           // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
           // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
-          const sources = relevantResults.length > 0
+          let sources = relevantResults.length > 0
             ? relevantResults.map((r: SearchResult, index: number) => ({
                 index: index + 1,
                 documentId: r.document_id,
@@ -675,32 +675,27 @@ export async function POST(req: NextRequest) {
           const metaQueryDocuments = getMetaQueryDocuments()
           console.log('[api/chat] Meta query documents from context:', metaQueryDocuments.length)
           
-          // Aggiungi documenti dalle query meta come sources se presenti
+          // Per query meta di tipo "list", crea sources direttamente dai documenti
+          // senza fare matching con citazioni - siamo già certi che i documenti sono corretti
           if (metaQueryDocuments.length > 0) {
-            // Crea sources dai documenti meta query
-            const metaSources = metaQueryDocuments.map((doc) => ({
-              index: doc.index,
-              documentId: doc.id,
-              filename: doc.filename,
-              type: 'kb' as const,
-            }))
+            // Crea sources direttamente dai documenti nel context
+            // Usa l'ordine esatto dei documenti restituiti dal tool
+            const metaSources = metaQueryDocuments
+              .sort((a, b) => a.index - b.index) // Ordina per indice per sicurezza
+              .map((doc) => ({
+                index: doc.index,
+                documentId: doc.id,
+                filename: doc.filename,
+                type: 'kb' as const,
+                // Non includiamo content perché il riferimento è all'intero documento, non a un chunk specifico
+                content: undefined,
+              }))
             
-            // Aggiungi le meta sources alle sources esistenti
-            // Se ci sono citazioni nella risposta per i documenti meta, aggiungi le sources
-            const metaCitedIndices = extractCitedIndices(fullResponse)
-            if (metaCitedIndices.length > 0) {
-              // Filtra solo le sources citate
-              const citedMetaSources = metaSources.filter(s => 
-                metaCitedIndices.includes(s.index)
-              )
-              sources.push(...citedMetaSources)
-              console.log('[api/chat] Added cited meta query sources:', citedMetaSources.length)
-            } else {
-              // Se non ci sono citazioni ma ci sono documenti meta, aggiungi tutte le sources
-              // Questo permette di mostrare i link anche senza citazioni esplicite
-              sources.push(...metaSources)
-              console.log('[api/chat] Added all meta query sources:', metaSources.length)
-            }
+            // Sostituisci completamente le sources con quelle meta (per query meta list)
+            // Non facciamo matching con citazioni - i documenti sono già nell'ordine corretto
+            sources = metaSources
+            console.log('[api/chat] Created meta query sources (computational, no citation matching):', metaSources.length)
+            console.log('[api/chat] Meta sources:', metaSources.map(s => ({ index: s.index, filename: s.filename })))
           }
           
           // Costruisci array di sources web basato sulle citazioni
@@ -737,12 +732,16 @@ export async function POST(req: NextRequest) {
             console.log('[api/chat] Web sources built:', webSources.length)
           }
           
-          // Filtra le sources per includere solo quelle citate nel testo
+          // Per query meta, non facciamo matching con citazioni - le sources sono già corrette
+          // Per query normali, filtra le sources per includere solo quelle citate
+          const isMetaQuery = metaQueryDocuments.length > 0
           let filteredSources = sources
           let responseWithRenumberedCitations = fullResponse
           
-          // Rinumerazione citazioni web se presenti
-          if (webCitedIndices.length > 0 && webSources.length > 0) {
+          // Se NON è una query meta, procedi con il matching normale delle citazioni
+          if (!isMetaQuery) {
+            // Rinumerazione citazioni web se presenti
+            if (webCitedIndices.length > 0 && webSources.length > 0) {
             // Crea mappatura da indice originale a nuovo indice per le citazioni web
             const sortedWebCitedIndices = Array.from(new Set(webCitedIndices)).sort((a, b) => a - b)
             const webIndexMapping = new Map<number, number>()
@@ -773,9 +772,10 @@ export async function POST(req: NextRequest) {
               original: fullResponse.match(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
               renumbered: responseWithRenumberedCitations.match(/\[web[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
             })
-          }
-          
-          if (citedIndices.length > 0) {
+            }
+            
+            // Per query normali, filtra le sources per includere solo quelle citate
+            if (citedIndices.length > 0) {
             // Deduplica: per ogni indice citato, prendi solo la source con similarity più alta
             const sourceMap = new Map<number, typeof sources[0]>()
             sources.forEach(s => {
@@ -824,7 +824,7 @@ export async function POST(req: NextRequest) {
             
             // Verifica finale: assicurati che tutti gli indici nel testo corrispondano alle sources
             const finalCitedIndices = extractCitedIndices(responseWithRenumberedCitations)
-            console.log('[api/chat] Final sources:', filteredSources.map(s => ({
+            console.log('[api/chat] Final sources (normal query):', filteredSources.map(s => ({
               index: s.index,
               filename: s.filename,
               cited: true
@@ -842,9 +842,21 @@ export async function POST(req: NextRequest) {
               original: fullResponse.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
               renumbered: responseWithRenumberedCitations.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
             })
-          } else {
-            console.log('[api/chat] No citations found in response, no sources to send')
-            filteredSources = [] // Nessuna citazione = nessuna source da mostrare
+            } else {
+              console.log('[api/chat] No citations found in response, no sources to send')
+              filteredSources = [] // Nessuna citazione = nessuna source da mostrare
+            }
+          } // Fine blocco if (!isMetaQuery)
+          
+          if (isMetaQuery) {
+            // Per query meta, le sources sono già corrette e complete
+            // Non facciamo rinumerazione perché l'ordine è già quello dei documenti nel DB
+            filteredSources = sources
+            console.log('[api/chat] Final sources (meta query, computational):', filteredSources.map(s => ({
+              index: s.index,
+              filename: s.filename,
+              documentId: s.documentId
+            })))
           }
           
           // Combina sources KB e web per il frontend
