@@ -61,26 +61,26 @@ export function NavigationBar() {
   }
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-100 sticky top-0 z-50">
       <div className="flex">
         {/* Navigation Links - Left side, aligned with sidebar (w-64 = 256px) */}
-        <div className="w-64 flex items-center gap-6 px-4 py-3 border-r border-gray-200">
+        <div className="w-64 flex items-center gap-5 px-4 py-2.5 border-r border-gray-100">
           <Link
             href="/chat"
-            className={`text-sm font-bold transition-colors ${
+            className={`text-sm font-medium transition-colors ${
               pathname?.startsWith('/chat')
                 ? 'text-gray-900'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-gray-500 hover:text-gray-900'
             }`}
           >
             Chat
           </Link>
           <Link
             href="/documents"
-            className={`text-sm font-bold transition-colors ${
+            className={`text-sm font-medium transition-colors ${
               pathname === '/documents'
                 ? 'text-gray-900'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-gray-500 hover:text-gray-900'
             }`}
           >
             Documenti
@@ -88,13 +88,13 @@ export function NavigationBar() {
         </div>
 
         {/* User info and logout - Right side */}
-        <div className="flex-1 flex items-center justify-end px-4 py-3">
+        <div className="flex-1 flex items-center justify-end px-4 py-2.5">
           {!loading && user && (
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">{user.email}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-500">{user.email}</span>
               <button
                 onClick={handleLogout}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
               >
                 Logout
               </button>

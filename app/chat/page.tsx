@@ -113,7 +113,7 @@ export default function ChatPage() {
         </button>
         <div className="flex-1 flex overflow-hidden relative">
           <div className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-4 py-8">
+            <div className="max-w-3xl mx-auto px-4 py-6">
               {messages.length === 0 ? (
                 <div className="text-center mt-20 space-y-4">
                   {logoUrl && (
@@ -125,29 +125,29 @@ export default function ChatPage() {
                       />
                     </div>
                   )}
-                  <h1 className="text-4xl font-semibold text-gray-900 mb-4">
+                  <h1 className="text-3xl font-medium text-gray-900 mb-3">
                     Come posso aiutarti?
                   </h1>
-                  <p className="text-gray-600 mb-8">
+                  <p className="text-gray-500 mb-8">
                     Fai una domanda per iniziare la conversazione
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto mt-8">
-                    <div className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
-                      <h3 className="font-semibold text-gray-900 mb-2">Esempi di domande</h3>
-                      <p className="text-sm text-gray-600">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto mt-8">
+                    <div className="p-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
+                      <h3 className="font-medium text-gray-900 mb-1.5 text-sm">Esempi di domande</h3>
+                      <p className="text-xs text-gray-500">
                         Prova a chiedere: "Quali sono le tendenze nel settore fintech?"
                       </p>
                     </div>
-                    <div className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
-                      <h3 className="font-semibold text-gray-900 mb-2">Ricerca documenti</h3>
-                      <p className="text-sm text-gray-600">
+                    <div className="p-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
+                      <h3 className="font-medium text-gray-900 mb-1.5 text-sm">Ricerca documenti</h3>
+                      <p className="text-xs text-gray-500">
                         Cerca informazioni specifiche nei documenti caricati
                       </p>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {messages
                     .filter((msg) => !(msg.role === 'assistant' && !msg.content))
                     .map((msg, idx) => (

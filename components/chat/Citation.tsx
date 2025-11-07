@@ -99,7 +99,7 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
     <>
       <span ref={citationRef} className="relative inline-block">
         <sup
-          className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
+          className="text-blue-500 cursor-pointer hover:text-blue-600 font-normal transition-colors"
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
           onClick={() => setShowTooltip(true)}
@@ -120,37 +120,37 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
         >
-          <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
-            <div className="font-semibold mb-2 text-white">Fonte:</div>
+          <div className="bg-white text-gray-900 text-xs rounded-lg p-2 shadow-md border border-gray-200">
+            <div className="font-medium mb-1.5 text-gray-900">Fonte:</div>
             {citationSources.map((source, idx) => {
               const isWebSource = source.type === 'web'
               return (
-                <div key={idx} className="mb-2 last:mb-3">
+                <div key={idx} className="mb-1.5 last:mb-2">
                   {isWebSource ? (
                     <>
-                      <div className="font-medium text-white">{source.title || source.filename}</div>
+                      <div className="font-medium text-gray-900">{source.title || source.filename}</div>
                       {source.url && (
                         <a
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                          className="text-blue-500 hover:text-blue-600 text-xs mt-0.5 block truncate"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {source.url}
                         </a>
                       )}
                       {'content' in source && source.content && typeof source.content === 'string' && (
-                        <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                        <div className="text-gray-500 text-xs mt-1 line-clamp-2">
                           {source.content.substring(0, 150)}...
                         </div>
                       )}
                     </>
                   ) : (
                     <>
-                      <div className="font-medium text-white">{source.filename}</div>
+                      <div className="font-medium text-gray-900">{source.filename}</div>
                       {source.similarity !== undefined && (
-                        <div className="text-gray-400 text-xs mt-0.5">
+                        <div className="text-gray-500 text-xs mt-0.5">
                           Similarità: {(source.similarity * 100).toFixed(1)}%
                         </div>
                       )}
@@ -166,13 +166,13 @@ export function Citation({ index, sources, onOpenSources }: CitationProps) {
                   onOpenSources()
                   setShowTooltip(false)
                 }}
-                className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
+                className="mt-1.5 w-full px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
               >
                 Apri elenco fonti
               </button>
             )}
             <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
-              <div className="border-4 border-transparent border-t-gray-900"></div>
+              <div className="border-4 border-transparent border-t-white"></div>
             </div>
           </div>
         </div>,
@@ -291,7 +291,7 @@ export function CitationHybrid({ kbIndices, webIndices, kbSources, webSources, o
     <>
       <span ref={citationRef} className="relative inline-block">
         <sup
-          className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
+          className="text-blue-500 cursor-pointer hover:text-blue-600 font-normal transition-colors"
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
           onClick={() => setShowTooltip(true)}
@@ -312,18 +312,18 @@ export function CitationHybrid({ kbIndices, webIndices, kbSources, webSources, o
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
         >
-          <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
-            <div className="font-semibold mb-2 text-white">Fonti (KB + Web):</div>
+          <div className="bg-white text-gray-900 text-xs rounded-lg p-2 shadow-md border border-gray-200">
+            <div className="font-medium mb-1.5 text-gray-900">Fonti (KB + Web):</div>
             
             {/* Sources KB */}
             {hasKbSources && (
               <>
-                <div className="text-gray-400 text-xs mb-1 mt-2">Knowledge Base:</div>
+                <div className="text-gray-500 text-xs mb-1 mt-1.5">Knowledge Base:</div>
                 {kbCitationSources.map((source, idx) => (
-                  <div key={`kb-${idx}`} className="mb-2">
-                    <div className="font-medium text-white">{source.filename}</div>
+                  <div key={`kb-${idx}`} className="mb-1.5">
+                    <div className="font-medium text-gray-900">{source.filename}</div>
                     {source.similarity !== undefined && (
-                      <div className="text-gray-400 text-xs mt-0.5">
+                      <div className="text-gray-500 text-xs mt-0.5">
                         Similarità: {(source.similarity * 100).toFixed(1)}%
                       </div>
                     )}
@@ -335,23 +335,23 @@ export function CitationHybrid({ kbIndices, webIndices, kbSources, webSources, o
             {/* Sources Web */}
             {hasWebSources && (
               <>
-                <div className="text-gray-400 text-xs mb-1 mt-2">Web:</div>
+                <div className="text-gray-500 text-xs mb-1 mt-1.5">Web:</div>
                 {webCitationSources.map((source, idx) => (
-                  <div key={`web-${idx}`} className="mb-2">
-                    <div className="font-medium text-white">{source.title || source.filename}</div>
+                  <div key={`web-${idx}`} className="mb-1.5">
+                    <div className="font-medium text-gray-900">{source.title || source.filename}</div>
                     {source.url && (
                       <a
                         href={source.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                        className="text-blue-500 hover:text-blue-600 text-xs mt-0.5 block truncate"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {source.url}
                       </a>
                     )}
                     {'content' in source && source.content && typeof source.content === 'string' ? (
-                      <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                      <div className="text-gray-500 text-xs mt-1 line-clamp-2">
                         {(source.content as string).substring(0, 150)}...
                       </div>
                     ) : null}
@@ -367,13 +367,13 @@ export function CitationHybrid({ kbIndices, webIndices, kbSources, webSources, o
                   onOpenSources()
                   setShowTooltip(false)
                 }}
-                className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
+                className="mt-1.5 w-full px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
               >
                 Apri tutte le fonti
               </button>
             )}
             <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
-              <div className="border-4 border-transparent border-t-gray-900"></div>
+              <div className="border-4 border-transparent border-t-white"></div>
             </div>
           </div>
         </div>,
@@ -472,7 +472,7 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
     <>
       <span ref={citationRef} className="relative inline-block">
         <sup
-          className="text-blue-600 cursor-pointer hover:text-blue-800 font-medium transition-colors"
+          className="text-blue-500 cursor-pointer hover:text-blue-600 font-normal transition-colors"
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
           onClick={() => setShowTooltip(true)}
@@ -493,37 +493,37 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
           onMouseEnter={handleShowTooltip}
           onMouseLeave={handleHideTooltip}
         >
-          <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl border border-gray-700">
-            <div className="font-semibold mb-2 text-white">Fonti:</div>
+          <div className="bg-white text-gray-900 text-xs rounded-lg p-2 shadow-md border border-gray-200">
+            <div className="font-medium mb-1.5 text-gray-900">Fonti:</div>
             {citationSources.map((source, idx) => {
               const isWebSource = source.type === 'web'
               return (
-                <div key={idx} className="mb-2 last:mb-3">
+                <div key={idx} className="mb-1.5 last:mb-2">
                   {isWebSource ? (
                     <>
-                      <div className="font-medium text-white">{source.title || source.filename}</div>
+                      <div className="font-medium text-gray-900">{source.title || source.filename}</div>
                       {source.url && (
                         <a
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 text-xs mt-0.5 block truncate"
+                          className="text-blue-500 hover:text-blue-600 text-xs mt-0.5 block truncate"
                           onClick={(e) => e.stopPropagation()}
                         >
                           {source.url}
                         </a>
                       )}
                       {'content' in source && source.content && typeof source.content === 'string' && (
-                        <div className="text-gray-400 text-xs mt-1 line-clamp-2">
+                        <div className="text-gray-500 text-xs mt-1 line-clamp-2">
                           {source.content.substring(0, 150)}...
                         </div>
                       )}
                     </>
                   ) : (
                     <>
-                      <div className="font-medium text-white">{source.filename}</div>
+                      <div className="font-medium text-gray-900">{source.filename}</div>
                       {source.similarity !== undefined && (
-                        <div className="text-gray-400 text-xs mt-0.5">
+                        <div className="text-gray-500 text-xs mt-0.5">
                           Similarità: {(source.similarity * 100).toFixed(1)}%
                         </div>
                       )}
@@ -539,13 +539,13 @@ export function CitationMultiple({ indices, sources, onOpenSources }: CitationMu
                   onOpenSources()
                   setShowTooltip(false)
                 }}
-                className="mt-2 w-full px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
+                className="mt-1.5 w-full px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors font-medium"
               >
                 Apri tutte le fonti
               </button>
             )}
             <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-full">
-              <div className="border-4 border-transparent border-t-gray-900"></div>
+              <div className="border-4 border-transparent border-t-white"></div>
             </div>
           </div>
         </div>,
@@ -680,14 +680,14 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
           aria-hidden="true"
         />
       )}
-      <div className={`fixed lg:static inset-y-0 right-0 z-50 lg:z-auto h-full bg-white border-l border-gray-200 shadow-lg transition-all duration-300 overflow-hidden ${isOpen ? 'w-full sm:w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
+      <div className={`fixed lg:static inset-y-0 right-0 z-50 lg:z-auto h-full bg-white border-l border-gray-100 shadow-sm transition-all duration-200 overflow-hidden ${isOpen ? 'w-full sm:w-96' : 'w-0'}`} role="complementary" aria-label="Pannello fonti">
         <div className="h-full flex flex-col">
-          <div className="p-4 border-b border-gray-200 flex-shrink-0">
+          <div className="p-3 border-b border-gray-100 flex-shrink-0">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900">Fonti Citate</h2>
+              <h2 className="text-base font-medium text-gray-900">Fonti Citate</h2>
               <button
                 onClick={onClose}
-                className="text-gray-500 hover:text-gray-700 transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors"
                 title="Chiudi pannello"
                 aria-label="Chiudi pannello fonti"
               >
@@ -699,8 +699,8 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
           </div>
 
         {/* Lista Fonti con Chunk Espandibili - Scrollabile */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="space-y-3">
+        <div className="flex-1 overflow-y-auto p-3">
+          <div className="space-y-2">
           {sortedSources.map((source: SourceDetail, idx: number) => {
             const isExpanded = expandedIndex === idx
             const isWebSource = source.type === 'web'
@@ -708,12 +708,12 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
             return (
               <div
                 key={idx}
-                className="border border-gray-200 rounded-lg overflow-hidden"
+                className="border border-gray-100 rounded-lg overflow-hidden"
               >
                 {/* Header Fonte - Sempre Visibile */}
                 <button
                   onClick={() => handleExpand(idx)}
-                  className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+                  className="w-full text-left p-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
                   aria-expanded={isExpanded}
                   aria-controls={`source-content-${idx}`}
                 >
@@ -754,7 +754,7 @@ export function SourceDetailPanel({ isOpen, sources, onClose }: SourceDetailPane
 
                 {/* Contenuto Espandibile */}
                 {isExpanded && (
-                  <div id={`source-content-${idx}`} className="p-3 bg-white border-t border-gray-200" role="region" aria-labelledby={`source-header-${idx}`}>
+                  <div id={`source-content-${idx}`} className="p-2.5 bg-white border-t border-gray-100" role="region" aria-labelledby={`source-header-${idx}`}>
                     {isWebSource ? (
                       <>
                         {/* Source Web: Titolo, URL e Snippet */}

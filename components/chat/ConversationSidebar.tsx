@@ -70,24 +70,24 @@ export function ConversationSidebar({ isOpen = true, onClose }: ConversationSide
 
       {/* Sidebar */}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-64 bg-gray-50 border-r border-gray-200 h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] flex flex-col transform transition-transform duration-300 ease-in-out ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 lg:z-auto w-64 bg-white border-r border-gray-100 h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] flex flex-col transform transition-transform duration-200 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
         role="complementary"
         aria-label="Lista conversazioni"
       >
-        <div className="p-3 border-b border-gray-200">
+        <div className="p-2.5 border-b border-gray-100">
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={handleCreateNew}
-              className="flex-1 bg-transparent border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
+              className="flex-1 bg-transparent border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-colors text-sm font-medium"
               aria-label="Crea nuova conversazione"
             >
               + Nuova Conversazione
             </button>
             <button
               onClick={onClose}
-              className="lg:hidden p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              className="lg:hidden p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded transition-colors"
               aria-label="Chiudi sidebar"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -106,7 +106,7 @@ export function ConversationSidebar({ isOpen = true, onClose }: ConversationSide
           {loading ? (
             <ConversationSkeleton />
           ) : conversations.length === 0 ? (
-            <div className="text-center text-gray-500 mt-4 text-sm">
+            <div className="text-center text-gray-400 mt-4 text-sm">
               Nessuna conversazione
             </div>
           ) : (
@@ -114,8 +114,8 @@ export function ConversationSidebar({ isOpen = true, onClose }: ConversationSide
               {conversations.map((conv) => (
                 <div
                   key={conv.id}
-                  className={`group flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-100 transition-colors ${
-                    pathname === `/chat/${conv.id}` ? 'bg-gray-100' : ''
+                  className={`group flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition-colors ${
+                    pathname === `/chat/${conv.id}` ? 'bg-gray-50' : ''
                   }`}
                   role="listitem"
                 >
@@ -137,7 +137,7 @@ export function ConversationSidebar({ isOpen = true, onClose }: ConversationSide
                       e.preventDefault()
                       handleDeleteClick(conv.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 ml-2 p-1 rounded hover:bg-gray-200 transition-colors"
+                    className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 ml-2 p-1 rounded hover:bg-gray-100 transition-colors"
                     title="Elimina conversazione"
                     aria-label={`Elimina conversazione: ${conv.title || 'Senza titolo'}`}
                   >
