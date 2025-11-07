@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils'
 import { motion, AnimatePresence, Transition, Variants } from 'framer-motion'
-import { useState, useEffect, Children } from 'react'
+import React, { useState, useEffect, Children } from 'react'
 
 type TextLoopProps = {
   children: React.ReactNode[]
@@ -23,6 +23,13 @@ export function TextLoop({
 }: TextLoopProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const items = Children.toArray(children)
+
+  // Adjust currentIndex if items length changed
+  useEffect(() => {
+    if (currentIndex >= items.length && items.length > 0) {
+      setCurrentIndex(0)
+    }
+  }, [items.length, currentIndex])
 
   useEffect(() => {
     // Don't start animation if there's only one item

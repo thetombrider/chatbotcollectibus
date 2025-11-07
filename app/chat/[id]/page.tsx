@@ -284,7 +284,7 @@ export default function ChatPageWithId({
                           <div className="flex gap-4 justify-start">
                             <div className="text-gray-500 text-sm font-medium px-2 min-h-[20px]">
                               <TextLoop
-                                key={`status-loop-${statusMessagesToShow.length}`}
+                                key="status-loop"
                                 interval={1.2}
                                 transition={{ duration: 0.5, ease: 'easeInOut' }}
                                 variants={{
