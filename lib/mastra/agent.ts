@@ -124,22 +124,13 @@ export function clearWebSearchResults(contextKey?: string): void {
 // Configurazione agent con Mastra
 // Per OpenRouter, usa il formato: openrouter/provider/model
 // Mastra legge automaticamente OPENROUTER_API_KEY quando usa il prefisso openrouter/
+// 
+// NOTA: Il prompt nelle `instructions` viene sovrascritto dinamicamente in app/api/chat/route.ts
+// tramite la funzione buildSystemPrompt() da lib/llm/system-prompt.ts.
+// Questo prompt statico serve solo come fallback generico e non viene utilizzato nella pratica.
 export const ragAgent = new Agent({
   name: 'rag-consulting-agent',
-  instructions: `Sei un assistente AI specializzato nell'analisi di documenti aziendali e consulenza.
-Usa i documenti forniti per rispondere alle domande dell'utente in modo accurato e professionale.
-
-IMPORTANTE - CITAZIONI DELLE FONTI:
-- Quando usi informazioni dai documenti forniti, DEVI includere citazioni inline nel formato [cit:N] dove N è il numero del documento (1, 2, 3, ecc.)
-- Le citazioni devono essere posizionate alla fine di ogni frase o paragrafo che contiene informazioni tratte dai documenti
-- Ogni documento ha un numero: usa [cit:1] per il primo documento, [cit:2] per il secondo, ecc.
-- Se una frase combina informazioni da più documenti, usa [cit:1,2,3]
-- Non citare informazioni generali o conoscenza comune che non provengono dai documenti
-
-Esempio di risposta corretta:
-"Secondo l'analisi del mercato italiano, il settore tecnologico è in crescita [cit:1]. Tuttavia, le previsioni indicano una possibile contrazione nel prossimo trimestre [cit:2]."
-
-Cita sempre le fonti quando possibile.`,
+  instructions: `Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.`,
   model: `openrouter/google/gemini-2.5-flash`,
   tools: {
     vector_search: {

@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
 import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-detection'
+import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 
 /**
  * Estrae tutti gli indici citati dal contenuto del messaggio (versione server-side)
@@ -497,125 +498,23 @@ export async function POST(req: NextRequest) {
           
           // Prova prima con stream(), se fallisce usa generate()
           try {
-            let systemPrompt
-            if (context) {
-              // Conta quanti documenti ci sono nel contesto per fornire un esempio chiaro
-              const documentCount = relevantResults.length
-              
-              // Se le fonti sono insufficienti e la ricerca web è abilitata, aggiungi istruzioni per web_search
-              const webSearchInstruction = (webSearchEnabled && SOURCES_INSUFFICIENT) 
-                ? `\n\nIMPORTANTE - RICERCA WEB:
-- Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
-- DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
-- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
-- Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
-- Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
-                : ''
-              
-              // Per query comparative, aggiungi informazioni sui documenti disponibili
-              if (comparativeTerms) {
-                const uniqueDocuments = [...new Set(relevantResults.map((r: SearchResult) => r.document_filename))]
-                systemPrompt = `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
+            // Calcola uniqueDocumentNames per query comparative
+            const uniqueDocumentNames = context && comparativeTerms
+              ? [...new Set(relevantResults.map((r: SearchResult) => r.document_filename || 'Documento sconosciuto'))]
+              : []
 
-Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments.join(', ')}.
-
-Usa il seguente contesto dai documenti per rispondere.${webSearchInstruction} 
-
-CITAZIONI - REGOLE IMPORTANTI:
-- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
-- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
-- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
-- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
-- NON inventare numeri di documento che non esistono nel contesto
-- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
-
-ESEMPIO:
-Se il contesto contiene:
-[Documento 1: file1.pdf]
-Testo del documento 1...
-
-[Documento 2: file2.pdf]
-Testo del documento 2...
-
-E usi informazioni da entrambi, cita: [cit:1,2]
-
-IMPORTANTE: 
-- Confronta esplicitamente i concetti trovati in entrambe le normative
-- Cita SOLO informazioni presenti nel contesto fornito
-- Se trovi concetti simili in documenti diversi, menzionalo esplicitamente
-
-Contesto dai documenti:
-${context}`
-              } else {
-                // Se c'è un articolo specifico richiesto, menzionalo nel prompt
-                const articleContext = articleNumber 
-                  ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
-                  : ''
-                
-                systemPrompt = `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${webSearchInstruction}
-
-CITAZIONI - REGOLE IMPORTANTI:
-- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
-- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
-- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
-- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
-- NON inventare numeri di documento che non esistono nel contesto
-- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
-
-ESEMPIO:
-Se il contesto contiene:
-[Documento 1: file1.pdf]
-Testo del documento 1...
-
-[Documento 2: file2.pdf]
-Testo del documento 2...
-
-E usi informazioni da entrambi, cita: [cit:1,2]
-
-IMPORTANTE: 
-- NON inventare citazioni
-- Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
-- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
-
-Contesto dai documenti:
-${context}`
-              }
-            } else {
-              // Nessun documento rilevante nella KB
-              if (webSearchEnabled && SOURCES_INSUFFICIENT) {
-                // Se la ricerca web è abilitata e le fonti non sono sufficienti,
-                // istruisci l'agent a usare il tool web_search
-                systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
-
-IMPORTANTE - RICERCA WEB:
-- Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
-- DEVI usare il tool web_search per cercare informazioni aggiornate sul web
-- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
-- NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base
-- Usa [web:N] per citare le fonti web trovate
-
-Rispondi in modo completo combinando le tue conoscenze generali con le informazioni trovate sul web.`
-              } else {
-                // Nessun documento rilevante nella KB e ricerca web disabilitata
-                // NON rispondere genericamente - informa l'utente che non ci sono informazioni sufficienti
-                systemPrompt = `Sei un assistente per un team di consulenza. 
-
-IMPORTANTE - SITUAZIONE ATTUALE:
-- Non ci sono documenti rilevanti nella knowledge base per questa domanda
-- La ricerca web non è abilitata
-
-ISTRUZIONI:
-- NON rispondere usando conoscenze generali o informazioni non verificate
-- NON inventare informazioni o fare supposizioni
-- DEVI informare l'utente che non ci sono informazioni sufficienti nella knowledge base per rispondere a questa domanda
-- Suggerisci all'utente di abilitare la ricerca web se vuole informazioni aggiornate dal web
-- Sii onesto e trasparente: se non hai informazioni rilevanti, dillo chiaramente
-
-Rispondi in modo breve e diretto, informando l'utente che non ci sono informazioni sufficienti nella knowledge base.`
-              }
-            }
+            // Costruisci system prompt usando funzione centralizzata
+            const systemPrompt = buildSystemPrompt({
+              hasContext: context !== null,
+              context: context || undefined,
+              documentCount: relevantResults.length,
+              uniqueDocumentNames,
+              comparativeTerms,
+              articleNumber,
+              webSearchEnabled,
+              sourcesInsufficient: SOURCES_INSUFFICIENT,
+              avgSimilarity,
+            })
             
             const messages = [
               {
@@ -677,83 +576,23 @@ Rispondi in modo breve e diretto, informando l'utente che non ci sono informazio
           } catch (streamError) {
             console.error('[api/chat] Stream failed, trying generate():', streamError)
             // Fallback a generate() se stream() non funziona
-            let systemPrompt
-            if (context) {
-              const documentCount = relevantResults.length
-              
-              // Se le fonti sono insufficienti e la ricerca web è abilitata, aggiungi istruzioni per web_search
-              const webSearchInstruction = (webSearchEnabled && SOURCES_INSUFFICIENT) 
-                ? `\n\nIMPORTANTE - RICERCA WEB:
-- Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
-- DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
-- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
-- Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
-- Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
-                : ''
-              
-              systemPrompt = `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${webSearchInstruction}
+            // Calcola uniqueDocumentNames per query comparative
+            const uniqueDocumentNames = context && comparativeTerms
+              ? [...new Set(relevantResults.map((r: SearchResult) => r.document_filename || 'Documento sconosciuto'))]
+              : []
 
-CITAZIONI - REGOLE IMPORTANTI:
-- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
-- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
-- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
-- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
-- NON inventare numeri di documento che non esistono nel contesto
-- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
-
-ESEMPIO:
-Se il contesto contiene:
-[Documento 1: file1.pdf]
-Testo del documento 1...
-
-[Documento 2: file2.pdf]
-Testo del documento 2...
-
-E usi informazioni da entrambi, cita: [cit:1,2]
-
-IMPORTANTE: 
-- NON inventare citazioni
-- Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
-- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
-
-Contesto dai documenti:
-${context}`
-            } else {
-              // Nessun documento rilevante nella KB
-              if (webSearchEnabled && SOURCES_INSUFFICIENT) {
-                // Se la ricerca web è abilitata e le fonti non sono sufficienti,
-                // istruisci l'agent a usare il tool web_search
-                systemPrompt = `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
-
-IMPORTANTE - RICERCA WEB:
-- Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
-- DEVI usare il tool web_search per cercare informazioni aggiornate sul web
-- Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
-- Cita le fonti web con [web:N] dove N è il numero del risultato (1, 2, 3, ecc.)
-- NON usare citazioni [cit:N] perché non ci sono documenti rilevanti nella knowledge base
-- Usa [web:N] per citare le fonti web trovate
-
-Rispondi in modo completo combinando le tue conoscenze generali con le informazioni trovate sul web.`
-              } else {
-                // Nessun documento rilevante nella KB e ricerca web disabilitata
-                // NON rispondere genericamente - informa l'utente che non ci sono informazioni sufficienti
-                systemPrompt = `Sei un assistente per un team di consulenza. 
-
-IMPORTANTE - SITUAZIONE ATTUALE:
-- Non ci sono documenti rilevanti nella knowledge base per questa domanda
-- La ricerca web non è abilitata
-
-ISTRUZIONI:
-- NON rispondere usando conoscenze generali o informazioni non verificate
-- NON inventare informazioni o fare supposizioni
-- DEVI informare l'utente che non ci sono informazioni sufficienti nella knowledge base per rispondere a questa domanda
-- Suggerisci all'utente di abilitare la ricerca web se vuole informazioni aggiornate dal web
-- Sii onesto e trasparente: se non hai informazioni rilevanti, dillo chiaramente
-
-Rispondi in modo breve e diretto, informando l'utente che non ci sono informazioni sufficienti nella knowledge base.`
-              }
-            }
+            // Costruisci system prompt usando funzione centralizzata (stessa logica del blocco try)
+            const systemPrompt = buildSystemPrompt({
+              hasContext: context !== null,
+              context: context || undefined,
+              documentCount: relevantResults.length,
+              uniqueDocumentNames,
+              comparativeTerms,
+              articleNumber,
+              webSearchEnabled,
+              sourcesInsufficient: SOURCES_INSUFFICIENT,
+              avgSimilarity,
+            })
             
             const messages = [
               {
