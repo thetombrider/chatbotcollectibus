@@ -59,21 +59,36 @@ BEGIN
     dc.content,
     dc.chunk_index,
     dc.metadata,
-    -- Combined similarity score con text_score scalato e gestione NULL
-    (
-      vector_weight * (1 - (dc.embedding <=> query_embedding)) +
-      text_weight * LEAST(
-        COALESCE(
-          CAST(ts_rank_cd(
-            to_tsvector('italian', dc.content),
-            tsquery_result,
-            1  -- Normalization: divide by 1 + log(document length)
-          ) AS DOUBLE PRECISION) * text_scale_factor,
-          0.0  -- Default to 0 if NULL
-        ),
-        1.0  -- Cap at 1.0 to keep scores comparable
-      )
-    )::DOUBLE PRECISION AS similarity,
+    -- Combined similarity score: usa solo vector_score se text_score è 0 (acronimi)
+    -- Altrimenti usa hybrid (vector + text) per parole normali
+    CASE
+      WHEN COALESCE(
+        CAST(ts_rank_cd(
+          to_tsvector('italian', dc.content),
+          tsquery_result,
+          1
+        ) AS DOUBLE PRECISION) * text_scale_factor,
+        0.0
+      ) = 0.0 THEN
+        -- Text score è 0 (acronimi): usa solo vector score per non peggiorare i risultati
+        (1 - (dc.embedding <=> query_embedding))::DOUBLE PRECISION
+      ELSE
+        -- Text score > 0 (parole normali): usa hybrid search
+        (
+          vector_weight * (1 - (dc.embedding <=> query_embedding)) +
+          text_weight * LEAST(
+            COALESCE(
+              CAST(ts_rank_cd(
+                to_tsvector('italian', dc.content),
+                tsquery_result,
+                1  -- Normalization: divide by 1 + log(document length)
+              ) AS DOUBLE PRECISION) * text_scale_factor,
+              0.0  -- Default to 0 if NULL
+            ),
+            1.0  -- Cap at 1.0 to keep scores comparable
+          )
+        )::DOUBLE PRECISION
+    END AS similarity,
     -- Vector similarity score separato
     (1 - (dc.embedding <=> query_embedding))::DOUBLE PRECISION AS vector_score,
     -- Full-text search score scalato con gestione NULL (per debugging/analytics)
