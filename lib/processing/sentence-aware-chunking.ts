@@ -20,11 +20,35 @@ let encoding_for_model: any = null
 async function getTiktoken() {
   if (!encoding_for_model) {
     try {
+      // Prova prima con import dinamico
       const tiktoken = await import('@dqbd/tiktoken')
-      encoding_for_model = tiktoken.encoding_for_model
-      return true
+      if (tiktoken && tiktoken.encoding_for_model) {
+        encoding_for_model = tiktoken.encoding_for_model
+        console.log('[sentence-chunking] Tiktoken loaded successfully')
+        return true
+      } else {
+        throw new Error('Tiktoken module loaded but encoding_for_model is undefined')
+      }
     } catch (error) {
-      console.warn('[sentence-chunking] Tiktoken not available, using fallback')
+      // Se import dinamico fallisce, prova con require (solo server-side)
+      try {
+        if (typeof require !== 'undefined') {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const tiktoken = require('@dqbd/tiktoken')
+          if (tiktoken && tiktoken.encoding_for_model) {
+            encoding_for_model = tiktoken.encoding_for_model
+            console.log('[sentence-chunking] Tiktoken loaded successfully (via require)')
+            return true
+          }
+        }
+      } catch (requireError) {
+        // Ignora errori di require
+      }
+      
+      console.warn('[sentence-chunking] Tiktoken not available, using fallback:', error instanceof Error ? error.message : String(error))
+      if (error instanceof Error && error.stack) {
+        console.warn('[sentence-chunking] Error stack:', error.stack)
+      }
       return false
     }
   }
