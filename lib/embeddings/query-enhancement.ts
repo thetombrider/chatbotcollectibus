@@ -40,10 +40,12 @@ export interface EnhancementResult {
  * Rileva riferimenti ad articoli nella query
  * Pattern: "articolo 28", "art. 28", "article 28", "il 34", "al 28", etc.
  * 
+ * @deprecated Use analyzeQuery() which detects article numbers
  * @param query - Query da analizzare
  * @returns Numero articolo se rilevato, null altrimenti
  */
-function detectArticleReference(query: string): number | null {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _detectArticleReference(query: string): number | null {
   // Pattern per articoli in italiano e inglese
   const articleRegexes = [
     // Pattern formali: "articolo 28", "article 28"
@@ -134,10 +136,12 @@ async function expandArticleQuery(query: string, articleNumber: number): Promise
  * - Too broad (e.g., "tell me about regulations")
  * - Incomplete or vague
  * 
+ * @deprecated Use analyzeQuery() and enhanceQueryIfNeeded() instead
  * @param query - User query to analyze
  * @returns Boolean decision: true if enhancement would help
  */
-async function shouldEnhanceQuery(query: string): Promise<boolean> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _shouldEnhanceQuery(query: string): Promise<boolean> {
   try {
     const prompt = `You are a query analyzer for a RAG system. Analyze if this query needs semantic expansion to improve search results.
 
@@ -190,10 +194,12 @@ Respond with ONLY "YES" or "NO".`
  * 
  * Uses LLM to add semantic richness while keeping the query focused.
  * 
+ * @deprecated Use expandQueryByIntent() instead
  * @param query - Original user query
  * @returns Enhanced query with additional context
  */
-async function expandQuery(query: string): Promise<string> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function _expandQuery(query: string): Promise<string> {
   try {
     const prompt = `You are a semantic query expander for a consulting knowledge base.
 

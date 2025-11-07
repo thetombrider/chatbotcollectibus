@@ -70,11 +70,13 @@ export async function hybridSearch(
     console.log('[vector-operations] Hybrid search results similarity values:')
     data.forEach((result: Record<string, unknown>, idx: number) => {
       console.log(`  [${idx + 1}] Similarity: ${result.similarity} (raw), ${((result.similarity as number) * 100).toFixed(1)}% (display)`)
-      if (result.vector_score !== undefined) {
-        const textScoreDisplay = result.text_score !== undefined && result.text_score !== null 
-          ? result.text_score.toFixed(3) 
+      if (result.vector_score !== undefined && result.vector_score !== null) {
+        const vectorScore = result.vector_score as number
+        const textScore = result.text_score as number | undefined | null
+        const textScoreDisplay = textScore !== undefined && textScore !== null 
+          ? textScore.toFixed(3) 
           : 'N/A'
-        console.log(`      Vector score: ${result.vector_score.toFixed(3)}, Text score: ${textScoreDisplay}`)
+        console.log(`      Vector score: ${vectorScore.toFixed(3)}, Text score: ${textScoreDisplay}`)
       }
       // Log article number se presente nei metadati
       if (result.metadata && typeof result.metadata === 'object') {

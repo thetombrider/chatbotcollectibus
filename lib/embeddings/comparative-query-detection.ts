@@ -37,7 +37,7 @@ export interface ComparativeQueryResult {
  */
 export async function detectComparativeQueryLLM(
   query: string,
-  enhancedQuery?: string
+  _enhancedQuery?: string
 ): Promise<string[] | null> {
   try {
     // Use unified analysis (cached internally)

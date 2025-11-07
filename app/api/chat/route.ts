@@ -7,7 +7,6 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
 import { analyzeQuery } from '@/lib/embeddings/query-analysis'
-import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-detection'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 
 /**
