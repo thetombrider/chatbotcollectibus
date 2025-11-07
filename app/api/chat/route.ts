@@ -83,11 +83,9 @@ async function performMultiQuerySearch(
   const searchPromises = terms.map(async (term) => {
     try {
       // Crea una query mirata per questo termine
-      // Se la query è già stata enhanced, usa solo il termine senza aggiungere la query
-      // per evitare doppia espansione
-      const targetedQuery = queryAlreadyEnhanced 
-        ? `${term} ${originalQuery}` 
-        : `${term} ${originalQuery}`
+      // Per query comparative, usa solo il termine + espansione mirata
+      // Non includere l'intera query originale per evitare confusione nell'embedding
+      const targetedQuery = term // Usa solo il termine per una ricerca più mirata
       
       const targetedEmbedding = await generateEmbedding(targetedQuery)
       
