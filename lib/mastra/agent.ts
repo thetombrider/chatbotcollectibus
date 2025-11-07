@@ -103,7 +103,7 @@ async function metaQueryTool({ query }: { query: string }) {
   }
 
   try {
-    const { detectMetaQuery } = await import('@/lib/embeddings/meta-query-detection')
+    const { analyzeQuery } = await import('@/lib/embeddings/query-analysis')
     const {
       getDatabaseStats,
       listDocumentsMeta,
@@ -112,17 +112,17 @@ async function metaQueryTool({ query }: { query: string }) {
       getFolderStats,
     } = await import('@/lib/supabase/meta-queries')
 
-    // Detect meta query type
-    const detection = await detectMetaQuery(query)
+    // Use unified analysis (cached internally)
+    const analysis = await analyzeQuery(query)
     
-    if (!detection.isMeta) {
+    if (!analysis.isMeta) {
       return {
         isMeta: false,
         message: 'Questa query non sembra essere una query meta sul database.',
       }
     }
 
-    const metaType = detection.metaType
+    const metaType = analysis.metaType
     const queryLower = query.toLowerCase()
 
     // Determine which function to call based on query content and metaType

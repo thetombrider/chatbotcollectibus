@@ -7,6 +7,7 @@ export interface CachedEnhancement {
   query_text: string
   enhanced_query: string
   should_enhance: boolean
+  intent_type?: string | null // Intent type (for analytics)
   created_at: string
   expires_at: string
   hit_count: number
@@ -91,18 +92,21 @@ export async function findCachedEnhancement(
  * @param query - Original user query
  * @param enhancedQuery - Enhanced query text (or same as original if not enhanced)
  * @param shouldEnhance - Whether the LLM decided this query needs enhancement
+ * @param intentType - Optional intent type (for analytics)
  * 
  * @example
  * await saveCachedEnhancement(
  *   "GDPR",
  *   "GDPR General Data Protection Regulation privacy data protection",
- *   true
+ *   true,
+ *   "definition"
  * )
  */
 export async function saveCachedEnhancement(
   query: string,
   enhancedQuery: string,
-  shouldEnhance: boolean
+  shouldEnhance: boolean,
+  intentType?: string
 ): Promise<void> {
   try {
     const normalizedQuery = normalizeCacheKey(query)
@@ -113,6 +117,7 @@ export async function saveCachedEnhancement(
         query_text: normalizedQuery,
         enhanced_query: enhancedQuery,
         should_enhance: shouldEnhance,
+        intent_type: intentType || null,
         created_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
         hit_count: 0,
@@ -127,6 +132,7 @@ export async function saveCachedEnhancement(
     
     console.log('[enhancement-cache] Cached enhancement for query:', normalizedQuery.substring(0, 50))
     console.log('[enhancement-cache] Should enhance:', shouldEnhance)
+    console.log('[enhancement-cache] Intent type:', intentType || 'none')
   } catch (err) {
     console.error('[enhancement-cache] Save failed:', err)
     // Don't throw - cache failure shouldn't break the query flow

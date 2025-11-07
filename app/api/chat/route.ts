@@ -6,6 +6,7 @@ import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
+import { analyzeQuery } from '@/lib/embeddings/query-analysis'
 import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-detection'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 
@@ -213,30 +214,45 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // STEP 1: Query Enhancement (before embedding and caching)
-          // Uses LLM to detect if query is generic/broad/incomplete and expands it
-          console.log('[api/chat] Step 1: Query enhancement')
+          // STEP 1: Unified Query Analysis (detects intent, comparative, meta, articles in ONE LLM call)
+          console.log('[api/chat] Step 1: Unified query analysis')
           
           // Send status message: Analisi della query
           controller.enqueue(
             new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Analisi della query...' })}\n\n`)
           )
           
-          const enhancementResult = await enhanceQueryIfNeeded(message)
+          // Analyze query once (detects everything: intent, comparative, meta, articles)
+          const analysisResult = await analyzeQuery(message)
+          
+          console.log('[api/chat] Analysis result:', {
+            intent: analysisResult.intent,
+            isComparative: analysisResult.isComparative,
+            isMeta: analysisResult.isMeta,
+            articleNumber: analysisResult.articleNumber,
+            fromCache: analysisResult.fromCache,
+          })
+          
+          // STEP 2: Query Enhancement (uses analysis result to guide expansion)
+          console.log('[api/chat] Step 2: Query enhancement (intent-based)')
+          
+          // Pass analysis result to avoid duplicate LLM call
+          const enhancementResult = await enhanceQueryIfNeeded(message, analysisResult)
           const queryToEmbed = enhancementResult.enhanced
           const wasEnhanced = enhancementResult.shouldEnhance
-          const articleNumber = enhancementResult.articleNumber // Extract article number if detected
+          const articleNumber = analysisResult.articleNumber || enhancementResult.articleNumber
           
           console.log('[api/chat] Enhancement result:', {
             original: message.substring(0, 50),
             enhanced: queryToEmbed.substring(0, 100),
             wasEnhanced,
+            intent: analysisResult.intent,
             fromCache: enhancementResult.fromCache,
             articleNumber,
           })
 
-          // STEP 2: Check semantic cache (using enhanced query for embedding)
-          console.log('[api/chat] Step 2: Semantic cache lookup')
+          // STEP 3: Check semantic cache (using enhanced query for embedding)
+          console.log('[api/chat] Step 3: Semantic cache lookup')
           const queryEmbedding = await generateEmbedding(queryToEmbed)
           const cached = await findCachedResponse(queryEmbedding)
 
@@ -359,15 +375,15 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // STEP 3: Vector search per context con hybrid search migliorata
-          // Rileva se è una query comparativa e usa strategia multi-query
-          console.log('[api/chat] Step 3: Vector search')
+          // STEP 4: Vector search per context con hybrid search migliorata
+          // Routing basato su intent (usa analysisResult già calcolato, NO chiamate LLM duplicate)
+          console.log('[api/chat] Step 4: Vector search (intent-based routing)')
           
-          // Use enhanced query for comparative detection (better pattern matching)
-          const comparativeTerms = await detectComparativeQueryLLM(message, wasEnhanced ? queryToEmbed : undefined)
+          // Use comparative terms from analysis (already detected, no duplicate LLM call)
+          const comparativeTerms = analysisResult.comparativeTerms
           
           // Send status message for search
-          if (comparativeTerms) {
+          if (comparativeTerms && comparativeTerms.length >= 2) {
             console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
             const statusMessage = `Analisi comparativa tra ${comparativeTerms.join(' e ')}...`
             controller.enqueue(
@@ -379,11 +395,11 @@ export async function POST(req: NextRequest) {
             )
           }
           
-          let searchResults
+          let searchResults: SearchResult[]
           
-          if (comparativeTerms) {
+          if (comparativeTerms && comparativeTerms.length >= 2) {
             // Usa strategia multi-query per query comparative
-            // Pass flag to indicate query is already enhanced (avoid double expansion)
+            // Use terms from analysis (already detected, no duplicate LLM call)
             searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced, articleNumber)
           } else {
             // Query standard: hybrid search normale

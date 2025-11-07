@@ -1,11 +1,13 @@
 import OpenAI from 'openai'
 import { findCachedEnhancement, saveCachedEnhancement } from '@/lib/supabase/enhancement-cache'
+import { analyzeQuery, type QueryAnalysisResult } from './query-analysis'
+import { expandQueryByIntent } from './intent-based-expansion'
 
 /**
  * Query Enhancement Module
  * 
- * Uses LLM to detect when queries are generic, broad, or incomplete,
- * and expands them with related terms and context to improve vector search similarity.
+ * Uses unified query analysis to detect intent, then expands queries
+ * based on detected intent to improve vector search similarity.
  * 
  * Caches decisions to minimize LLM API costs.
  */
@@ -30,6 +32,8 @@ export interface EnhancementResult {
   shouldEnhance: boolean
   fromCache: boolean
   articleNumber?: number // Numero articolo rilevato, se presente
+  intent?: string // Intent rilevato (per compatibilità e analytics)
+  analysis?: QueryAnalysisResult // Complete analysis result (opzionale, per uso avanzato)
 }
 
 /**
@@ -248,28 +252,33 @@ Now expand the query. Respond with ONLY the expanded query text, nothing else.`
 /**
  * Main entry point: Enhances a query if needed
  * 
- * Flow:
- * 1. Check cache for previous decision
- * 2. If not cached, use LLM to detect if enhancement is needed
- * 3. If needed, use LLM to expand the query
+ * NEW FLOW (with unified analysis):
+ * 1. Analyze query once (detects intent, comparative, meta, articles)
+ * 2. Use intent to guide expansion strategy
+ * 3. Expand query based on intent
  * 4. Cache the result for future use
  * 5. Return enhanced or original query
  * 
  * @param query - User query to potentially enhance
+ * @param analysisResult - Optional pre-computed analysis result (to avoid duplicate LLM call)
  * @returns Enhancement result with query and metadata
  * 
  * @example
  * const result = await enhanceQueryIfNeeded("GDPR")
  * // result.shouldEnhance = true
  * // result.enhanced = "GDPR General Data Protection Regulation protezione dati..."
- * // result.fromCache = false
+ * // result.intent = "definition"
  * 
- * const result2 = await enhanceQueryIfNeeded("What are the specific GDPR requirements for data retention in Italy?")
- * // result2.shouldEnhance = false
- * // result2.enhanced = "What are the specific GDPR requirements..." (unchanged)
- * // result2.fromCache = false
+ * @example
+ * // With pre-computed analysis (to avoid duplicate LLM call)
+ * const analysis = await analyzeQuery("confronta GDPR e ESPR")
+ * const result = await enhanceQueryIfNeeded("confronta GDPR e ESPR", analysis)
+ * // Uses analysis.intent to guide expansion
  */
-export async function enhanceQueryIfNeeded(query: string): Promise<EnhancementResult> {
+export async function enhanceQueryIfNeeded(
+  query: string,
+  analysisResult?: QueryAnalysisResult
+): Promise<EnhancementResult> {
   // Feature flag check
   if (!ENABLE_QUERY_ENHANCEMENT) {
     console.log('[query-enhancement] Feature disabled via env var')
@@ -281,10 +290,17 @@ export async function enhanceQueryIfNeeded(query: string): Promise<EnhancementRe
   }
   
   try {
-    // Step 0: Rileva riferimenti ad articoli (prima del cache check)
-    const articleNumber = detectArticleReference(query)
+    // Step 0: Analyze query (if not provided)
+    let analysis: QueryAnalysisResult
+    if (analysisResult) {
+      analysis = analysisResult
+      console.log('[query-enhancement] Using provided analysis result')
+    } else {
+      console.log('[query-enhancement] Analyzing query...')
+      analysis = await analyzeQuery(query)
+    }
     
-    // Step 1: Check cache
+    // Step 1: Check cache (using original query)
     const cached = await findCachedEnhancement(query)
     
     if (cached) {
@@ -293,42 +309,55 @@ export async function enhanceQueryIfNeeded(query: string): Promise<EnhancementRe
         enhanced: cached.enhanced_query,
         shouldEnhance: cached.should_enhance,
         fromCache: true,
-        articleNumber: articleNumber || undefined,
+        articleNumber: analysis.articleNumber,
+        intent: analysis.intent,
+        analysis,
+      }
+    }
+    
+    // Step 2: Skip expansion for meta queries (they don't need enhancement)
+    if (analysis.isMeta) {
+      console.log('[query-enhancement] Meta query detected, skipping expansion')
+      return {
+        enhanced: query,
+        shouldEnhance: false,
+        fromCache: false,
+        intent: analysis.intent,
+        analysis,
       }
     }
     
     let enhancedQuery = query
     
-    // Step 2: Se rilevato riferimento ad articolo, espandi con varianti
-    if (articleNumber !== null) {
-      console.log(`[query-enhancement] Article reference detected (${articleNumber}), expanding...`)
-      enhancedQuery = await expandArticleQuery(query, articleNumber)
-      // Per query con articoli, consideriamo sempre enhancement necessario
-      // per migliorare la ricerca semantica
+    // Step 3: Expand query based on intent
+    if (analysis.intent === 'article_lookup' && analysis.articleNumber) {
+      // Article lookup: use article-specific expansion
+      console.log(`[query-enhancement] Article lookup detected (${analysis.articleNumber}), expanding...`)
+      enhancedQuery = await expandArticleQuery(query, analysis.articleNumber)
+    } else if (analysis.intent === 'comparison' && analysis.comparativeTerms) {
+      // Comparison: expand each term separately
+      console.log('[query-enhancement] Comparison query detected, expanding terms...')
+      enhancedQuery = await expandQueryByIntent(query, analysis)
     } else {
-      // Step 3: Detect if enhancement is needed (solo se non c'è articolo)
-      console.log('[query-enhancement] Cache miss, detecting if enhancement needed...')
-      const shouldEnhance = await shouldEnhanceQuery(query)
-      
-      // Step 4: Expand if needed
-      if (shouldEnhance) {
-        console.log('[query-enhancement] Enhancement needed, expanding query...')
-        enhancedQuery = await expandQuery(query)
-      } else {
-        console.log('[query-enhancement] Enhancement not needed, using original query')
-      }
+      // Other intents: use intent-based expansion
+      console.log(`[query-enhancement] Intent "${analysis.intent}" detected, expanding...`)
+      enhancedQuery = await expandQueryByIntent(query, analysis)
     }
     
+    // Step 4: Determine if enhancement was applied
+    const shouldEnhance = enhancedQuery !== query || analysis.articleNumber !== undefined
+    
     // Step 5: Cache the result
-    const shouldEnhance = articleNumber !== null || enhancedQuery !== query
-    await saveCachedEnhancement(query, enhancedQuery, shouldEnhance)
+    await saveCachedEnhancement(query, enhancedQuery, shouldEnhance, analysis.intent)
     
     // Step 6: Return result
     return {
       enhanced: enhancedQuery,
       shouldEnhance,
       fromCache: false,
-      articleNumber: articleNumber || undefined,
+      articleNumber: analysis.articleNumber,
+      intent: analysis.intent,
+      analysis,
     }
   } catch (error) {
     console.error('[query-enhancement] Enhancement failed:', error)
