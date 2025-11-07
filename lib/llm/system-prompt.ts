@@ -66,6 +66,21 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     return ''
   }
 
+  // Costruisci sezione query meta
+  const buildMetaQuerySection = (): string => {
+    return `
+QUERY META - INFORMAZIONI SUL DATABASE:
+- Se l'utente chiede informazioni sul DATABASE STESSO (non sul contenuto dei documenti), usa il tool meta_query
+- Esempi di query meta:
+  * Statistiche: "quanti documenti ci sono", "quante norme sono salvate", "quanti file ci sono"
+  * Liste: "che norme ci sono", "elenca i documenti", "quali file sono nel database", "che documenti ci sono"
+  * Cartelle: "quali cartelle esistono", "che cartelle ci sono", "statistiche cartella X"
+  * Tipi di file: "quali tipi di file ci sono", "che formati sono supportati"
+- Il tool meta_query restituisce dati strutturati (statistiche, liste, ecc.)
+- Formatta le risposte meta in modo chiaro e leggibile
+- Puoi combinare risultati meta con risultati RAG normali se la query lo richiede`
+  }
+
   // Costruisci sezione citazioni standard
   const buildCitationsSection = (): string => {
     return `
@@ -107,7 +122,7 @@ IMPORTANTE:
 
 Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments}.
 
-Usa il seguente contesto dai documenti per rispondere.${webSearchInstruction}${buildCitationsSection()}
+Usa il seguente contesto dai documenti per rispondere.${buildMetaQuerySection()}${webSearchInstruction}${buildCitationsSection()}
 
 IMPORTANTE: 
 - Confronta esplicitamente i concetti trovati in entrambe le normative
@@ -123,7 +138,7 @@ ${context}`
       ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
       : ''
 
-    return `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${webSearchInstruction}${buildCitationsSection()}
+    return `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${buildMetaQuerySection()}${webSearchInstruction}${buildCitationsSection()}
 
 Contesto dai documenti:
 ${context}`
@@ -133,6 +148,8 @@ ${context}`
   if (webSearchEnabled && sourcesInsufficient) {
     // Caso 2a: Nessun documento + web search abilitato
     return `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
+
+${buildMetaQuerySection()}
 
 IMPORTANTE - RICERCA WEB:
 - Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
@@ -148,12 +165,15 @@ Rispondi in modo completo combinando le tue conoscenze generali con le informazi
   // Caso 2b: Nessun documento + web search disabilitato
   return `Sei un assistente per un team di consulenza. 
 
+${buildMetaQuerySection()}
+
 IMPORTANTE - SITUAZIONE ATTUALE:
 - Non ci sono documenti rilevanti nella knowledge base per questa domanda
 - La ricerca web non è abilitata
 
 ISTRUZIONI:
-- NON rispondere usando conoscenze generali o informazioni non verificate
+- Se la query è meta (chiede info sul database), usa il tool meta_query
+- Se la query è sul contenuto dei documenti, NON rispondere usando conoscenze generali o informazioni non verificate
 - NON inventare informazioni o fare supposizioni
 - DEVI informare l'utente che non ci sono informazioni sufficienti nella knowledge base per rispondere a questa domanda
 - Suggerisci all'utente di abilitare la ricerca web se vuole informazioni aggiornate dal web
