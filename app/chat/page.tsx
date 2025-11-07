@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
 import { SourceDetailPanel } from '@/components/chat/Citation'
@@ -195,7 +195,7 @@ export default function ChatPage() {
                     
                     // Show phase label + skeletons only before streaming starts
                     if (!isStreaming) {
-                      // Default status messages to cycle through
+                      // Default status messages to cycle through - shows what's happening under the hood
                       const defaultStatusMessages = [
                         'Analisi della domanda...',
                         'Ricerca documenti nella knowledge base...',
@@ -203,18 +203,20 @@ export default function ChatPage() {
                         'Generazione risposta...',
                       ]
                       
-                      // Use API status message if available, otherwise use default messages
+                      // Always cycle through all messages: include API status message if available, then all defaults
+                      // This ensures the animation always shows what's happening
                       const statusMessagesToShow = statusMessage 
-                        ? [statusMessage]
+                        ? [statusMessage, ...defaultStatusMessages]
                         : defaultStatusMessages
                       
                       return (
                         <div className="space-y-3">
                           <div className="flex gap-4 justify-start">
-                            <div className="text-gray-500 text-sm font-medium px-2">
+                            <div className="text-gray-500 text-sm font-medium px-2 min-h-[20px]">
                               <TextLoop
-                                interval={2}
-                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                key={`status-loop-${statusMessagesToShow.length}`}
+                                interval={1.2}
+                                transition={{ duration: 0.5, ease: 'easeInOut' }}
                                 variants={{
                                   initial: { y: 10, opacity: 0 },
                                   animate: { y: 0, opacity: 1 },

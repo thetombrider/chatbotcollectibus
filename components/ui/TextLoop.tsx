@@ -25,7 +25,22 @@ export function TextLoop({
   const items = Children.toArray(children)
 
   useEffect(() => {
+    // Don't start animation if there's only one item
+    if (items.length <= 1) return
+
+    // Start immediately by cycling to next item after a short delay
     const intervalMs = interval * 1000
+    
+    // First cycle after a shorter delay to show animation immediately
+    const firstTimer = setTimeout(() => {
+      setCurrentIndex((current) => {
+        const next = (current + 1) % items.length
+        onIndexChange?.(next)
+        return next
+      })
+    }, 500) // Start cycling after 500ms
+
+    // Then continue with regular interval
     const timer = setInterval(() => {
       setCurrentIndex((current) => {
         const next = (current + 1) % items.length
@@ -34,7 +49,10 @@ export function TextLoop({
       })
     }, intervalMs)
 
-    return () => clearInterval(timer)
+    return () => {
+      clearTimeout(firstTimer)
+      clearInterval(timer)
+    }
   }, [items.length, interval, onIndexChange])
 
   const motionVariants: Variants = {
