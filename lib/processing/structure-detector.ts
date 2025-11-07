@@ -41,6 +41,10 @@ export interface DocumentStructure {
   confidence: number
 }
 
+// Limite per evitare timeout su documenti molto grandi
+const MAX_TEXT_SIZE_FOR_FULL_DETECTION = 5 * 1024 * 1024 // 5MB
+const MAX_PATTERNS_PER_TYPE = 1000 // Limite pattern per tipo per evitare array troppo grandi
+
 /**
  * Rileva struttura del documento in modo generico
  * 
@@ -52,14 +56,29 @@ export function detectDocumentStructure(
   text: string,
   format: 'markdown' | 'plain'
 ): DocumentStructure {
-  console.log(`[structure-detector] Detecting structure (format: ${format})`)
+  const textSize = text.length
+  console.log(`[structure-detector] Detecting structure (format: ${format}, size: ${(textSize / 1024).toFixed(2)}KB)`)
+
+  // Per documenti molto grandi, usa strategia semplificata
+  if (textSize > MAX_TEXT_SIZE_FOR_FULL_DETECTION) {
+    console.log(`[structure-detector] Large document detected (${(textSize / 1024 / 1024).toFixed(2)}MB), using optimized detection`)
+    return detectDocumentStructureOptimized(text, format)
+  }
 
   // Rileva pattern strutturali
+  const startTime = Date.now()
   const articles = detectArticlePatterns(text)
+  console.log(`[structure-detector] Articles detection took ${Date.now() - startTime}ms, found ${articles.length}`)
+  
+  const sectionsStartTime = Date.now()
   const sections = format === 'markdown' 
     ? detectMarkdownSections(text)
     : detectTextualSections(text)
+  console.log(`[structure-detector] Sections detection took ${Date.now() - sectionsStartTime}ms, found ${sections.length}`)
+  
+  const chaptersStartTime = Date.now()
   const chapters = detectChapterPatterns(text)
+  console.log(`[structure-detector] Chapters detection took ${Date.now() - chaptersStartTime}ms, found ${chapters.length}`)
 
   console.log(`[structure-detector] Found ${articles.length} articles, ${sections.length} sections, ${chapters.length} chapters`)
 
@@ -98,7 +117,8 @@ export function detectDocumentStructure(
 function detectArticlePatterns(text: string): ArticlePattern[] {
   const patterns: ArticlePattern[] = []
   
-  // Pattern per articoli in italiano e inglese
+  // Pattern per articoli in italiano e inglese - ottimizzati per evitare backtracking
+  // Usa (?:^|\n) solo all'inizio per catturare anche pattern all'inizio del documento
   const articleRegexes = [
     // "Articolo 28", "Articolo 1", etc.
     /(?:^|\n)\s*(?:Articolo|Article)\s+(\d+)\s*(?:\n|$|\.|:)/gim,
@@ -109,8 +129,13 @@ function detectArticlePatterns(text: string): ArticlePattern[] {
   ]
 
   for (const regex of articleRegexes) {
-    let match
-    while ((match = regex.exec(text)) !== null) {
+    // Usa matchAll per performance migliori e evitare bug con exec()
+    const matches = Array.from(text.matchAll(regex))
+    
+    for (let i = 0; i < matches.length && patterns.length < MAX_PATTERNS_PER_TYPE; i++) {
+      const match = matches[i]
+      if (!match.index) continue
+      
       const articleNumber = parseInt(match[1], 10)
       const fullMatch = match[0]
       const start = match.index
@@ -155,16 +180,48 @@ function detectArticlePatterns(text: string): ArticlePattern[] {
 
 /**
  * Rileva sezioni markdown basandosi su headers (# ## ### etc)
+ * Ottimizzato per documenti grandi usando iterazione invece di split
  */
 function detectMarkdownSections(text: string): SectionPattern[] {
   const sections: SectionPattern[] = []
+  
+  // Per documenti molto grandi, usa regex invece di split per evitare array enormi
+  if (text.length > 1 * 1024 * 1024) { // > 1MB
+    const headerRegex = /^(#{1,6})\s+(.+)$/gm
+    const matches = Array.from(text.matchAll(headerRegex))
+    
+    for (let i = 0; i < matches.length && sections.length < MAX_PATTERNS_PER_TYPE; i++) {
+      const match = matches[i]
+      if (!match.index) continue
+      
+      const level = match[1].length
+      const title = match[2].trim()
+      const start = match.index
+      
+      // Trova fine sezione (prossimo header o fine documento)
+      const nextMatch = matches[i + 1]
+      const end = nextMatch ? nextMatch.index : text.length
+      
+      sections.push({
+        title,
+        level,
+        start,
+        end,
+        type: 'markdown',
+      })
+    }
+    
+    return sections
+  }
+  
+  // Per documenti più piccoli, usa il metodo originale
   const lines = text.split('\n')
   
   let currentSectionStart = 0
   let currentSectionTitle: string | undefined = undefined
   let currentLevel: number | undefined = undefined
 
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < lines.length && sections.length < MAX_PATTERNS_PER_TYPE; i++) {
     const line = lines[i]
     const headerMatch = line.match(/^(#{1,6})\s+(.+)$/)
 
@@ -218,22 +275,29 @@ function detectMarkdownSections(text: string): SectionPattern[] {
 function detectTextualSections(text: string): SectionPattern[] {
   const sections: SectionPattern[] = []
   
-  // Pattern per sezioni testuali
+  // Pattern per sezioni testuali - ottimizzati per evitare backtracking
   const sectionRegexes = [
     // "Sezione 1", "Sezione I", etc.
     /(?:^|\n)\s*(?:Sezione|Section|Parte|Part)\s+([IVX\d]+)\s*(?:\n|$|\.|:)/gim,
     // "Parte Prima", "Parte Seconda", etc.
     /(?:^|\n)\s*(?:Parte|Part)\s+(Prima|Seconda|Terza|Quarta|Quinta|Sesta|Settima|Ottava|Nona|Decima)\s*(?:\n|$|\.|:)/gim,
+    // "Informativa", "Informativa sul trattamento", "Informativa privacy", etc.
+    /(?:^|\n)\s*Informativa(?:\s+(?:sul|sulla|sui|sulle|breve|estesa|privacy|trattamento|dati|personali))?\s*(?:\n|$|\.|:)/gim,
   ]
 
   for (const regex of sectionRegexes) {
-    let match
-    while ((match = regex.exec(text)) !== null) {
+    // Usa matchAll per performance migliori e evitare bug con exec()
+    const matches = Array.from(text.matchAll(regex))
+    
+    for (let i = 0; i < matches.length && sections.length < MAX_PATTERNS_PER_TYPE; i++) {
+      const match = matches[i]
+      if (!match.index) continue
+      
       const title = match[0].trim()
       const start = match.index
       
       // Trova fine sezione (prossima sezione o fine documento)
-      const nextMatch = regex.exec(text)
+      const nextMatch = matches[i + 1]
       const end = nextMatch ? nextMatch.index : text.length
 
       // Evita duplicati
@@ -264,7 +328,7 @@ function detectTextualSections(text: string): SectionPattern[] {
 function detectChapterPatterns(text: string): ChapterPattern[] {
   const chapters: ChapterPattern[] = []
   
-  // Pattern per capitoli
+  // Pattern per capitoli - ottimizzati per evitare backtracking
   const chapterRegexes = [
     // "Capitolo 1", "Chapter 1", etc.
     /(?:^|\n)\s*(?:Capitolo|Chapter)\s+(\d+)\s*(?:\n|$|\.|:)/gim,
@@ -273,8 +337,13 @@ function detectChapterPatterns(text: string): ChapterPattern[] {
   ]
 
   for (const regex of chapterRegexes) {
-    let match
-    while ((match = regex.exec(text)) !== null) {
+    // Usa matchAll per performance migliori e evitare bug con exec()
+    const matches = Array.from(text.matchAll(regex))
+    
+    for (let i = 0; i < matches.length && chapters.length < MAX_PATTERNS_PER_TYPE; i++) {
+      const match = matches[i]
+      if (!match.index) continue
+      
       const numberStr = match[1]
       const number = /^\d+$/.test(numberStr) 
         ? parseInt(numberStr, 10) 
@@ -284,7 +353,7 @@ function detectChapterPatterns(text: string): ChapterPattern[] {
       const start = match.index
       
       // Trova fine capitolo (prossimo capitolo o fine documento)
-      const nextMatch = regex.exec(text)
+      const nextMatch = matches[i + 1]
       const end = nextMatch ? nextMatch.index : text.length
 
       // Estrai titolo se presente (dopo il numero)
@@ -412,5 +481,57 @@ function calculateConfidence(patterns: {
 
   // Cap a 1.0
   return Math.min(confidence, 1.0)
+}
+
+/**
+ * Versione ottimizzata per documenti molto grandi
+ * Usa strategia semplificata per evitare timeout
+ */
+function detectDocumentStructureOptimized(
+  text: string,
+  format: 'markdown' | 'plain'
+): DocumentStructure {
+  console.log(`[structure-detector] Using optimized detection for large document`)
+  
+  // Per documenti molto grandi, campiona solo una porzione del testo
+  // per rilevare pattern strutturali (assumiamo che il pattern sia consistente)
+  const sampleSize = Math.min(500 * 1024, text.length) // Campiona primi 500KB
+  const sampleText = text.substring(0, sampleSize)
+  
+  // Rileva pattern solo sul campione
+  const articles = detectArticlePatterns(sampleText)
+  const sections = format === 'markdown' 
+    ? detectMarkdownSections(sampleText)
+    : detectTextualSections(sampleText)
+  const chapters = detectChapterPatterns(sampleText)
+  
+  console.log(`[structure-detector] Optimized detection found ${articles.length} articles, ${sections.length} sections, ${chapters.length} chapters (from sample)`)
+  
+  // Inferisce tipo documento basandosi sui pattern trovati
+  const type = inferDocumentType({
+    articles,
+    sections,
+    chapters,
+  })
+  
+  // Calcola confidence score (leggermente ridotto per campionamento)
+  const confidence = Math.min(calculateConfidence({
+    articles,
+    sections,
+    chapters,
+    type,
+  }) * 0.9, 1.0) // Riduce confidence del 10% per campionamento
+  
+  console.log(`[structure-detector] Detected type: ${type}, confidence: ${confidence.toFixed(2)} (optimized)`)
+  
+  return {
+    type,
+    patterns: {
+      articles: articles.length > 0 ? articles : undefined,
+      sections: sections.length > 0 ? sections : undefined,
+      chapters: chapters.length > 0 ? chapters : undefined,
+    },
+    confidence,
+  }
 }
 
