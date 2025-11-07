@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ConversationSidebar } from '@/components/chat/ConversationSidebar'
 import { SourceDetailPanel } from '@/components/chat/Citation'
