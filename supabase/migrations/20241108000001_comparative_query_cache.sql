@@ -59,3 +59,4 @@ COMMENT ON COLUMN comparative_query_cache.comparison_type IS 'Type of comparison
 COMMENT ON COLUMN comparative_query_cache.hit_count IS 'Number of times this cached entry has been reused';
 COMMENT ON COLUMN comparative_query_cache.last_accessed_at IS 'Last time this cache entry was accessed (for analytics)';
 
+

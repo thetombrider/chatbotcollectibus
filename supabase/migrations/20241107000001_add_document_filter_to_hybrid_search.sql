@@ -93,3 +93,4 @@ $$;
 -- Commento per documentazione
 COMMENT ON FUNCTION hybrid_search IS 'Hybrid search with article number and document ID filtering. When document_id is provided, only returns chunks from that specific document. When article_number is provided, only returns chunks from that specific article. Uses vector similarity + full-text search with configurable weights.';
 
+
