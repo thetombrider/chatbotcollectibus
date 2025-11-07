@@ -270,7 +270,7 @@ function detectMarkdownSections(text: string): SectionPattern[] {
 
 /**
  * Rileva sezioni testuali (non markdown)
- * Pattern: "Sezione 1", "Parte I", "Section 1", etc.
+ * Pattern: "Sezione 1", "Parte I", "Section 1", "Informativa", etc.
  */
 function detectTextualSections(text: string): SectionPattern[] {
   const sections: SectionPattern[] = []
@@ -282,7 +282,8 @@ function detectTextualSections(text: string): SectionPattern[] {
     // "Parte Prima", "Parte Seconda", etc.
     /(?:^|\n)\s*(?:Parte|Part)\s+(Prima|Seconda|Terza|Quarta|Quinta|Sesta|Settima|Ottava|Nona|Decima)\s*(?:\n|$|\.|:)/gim,
     // "Informativa", "Informativa sul trattamento", "Informativa privacy", etc.
-    /(?:^|\n)\s*Informativa(?:\s+(?:sul|sulla|sui|sulle|breve|estesa|privacy|trattamento|dati|personali))?\s*(?:\n|$|\.|:)/gim,
+    // Cattura anche il titolo completo se presente dopo "Informativa" (fino a 200 caratteri o fino a punto/due punti/fine riga)
+    /(?:^|\n)\s*Informativa(?:\s+[^.\n:]{0,200})?\s*(?:\n|$|\.|:)/gim,
   ]
 
   for (const regex of sectionRegexes) {
