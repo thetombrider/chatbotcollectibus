@@ -5,9 +5,7 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowUp, Square, X, Globe } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-
-// Utility function for className merging
-const cn = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ')
+import { cn } from '@/lib/utils'
 
 // Textarea Component
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {

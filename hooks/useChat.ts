@@ -15,7 +15,7 @@ interface UseChatReturn {
   input: string
   setInput: (value: string) => void
   messagesEndRef: React.RefObject<HTMLDivElement>
-  handleSend: () => Promise<void>
+  handleSend: (skipCache?: boolean, messageOverride?: string) => Promise<void>
   scrollToBottom: () => void
   webSearchEnabled: boolean
   setWebSearchEnabled: (enabled: boolean) => void
@@ -49,17 +49,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     scrollToBottom()
   }, [messages.length, scrollToBottom])
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || loading) return
-
-    const messageContent = input.trim()
+  const handleSend = useCallback(async (skipCache: boolean = false, messageOverride?: string) => {
+    const messageContent = (messageOverride || input).trim()
+    if (!messageContent || loading) return
     const userMessage: Message = {
       role: 'user',
       content: messageContent,
     }
 
     setMessages((prev) => [...prev, userMessage])
-    setInput('')
+    // Only clear input if we're using it (not a message override)
+    if (!messageOverride) {
+      setInput('')
+    }
     setLoading(true)
     setStatusMessage(null)
 
@@ -91,6 +93,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         message: messageContent,
         conversationId: currentConversationId,
         webSearchEnabled,
+        skipCache,
       }
       
       console.log('[useChat] Sending request with webSearchEnabled:', webSearchEnabled)

@@ -7,6 +7,7 @@ import { SourceDetailPanel } from '@/components/chat/Citation'
 import { MessageBubble } from '@/components/chat/MessageBubble'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { MessageSkeleton } from '@/components/ui/Skeleton'
+import { TextLoop } from '@/components/ui/TextLoop'
 import { useChat } from '@/hooks/useChat'
 import { useToast } from '@/components/ui/Toast'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -22,6 +23,7 @@ export default function ChatPage() {
 
   const {
     messages,
+    setMessages,
     loading,
     statusMessage,
     input,
@@ -53,9 +55,9 @@ export default function ChatPage() {
     loadLogo()
   }, [])
 
-  const handleSend = async () => {
+  const handleSend = async (skipCache: boolean = false, messageOverride?: string) => {
     try {
-      await handleSendOriginal()
+      await handleSendOriginal(skipCache, messageOverride)
     } catch (error) {
       const errorMessage =
         error instanceof Error
@@ -68,6 +70,29 @@ export default function ChatPage() {
   const openSourcesPanel = (sources: SourceDetail[]) => {
     setSelectedSourcesForPanel(sources)
     setIsSourcesPanelOpen(true)
+  }
+
+  const handleRetry = async (messageIndex: number) => {
+    // Find the last user message before this assistant message
+    const assistantMessage = messages[messageIndex]
+    if (assistantMessage?.role !== 'assistant') return
+
+    // Find the previous user message
+    let userMessageIndex = messageIndex - 1
+    while (userMessageIndex >= 0 && messages[userMessageIndex]?.role !== 'user') {
+      userMessageIndex--
+    }
+
+    if (userMessageIndex < 0) return
+
+    const userMessage = messages[userMessageIndex]
+    if (!userMessage) return
+
+    // Remove the assistant message and any messages after it
+    setMessages((prev) => prev.slice(0, messageIndex))
+    
+    // Send the message directly with skipCache=true, without waiting for input state
+    await handleSend(true, userMessage.content)
   }
 
   // Keyboard shortcuts
@@ -149,29 +174,59 @@ export default function ChatPage() {
               ) : (
                 <div className="space-y-4">
                   {messages
-                    .filter((msg) => !(msg.role === 'assistant' && !msg.content))
-                    .map((msg, idx) => (
-                      <MessageBubble
-                        key={msg.id || `msg-${idx}`}
-                        message={msg}
-                        onOpenSources={openSourcesPanel}
-                      />
-                    ))}
+                    .map((msg, idx) => {
+                      // Skip empty assistant messages
+                      if (msg.role === 'assistant' && !msg.content) {
+                        return null
+                      }
+                      return (
+                        <MessageBubble
+                          key={msg.id || `msg-${idx}`}
+                          message={msg}
+                          onOpenSources={openSourcesPanel}
+                          onRetry={msg.role === 'assistant' ? () => handleRetry(idx) : undefined}
+                        />
+                      )
+                    })
+                    .filter(Boolean)}
                   {loading && (() => {
                     const lastMessage = messages[messages.length - 1]
                     const isStreaming = lastMessage?.role === 'assistant' && lastMessage.content.length > 0
                     
                     // Show phase label + skeletons only before streaming starts
                     if (!isStreaming) {
+                      // Default status messages to cycle through
+                      const defaultStatusMessages = [
+                        'Analisi della domanda...',
+                        'Ricerca documenti nella knowledge base...',
+                        'Elaborazione contenuti...',
+                        'Generazione risposta...',
+                      ]
+                      
+                      // Use API status message if available, otherwise use default messages
+                      const statusMessagesToShow = statusMessage 
+                        ? [statusMessage]
+                        : defaultStatusMessages
+                      
                       return (
                         <div className="space-y-3">
-                          {statusMessage && (
-                            <div className="flex gap-4 justify-start">
-                              <div className="text-gray-500 text-sm font-medium px-2">
-                                {statusMessage}
-                              </div>
+                          <div className="flex gap-4 justify-start">
+                            <div className="text-gray-500 text-sm font-medium px-2">
+                              <TextLoop
+                                interval={2}
+                                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                                variants={{
+                                  initial: { y: 10, opacity: 0 },
+                                  animate: { y: 0, opacity: 1 },
+                                  exit: { y: -10, opacity: 0 },
+                                }}
+                              >
+                                {statusMessagesToShow.map((msg, idx) => (
+                                  <span key={idx}>{msg}</span>
+                                ))}
+                              </TextLoop>
                             </div>
-                          )}
+                          </div>
                           <MessageSkeleton />
                         </div>
                       )

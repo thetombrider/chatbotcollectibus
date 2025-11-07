@@ -144,13 +144,14 @@ async function performMultiQuerySearch(
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, conversationId, webSearchEnabled = false } = await req.json()
+    const { message, conversationId, webSearchEnabled = false, skipCache = false } = await req.json()
     
     console.log('[api/chat] Request received:', {
       messageLength: message?.length || 0,
       conversationId: conversationId || 'none',
       webSearchEnabled,
       webSearchEnabledType: typeof webSearchEnabled,
+      skipCache,
     })
 
     if (!message || typeof message !== 'string') {
@@ -254,7 +255,7 @@ export async function POST(req: NextRequest) {
           // STEP 3: Check semantic cache (using enhanced query for embedding)
           console.log('[api/chat] Step 3: Semantic cache lookup')
           const queryEmbedding = await generateEmbedding(queryToEmbed)
-          const cached = await findCachedResponse(queryEmbedding)
+          const cached = skipCache ? null : await findCachedResponse(queryEmbedding)
 
           if (cached) {
             console.log('[api/chat] Found cached response')
