@@ -537,6 +537,18 @@ for (const chunk of chunks) {
 
 ## 4. Architettura Target: Design Modulare e Scalabile
 
+> **⚠️ NOTA IMPORTANTE**: Questa sezione descrive un'architettura custom-built. Per un approccio **Mastra-Native** che sfrutta al massimo le capabilities del framework (workflows, RAG pipelines, evals, telemetry), vedi il documento dedicato:
+> 
+> **📄 [Mastra-Native Architecture](./mastra-native-architecture.md)**
+> 
+> L'approccio Mastra-Native è **raccomandato** perché:
+> - ✅ Riduce code da 1035 a ~30 linee
+> - ✅ Observability automatica (OpenTelemetry → Langfuse)
+> - ✅ Quality assurance built-in (Evals)
+> - ✅ Workflows dichiarativi (XState)
+> - ✅ RAG pipelines native
+> - ✅ Memory management automatico
+
 ### 4.1 Principi Architetturali
 
 1. **Separation of Concerns**: Ogni modulo ha una responsabilità chiara
