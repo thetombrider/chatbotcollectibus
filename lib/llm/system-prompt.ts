@@ -24,6 +24,8 @@ export interface SystemPromptOptions {
   sourcesInsufficient?: boolean
   /** Similarità media per logica web search */
   avgSimilarity?: number
+  /** Se è una meta query (chiede info sul database) */
+  isMetaQuery?: boolean
 }
 
 /**
@@ -50,6 +52,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     webSearchEnabled = false,
     sourcesInsufficient = false,
     avgSimilarity = 0,
+    isMetaQuery = false,
   } = options
 
   // Costruisci istruzione per ricerca web se necessario
@@ -79,8 +82,11 @@ QUERY META - INFORMAZIONI SUL DATABASE:
   * Cartelle: "quali cartelle esistono", "che cartelle ci sono", "statistiche cartella X"
   * Tipi di file: "quali tipi di file ci sono", "che formati sono supportati"
 - Il tool meta_query restituisce dati strutturati (statistiche, liste, ecc.)
-- IMPORTANTE: Quando restituisci una LISTA di documenti, includi SEMPRE [cit:N] accanto al nome di ogni documento, dove N è l'indice del documento nella lista (1, 2, 3, ecc.)
+- IMPORTANTE: Quando restituisci una LISTA di documenti, DEVI includere TUTTI i documenti rilevanti, non solo alcuni
+- Includi SEMPRE [cit:N] accanto al nome di ogni documento, dove N è l'indice del documento nella lista (1, 2, 3, ecc.)
 - Esempio formato lista: "ESRS.pdf [cit:1]", "CSRD.pdf [cit:2]", ecc.
+- Se la query chiede "che standard GRI ci sono", elenca TUTTI gli standard GRI presenti, non solo i primi 10
+- Se la query chiede "che codici fornitori ci sono", elenca TUTTI i codici fornitori presenti, non solo alcuni
 - Formatta le risposte meta in modo chiaro e leggibile
 - Puoi combinare risultati meta con risultati RAG normali se la query lo richiede`
   }
@@ -110,6 +116,31 @@ IMPORTANTE:
 - NON inventare citazioni
 - Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
 - Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto`
+  }
+
+  // Caso 0: Meta query - usa tool meta_query per ottenere documenti dal database
+  if (isMetaQuery) {
+    return `Sei un assistente per un team di consulenza. L'utente ha fatto una query META sul database (chiede informazioni sul database stesso, non sul contenuto dei documenti).
+
+${buildMetaQuerySection()}
+
+ISTRUZIONI IMPORTANTI:
+- DEVI usare il tool meta_query per ottenere i documenti dal database
+- Il tool meta_query ti restituirà una lista di documenti con indici numerati
+- Quando restituisci la risposta, DEVI includere TUTTI i documenti rilevanti, non solo alcuni
+- Per ogni documento nella lista, includi SEMPRE [cit:N] dove N è l'indice del documento (1, 2, 3, ecc.)
+- NON filtrare o selezionare solo alcuni documenti - elenca TUTTI quelli rilevanti per la query
+- Se la query chiede "che standard GRI ci sono", elenca TUTTI gli standard GRI presenti nel database
+- Se la query chiede "che codici fornitori ci sono", elenca TUTTI i codici fornitori presenti nel database
+- Formatta la risposta in modo chiaro e leggibile con una lista puntata
+
+Esempio formato corretto:
+* Documento 1.pdf [cit:1]
+* Documento 2.pdf [cit:2]
+* Documento 3.pdf [cit:3]
+...
+
+Usa il tool meta_query ora per ottenere i documenti dal database.`
   }
 
   // Caso 1: Ci sono documenti rilevanti

@@ -232,7 +232,8 @@ Rispondi SOLO in JSON valido, senza altro testo:
       return getDefaultResult(query, articleNumberRegex)
     }
 
-    // Parse JSON response
+    // Parse JSON response - use robust extraction method
+    // Extract JSON by finding first { and last } - this handles markdown code blocks
     let parsed: {
       intent?: string
       is_comparative?: boolean
@@ -244,12 +245,38 @@ Rispondi SOLO in JSON valido, senza altro testo:
       confidence?: number
     }
 
+    // First, try to parse the content directly (in case it's already clean JSON)
     try {
-      parsed = JSON.parse(content)
-    } catch (parseError) {
-      console.error('[query-analysis] Failed to parse LLM JSON response:', parseError)
-      console.error('[query-analysis] Raw response:', content)
-      return getDefaultResult(query, articleNumberRegex)
+      parsed = JSON.parse(content.trim())
+      console.log('[query-analysis] JSON parsing succeeded on raw content')
+    } catch (firstError) {
+      // If that fails, extract JSON by finding first { and last }
+      // This is the most robust method - it works even with markdown code blocks
+      console.log('[query-analysis] Direct parsing failed, extracting JSON from content')
+      
+      const firstBrace = content.indexOf('{')
+      const lastBrace = content.lastIndexOf('}')
+      
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        const jsonCandidate = content.substring(firstBrace, lastBrace + 1)
+        console.log('[query-analysis] Extracted JSON candidate (first 200 chars):', jsonCandidate.substring(0, 200))
+        
+        try {
+          parsed = JSON.parse(jsonCandidate)
+          console.log('[query-analysis] JSON extraction and parsing succeeded!')
+        } catch (extractError) {
+          console.error('[query-analysis] Failed to parse extracted JSON:', extractError)
+          console.error('[query-analysis] Raw response:', content)
+          console.error('[query-analysis] Extracted JSON:', jsonCandidate)
+          return getDefaultResult(query, articleNumberRegex)
+        }
+      } else {
+        console.error('[query-analysis] Could not find JSON braces in content')
+        console.error('[query-analysis] First brace index:', firstBrace)
+        console.error('[query-analysis] Last brace index:', lastBrace)
+        console.error('[query-analysis] Raw response:', content)
+        return getDefaultResult(query, articleNumberRegex)
+      }
     }
 
     // Validate and normalize response

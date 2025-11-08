@@ -1,0 +1,148 @@
+8ac6625 razionalizzazione della analisi ed enhancement query utente tutto in un unico flusso invece di funzioni ad hoc ogni volta.
+tommy 2025-11-07 16:50:12
+
+[1mdiff --git a/app/api/chat/route.ts b/app/api/chat/route.ts[m
+[1mindex 369d3dd..0188b81 100644[m
+[1m--- a/app/api/chat/route.ts[m
+[1m+++ b/app/api/chat/route.ts[m
+[36m@@ -6,6 +6,7 @@[m [mimport { hybridSearch } from '@/lib/supabase/vector-operations'[m
+ import { supabaseAdmin } from '@/lib/supabase/admin'[m
+ import type { SearchResult } from '@/lib/supabase/database.types'[m
+ import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'[m
+[32m+[m[32mimport { analyzeQuery } from '@/lib/embeddings/query-analysis'[m
+ import { detectComparativeQueryLLM } from '@/lib/embeddings/comparative-query-detection'[m
+ import { buildSystemPrompt } from '@/lib/llm/system-prompt'[m
+ [m
+[36m@@ -213,30 +214,45 @@[m [mexport async function POST(req: NextRequest) {[m
+     const stream = new ReadableStream({[m
+       async start(controller) {[m
+         try {[m
+[31m-          // STEP 1: Query Enhancement (before embedding and caching)[m
+[31m-          // Uses LLM to detect if query is generic/broad/incomplete and expands it[m
+[31m-          console.log('[api/chat] Step 1: Query enhancement')[m
+[32m+[m[32m          // STEP 1: Unified Query Analysis (detects intent, comparative, meta, articles in ONE LLM call)[m
+[32m+[m[32m          console.log('[api/chat] Step 1: Unified query analysis')[m
+           [m
+           // Send status message: Analisi della query[m
+           controller.enqueue([m
+             new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Analisi della query...' })}\n\n`)[m
+           )[m
+           [m
+[31m-          const enhancementResult = await enhanceQueryIfNeeded(message)[m
+[32m+[m[32m          // Analyze query once (detects everything: intent, comparative, meta, articles)[m
+[32m+[m[32m          const analysisResult = await analyzeQuery(message)[m
+[32m+[m[41m          [m
+[32m+[m[32m          console.log('[api/chat] Analysis result:', {[m
+[32m+[m[32m            intent: analysisResult.intent,[m
+[32m+[m[32m            isComparative: analysisResult.isComparative,[m
+[32m+[m[32m            isMeta: analysisResult.isMeta,[m
+[32m+[m[32m            articleNumber: analysisResult.articleNumber,[m
+[32m+[m[32m            fromCache: analysisResult.fromCache,[m
+[32m+[m[32m          })[m
+[32m+[m[41m          [m
+[32m+[m[32m          // STEP 2: Query Enhancement (uses analysis result to guide expansion)[m
+[32m+[m[32m          console.log('[api/chat] Step 2: Query enhancement (intent-based)')[m
+[32m+[m[41m          [m
+[32m+[m[32m          // Pass analysis result to avoid duplicate LLM call[m
+[32m+[m[32m          const enhancementResult = await enhanceQueryIfNeeded(message, analysisResult)[m
+           const queryToEmbed = enhancementResult.enhanced[m
+           const wasEnhanced = enhancementResult.shouldEnhance[m
+[31m-          const articleNumber = enhancementResult.articleNumber // Extract article number if detected[m
+[32m+[m[32m          const articleNumber = analysisResult.articleNumber || enhancementResult.articleNumber[m
+           [m
+           console.log('[api/chat] Enhancement result:', {[m
+             original: message.substring(0, 50),[m
+             enhanced: queryToEmbed.substring(0, 100),[m
+             wasEnhanced,[m
+[32m+[m[32m            intent: analysisResult.intent,[m
+             fromCache: enhancementResult.fromCache,[m
+             articleNumber,[m
+           })[m
+ [m
+[31m-          // STEP 2: Check semantic cache (using enhanced query for embedding)[m
+[31m-          console.log('[api/chat] Step 2: Semantic cache lookup')[m
+[32m+[m[32m          // STEP 3: Check semantic cache (using enhanced query for embedding)[m
+[32m+[m[32m          console.log('[api/chat] Step 3: Semantic cache lookup')[m
+           const queryEmbedding = await generateEmbedding(queryToEmbed)[m
+           const cached = await findCachedResponse(queryEmbedding)[m
+ [m
+[36m@@ -359,15 +375,15 @@[m [mexport async function POST(req: NextRequest) {[m
+             }[m
+           }[m
+ [m
+[31m-          // STEP 3: Vector search per context con hybrid search migliorata[m
+[31m-          // Rileva se è una query comparativa e usa strategia multi-query[m
+[31m-          console.log('[api/chat] Step 3: Vector search')[m
+[32m+[m[32m          // STEP 4: Vector search per context con hybrid search migliorata[m
+[32m+[m[32m          // Routing basato su intent (usa analysisResult già calcolato, NO chiamate LLM duplicate)[m
+[32m+[m[32m          console.log('[api/chat] Step 4: Vector search (intent-based routing)')[m
+           [m
+[31m-          // Use enhanced query for comparative detection (better pattern matching)[m
+[31m-          const comparativeTerms = await detectComparativeQueryLLM(message, wasEnhanced ? queryToEmbed : undefined)[m
+[32m+[m[32m          // Use comparative terms from analysis (already detected, no duplicate LLM call)[m
+[32m+[m[32m          const comparativeTerms = analysisResult.comparativeTerms[m
+           [m
+           // Send status message for search[m
+[31m-          if (comparativeTerms) {[m
+[32m+[m[32m          if (comparativeTerms && comparativeTerms.length >= 2) {[m
+             console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)[m
+             const statusMessage = `Analisi comparativa tra ${comparativeTerms.join(' e ')}...`[m
+             controller.enqueue([m
+[36m@@ -379,11 +395,11 @@[m [mexport async function POST(req: NextRequest) {[m
+             )[m
+           }[m
+           [m
+[31m-          let searchResults[m
+[32m+[m[32m          let searchResults: SearchResult[][m
+           [m
+[31m-          if (comparativeTerms) {[m
+[32m+[m[32m          if (comparativeTerms && comparativeTerms.length >= 2) {[m
+             // Usa strategia multi-query per query comparative[m
+[31m-            // Pass flag to indicate query is already enhanced (avoid double expansion)[m
+[32m+[m[32m            // Use terms from analysis (already detected, no duplicate LLM call)[m
+             searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced, articleNumber)[m
+           } else {[m
+             // Query standard: hybrid search normale[m
+[1mdiff --git a/docs/intent-based-query-expansion.md b/docs/intent-based-query-expansion.md[m
+[1mnew file mode 100644[m
+[1mindex 0000000..fdc3f8f[m
+[1m--- /dev/null[m
+[1m+++ b/docs/intent-based-query-expansion.md[m
+[36m@@ -0,0 +1,329 @@[m
+[32m+[m[32m# Intent-Based Query Expansion - Documentazione[m
+[32m+[m
+[32m+[m[32m## Panoramica[m
+[32m+[m
+[32m+[m[32mQuesto documento descrive l'implementazione del sistema unificato di analisi query e espansione basata su intent. Il sistema sostituisce le chiamate LLM multiple separate con una singola chiamata LLM che rileva tutto insieme: intent semantico, query comparative, meta queries e riferimenti ad articoli.[m
+[32m+[m
+[32m+[m[32m## Architettura[m
+[32m+[m
+[32m+[m[32m### Flusso AS IS (Prima)[m
+[32m+[m
+[32m+[m[32m```[m
+[32m+[m[32mUser Query[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m1. Query Enhancement (LLM call #1)[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m2. Comparative Detection (LLM call #2)[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m3. Meta Detection (LLM call #3, se necessario)[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m4. Vector Search[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m5. RAG Agent[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m**Problemi**:[m
+[32m+[m[32m- 3-4 chiamate LLM separate[m
+[32m+[m[32m- Cache separate per ogni modulo[m
+[32m+[m[32m- Nessuna deduzione dell'intent semantico[m
+[32m+[m[32m- Espansione generica non mirata[m
+[32m+[m
+[32m+[m[32m### Flusso TO BE (Dopo)[m
+[32m+[m
+[32m+[m[32m```[m
+[32m+[m[32mUser Query[m
+[32m+[m[32m  ↓[m
+[32m+[m[32m1. Unified Query Analysis (UNA SOLA LLM call)[m
+[32m+[m[32

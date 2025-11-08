@@ -400,109 +400,137 @@ export async function POST(req: NextRequest) {
           // Routing basato su intent (usa analysisResult già calcolato, NO chiamate LLM duplicate)
           console.log('[api/chat] Step 4: Vector search (intent-based routing)')
           
-          // Use comparative terms from analysis (already detected, no duplicate LLM call)
-          const comparativeTerms = analysisResult.comparativeTerms
+          // Check if this is a meta query - if so, skip vector search and use meta documents
+          const isMetaQuery = analysisResult.isMeta && analysisResult.metaType === 'list'
           
-          // Send status message for search
-          if (comparativeTerms && comparativeTerms.length >= 2) {
-            console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
-            const statusMessage = `Analisi comparativa tra ${comparativeTerms.join(' e ')}...`
-            controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: statusMessage })}\n\n`)
-            )
-          } else {
-            controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Ricerca documenti nella knowledge base...' })}\n\n`)
-            )
-          }
-          
-          let searchResults: SearchResult[]
-          
-          if (comparativeTerms && comparativeTerms.length >= 2) {
-            // Usa strategia multi-query per query comparative
-            // Use terms from analysis (already detected, no duplicate LLM call)
-            searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced, articleNumber)
-          } else {
-            // Query standard: hybrid search normale
-            // Use enhanced query for better results
-            // Parametri: top-10, threshold 0.3, vector_weight 0.7
-            // Pass articleNumber if detected to filter chunks by article
-            searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7, articleNumber)
-          }
-          
-          // Log dei risultati per debugging
-          console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
-            filename: r.document_filename,
-            similarity: r.similarity.toFixed(3),
-            vector_score: r.vector_score?.toFixed(3),
-            text_score: r.text_score?.toFixed(3),
-            preview: r.content.substring(0, 100) + '...'
-          })))
-          
-          // Threshold per filtrare i risultati rilevanti
-          // Se viene filtrato per articolo specifico, abbassa la soglia perché 
-          // l'utente ha chiesto esplicitamente quell'articolo
-          const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.40
-          console.log('[api/chat] Relevance threshold:', RELEVANCE_THRESHOLD, articleNumber ? `(lowered for article ${articleNumber})` : '(standard)')
-          const relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
-          
-          console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
+          let searchResults: SearchResult[] = []
+          let relevantResults: SearchResult[] = []
           let avgSimilarity = 0
-          if (relevantResults.length > 0) {
-            avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
-            console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
-            console.log('[api/chat] Similarity range:', 
-              Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
-              '-', 
-              Math.max(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3)
+          let SOURCES_INSUFFICIENT = false
+          let context: string | null = null
+          let sources: Array<{
+            index: number
+            documentId: string
+            filename: string
+            similarity: number
+            content: string
+            chunkIndex: number
+          }> = []
+          let comparativeTerms: string[] | undefined = undefined
+          
+          if (isMetaQuery) {
+            // Per meta query, saltiamo la ricerca vettoriale
+            // I documenti meta verranno passati all'LLM tramite il tool meta_query
+            console.log('[api/chat] Meta query detected, skipping vector search')
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Recupero documenti dal database...' })}\n\n`)
             )
+            // Context e sources saranno vuoti - l'LLM userà il tool meta_query per ottenere i documenti
+            context = null
+            sources = []
+            SOURCES_INSUFFICIENT = false // Non applicabile per meta query
+          } else {
+            // Use comparative terms from analysis (already detected, no duplicate LLM call)
+            comparativeTerms = analysisResult.comparativeTerms
             
-            // Per query comparative, mostra distribuzione documenti
-            if (comparativeTerms) {
-              const documentDistribution = new Map<string, number>()
-              relevantResults.forEach((r: SearchResult) => {
-                const filename = r.document_filename || 'Unknown'
-                documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
-              })
-              console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
+            // Send status message for search
+            if (comparativeTerms && comparativeTerms.length >= 2) {
+              console.log('[api/chat] Comparative query detected for terms:', comparativeTerms)
+              const statusMessage = `Analisi comparativa tra ${comparativeTerms.join(' e ')}...`
+              controller.enqueue(
+                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: statusMessage })}\n\n`)
+              )
+            } else {
+              controller.enqueue(
+                new TextEncoder().encode(`data: ${JSON.stringify({ type: 'status', message: 'Ricerca documenti nella knowledge base...' })}\n\n`)
+              )
             }
+            
+            if (comparativeTerms && comparativeTerms.length >= 2) {
+              // Usa strategia multi-query per query comparative
+              // Use terms from analysis (already detected, no duplicate LLM call)
+              searchResults = await performMultiQuerySearch(comparativeTerms, queryToEmbed, queryEmbedding, wasEnhanced, articleNumber)
+            } else {
+              // Query standard: hybrid search normale
+              // Use enhanced query for better results
+              // Parametri: top-10, threshold 0.3, vector_weight 0.7
+              // Pass articleNumber if detected to filter chunks by article
+              searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7, articleNumber)
+            }
+            
+            // Log dei risultati per debugging
+            console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
+              filename: r.document_filename,
+              similarity: r.similarity.toFixed(3),
+              vector_score: r.vector_score?.toFixed(3),
+              text_score: r.text_score?.toFixed(3),
+              preview: r.content.substring(0, 100) + '...'
+            })))
+            
+            // Threshold per filtrare i risultati rilevanti
+            // Se viene filtrato per articolo specifico, abbassa la soglia perché 
+            // l'utente ha chiesto esplicitamente quell'articolo
+            const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.40
+            console.log('[api/chat] Relevance threshold:', RELEVANCE_THRESHOLD, articleNumber ? `(lowered for article ${articleNumber})` : '(standard)')
+            relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
+            
+            console.log('[api/chat] Relevant results after filtering:', relevantResults.length)
+            if (relevantResults.length > 0) {
+              avgSimilarity = relevantResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / relevantResults.length
+              console.log('[api/chat] Average similarity:', avgSimilarity.toFixed(3))
+              console.log('[api/chat] Similarity range:', 
+                Math.min(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3), 
+                '-', 
+                Math.max(...relevantResults.map((r: SearchResult) => r.similarity)).toFixed(3)
+              )
+              
+              // Per query comparative, mostra distribuzione documenti
+              if (comparativeTerms) {
+                const documentDistribution = new Map<string, number>()
+                relevantResults.forEach((r: SearchResult) => {
+                  const filename = r.document_filename || 'Unknown'
+                  documentDistribution.set(filename, (documentDistribution.get(filename) || 0) + 1)
+                })
+                console.log('[api/chat] Document distribution:', Object.fromEntries(documentDistribution))
+              }
+            }
+            
+            // Valuta se le fonti sono sufficienti
+            // Le fonti sono INSUFFICIENTI se ALMENO UNA delle seguenti condizioni è vera (OR logico):
+            // 1. Non ci sono risultati rilevanti (relevantResults.length === 0)
+            // 2. La similarità media è troppo bassa (< 0.25)
+            // Basta che UNA delle due condizioni sia vera per considerare le fonti insufficienti
+            SOURCES_INSUFFICIENT = relevantResults.length === 0 || avgSimilarity < 0.5
+            console.log('[api/chat] Sources sufficient?', !SOURCES_INSUFFICIENT, {
+              resultsCount: relevantResults.length,
+              avgSimilarity: avgSimilarity.toFixed(3),
+              webSearchEnabled,
+            })
+            
+            // Se le fonti non sono sufficienti e la ricerca web è abilitata, 
+            // il tool web_search verrà chiamato automaticamente dall'agent
+            // quando genererà la risposta (vedi systemPrompt più avanti)
+
+            // Build context solo se ci sono risultati rilevanti
+            context = relevantResults.length > 0
+              ? relevantResults
+                  .map((r: SearchResult, index: number) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
+                  .join('\n\n')
+              : null
+
+            // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
+            // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
+            sources = relevantResults.length > 0
+              ? relevantResults.map((r: SearchResult, index: number) => ({
+                  index: index + 1,
+                  documentId: r.document_id,
+                  filename: r.document_filename || 'Documento sconosciuto',
+                  similarity: r.similarity,
+                  content: r.content.substring(0, 1000) + (r.content.length > 1000 ? '...' : ''), // Preview del chunk
+                  chunkIndex: r.chunk_index, // Indice del chunk nel documento
+                }))
+              : []
           }
-          
-          // Valuta se le fonti sono sufficienti
-          // Le fonti sono INSUFFICIENTI se ALMENO UNA delle seguenti condizioni è vera (OR logico):
-          // 1. Non ci sono risultati rilevanti (relevantResults.length === 0)
-          // 2. La similarità media è troppo bassa (< 0.25)
-          // Basta che UNA delle due condizioni sia vera per considerare le fonti insufficienti
-          const SOURCES_INSUFFICIENT = relevantResults.length === 0 || avgSimilarity < 0.5
-          console.log('[api/chat] Sources sufficient?', !SOURCES_INSUFFICIENT, {
-            resultsCount: relevantResults.length,
-            avgSimilarity: avgSimilarity.toFixed(3),
-            webSearchEnabled,
-          })
-          
-          // Se le fonti non sono sufficienti e la ricerca web è abilitata, 
-          // il tool web_search verrà chiamato automaticamente dall'agent
-          // quando genererà la risposta (vedi systemPrompt più avanti)
-
-          // Build context solo se ci sono risultati rilevanti
-          const context = relevantResults.length > 0
-            ? relevantResults
-                .map((r: SearchResult, index: number) => `[Documento ${index + 1}: ${r.document_filename || 'Documento sconosciuto'}]\n${r.content}`)
-                .join('\n\n')
-            : null
-
-          // Crea mappa delle fonti per il frontend solo se ci sono risultati rilevanti
-          // NOTA: Riduciamo il campo content a 1000 caratteri per evitare problemi di parsing SSE
-          let sources = relevantResults.length > 0
-            ? relevantResults.map((r: SearchResult, index: number) => ({
-                index: index + 1,
-                documentId: r.document_id,
-                filename: r.document_filename || 'Documento sconosciuto',
-                similarity: r.similarity,
-                content: r.content.substring(0, 1000) + (r.content.length > 1000 ? '...' : ''), // Preview del chunk
-                chunkIndex: r.chunk_index, // Indice del chunk nel documento
-              }))
-            : []
           
           // Log per verificare che i dati del chunk siano presenti
           if (sources.length > 0) {
@@ -551,6 +579,7 @@ export async function POST(req: NextRequest) {
               webSearchEnabled,
               sourcesInsufficient: SOURCES_INSUFFICIENT,
               avgSimilarity,
+              isMetaQuery: isMetaQuery,
             })
             
             const messages = [
@@ -629,6 +658,7 @@ export async function POST(req: NextRequest) {
               webSearchEnabled,
               sourcesInsufficient: SOURCES_INSUFFICIENT,
               avgSimilarity,
+              isMetaQuery: isMetaQuery,
             })
             
             const messages = [
@@ -777,12 +807,13 @@ export async function POST(req: NextRequest) {
           
           // Per query meta, non facciamo matching con citazioni - le sources sono già corrette
           // Per query normali, filtra le sources per includere solo quelle citate
-          const isMetaQuery = metaQueryDocuments.length > 0
+          // Usa la variabile isMetaQuery già definita sopra (non ridefinirla)
+          const hasMetaQueryDocuments = metaQueryDocuments.length > 0
           let filteredSources = sources
           let responseWithRenumberedCitations = fullResponse
           
           // Se NON è una query meta, procedi con il matching normale delle citazioni
-          if (!isMetaQuery) {
+          if (!isMetaQuery && !hasMetaQueryDocuments) {
             // Rinumerazione citazioni web se presenti
             if (webCitedIndices.length > 0 && webSources.length > 0) {
             // Crea mappatura da indice originale a nuovo indice per le citazioni web
@@ -889,22 +920,78 @@ export async function POST(req: NextRequest) {
               console.log('[api/chat] No citations found in response, no sources to send')
               filteredSources = [] // Nessuna citazione = nessuna source da mostrare
             }
-          } // Fine blocco if (!isMetaQuery)
+          } // Fine blocco if (!isMetaQuery && !hasMetaQueryDocuments)
           
-          if (isMetaQuery) {
-            // Per query meta, le sources sono già corrette e complete
-            // Non facciamo rinumerazione perché l'ordine è già quello dei documenti nel DB
-            filteredSources = sources
-            console.log('[api/chat] Final sources (meta query, computational):', filteredSources.map(s => ({
-              index: s.index,
-              filename: s.filename,
-              documentId: s.documentId
-            })))
+          if (isMetaQuery || hasMetaQueryDocuments) {
+            // Per query meta, filtra le sources basandosi sulle citazioni dell'LLM
+            // L'LLM ha già selezionato quali documenti sono rilevanti
+            if (citedIndices.length > 0) {
+              // Filtra solo le sources citate dall'LLM
+              const sourceMap = new Map<number, typeof sources[0]>()
+              sources.forEach(s => {
+                if (citedIndices.includes(s.index)) {
+                  const existing = sourceMap.get(s.index)
+                  if (!existing || s.similarity > existing.similarity) {
+                    sourceMap.set(s.index, s)
+                  }
+                }
+              })
+              
+              // Ordina gli indici citati e crea array finale con rinumerazione sequenziale (1, 2, 3...)
+              const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+              filteredSources = sortedCitedIndices
+                .map(index => sourceMap.get(index))
+                .filter((s): s is typeof sources[0] => s !== undefined)
+                .map((s, idx) => ({
+                  ...s,
+                  index: idx + 1, // Rinumerazione sequenziale semplice (1, 2, 3...)
+                }))
+              
+              // Crea mappatura da indice originale a nuovo indice (1, 2, 3...)
+              const indexMapping = new Map<number, number>()
+              sortedCitedIndices.forEach((originalIndex, idx) => {
+                indexMapping.set(originalIndex, idx + 1)
+                console.log(`[api/chat] Meta query citation mapping: original ${originalIndex} -> new ${idx + 1}`)
+              })
+              
+              // Sostituisci citazioni nel testo con indici rinumerati
+              responseWithRenumberedCitations = fullResponse.replace(
+                /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g,
+                (match, indicesStr) => {
+                  const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+                  const newIndices = indices
+                    .map((oldIdx: number) => indexMapping.get(oldIdx))
+                    .filter((newIdx: number | undefined): newIdx is number => newIdx !== undefined)
+                    .sort((a: number, b: number) => a - b)
+                  
+                  if (newIndices.length === 0) {
+                    return '' // Rimuovi citazione se non c'è corrispondenza
+                  }
+                  
+                  return `[cit:${newIndices.join(',')}]`
+                }
+              )
+              
+              console.log('[api/chat] Final sources (meta query, filtered by citations):', filteredSources.map(s => ({
+                index: s.index,
+                filename: s.filename,
+                documentId: s.documentId
+              })))
+              console.log('[api/chat] Meta query citations renumbered:', {
+                original: fullResponse.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || [],
+                renumbered: responseWithRenumberedCitations.match(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g) || []
+              })
+            } else {
+              // Nessuna citazione = nessuna source da mostrare
+              console.log('[api/chat] Meta query: No citations found in response, no sources to send')
+              filteredSources = []
+            }
           }
           
           // Combina sources KB e web per il frontend
           // Le sources KB usano indici [cit:N], le sources web usano indici [web:N]
           // Nel frontend, le distingueremo tramite il campo `type`
+          // IMPORTANTE: Usa SOLO filteredSources (già filtrato per citazioni), NON sources originale
           const allSources = [
             ...filteredSources.map(s => ({ ...s, type: 'kb' as const })),
             ...webSources,
@@ -914,6 +1001,11 @@ export async function POST(req: NextRequest) {
             kbSources: filteredSources.length,
             webSources: webSources.length,
             total: allSources.length,
+          })
+          console.log('[api/chat] Filtered sources verification:', {
+            originalSourcesCount: sources.length,
+            filteredSourcesCount: filteredSources.length,
+            allSourcesCount: allSources.length,
           })
           
           // Pulisci il contesto della ricerca web dopo aver recuperato i risultati
@@ -935,7 +1027,7 @@ export async function POST(req: NextRequest) {
                     id: r.id,
                     similarity: r.similarity,
                   })),
-                  sources: allSources, // Salva tutte le sources (KB + web) citate
+                  sources: allSources, // Salva SOLO le sources citate (già filtrate)
                   query_enhanced: wasEnhanced, // Track if query was enhanced
                   original_query: message, // Keep original for reference
                   enhanced_query: wasEnhanced ? queryToEmbed : undefined, // Enhanced version if applicable
@@ -948,7 +1040,13 @@ export async function POST(req: NextRequest) {
                 content_length: insertData.content.length,
                 content_preview: insertData.content.substring(0, 50),
                 metadata_sources_count: insertData.metadata.sources.length,
+                metadata_chunks_used_count: insertData.metadata.chunks_used.length,
               })
+              console.log('[api/chat] Sources being saved:', allSources.map(s => ({
+                index: s.index,
+                filename: s.filename,
+                type: s.type,
+              })))
               
               const { data, error } = await supabaseAdmin.from('messages').insert(insertData)
               
@@ -980,6 +1078,11 @@ export async function POST(req: NextRequest) {
 
           // Invia tutte le sources (KB + web) e testo rinumerato alla fine
           console.log('[api/chat] Sending all sources to frontend:', allSources.length)
+          console.log('[api/chat] Sources being sent:', allSources.map(s => ({
+            index: s.index,
+            filename: s.type === 'web' ? (s.title || s.filename) : s.filename,
+            type: s.type,
+          })))
           console.log('[api/chat] Sending renumbered response to frontend')
           
           // Invia il testo completo rinumerato in un messaggio separato prima del "done"
@@ -988,6 +1091,7 @@ export async function POST(req: NextRequest) {
             new TextEncoder().encode(`data: ${JSON.stringify({ type: 'text_complete', content: responseWithRenumberedCitations })}\n\n`)
           )
           
+          // IMPORTANTE: Invia SOLO le sources citate (allSources è già filtrato)
           controller.enqueue(
             new TextEncoder().encode(`data: ${JSON.stringify({ type: 'done', sources: allSources })}\n\n`)
           )
@@ -1033,4 +1137,5 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
 
