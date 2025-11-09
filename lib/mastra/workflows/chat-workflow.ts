@@ -7,7 +7,7 @@ import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-
 import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
-import { mastra } from '@/lib/mastra'
+import { ragAgent } from '@/lib/mastra/agent'
 import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
@@ -447,20 +447,11 @@ const generateResponseStep = createStep({
       ? { maxToolRoundtrips: 0 }
       : {}
     
-    // Get agent from Mastra
-    let agentToUse = null
-    try {
-      agentToUse = mastra.getAgent('rag-consulting-agent')
-    } catch (err) {
-      console.error('[workflow/generate-response] Failed to get agent from Mastra:', err)
-      throw new Error('Failed to get agent')
-    }
-    
-    // Generate response
+    // Generate response using ragAgent
     let fullResponse = ''
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const generated = await agentToUse.generate(messages as any, streamOptions as any)
+      const generated = await ragAgent.generate(messages as any, streamOptions as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fullResponse = (generated as any).text || (generated as any).content || String(generated) || ''
     } catch (err) {

@@ -44,26 +44,26 @@ export function createWebSources(
 ): Source[] {
   const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
   
-  return sortedCitedIndices
-    .map((citedIndex, idx) => {
-      // Gli indici nella risposta partono da 1, quindi sottraiamo 1 per accedere all'array
-      const webResult = webResults[citedIndex - 1]
-      if (webResult) {
-        return {
-          index: idx + 1, // Rinumerazione sequenziale (1, 2, 3...)
-          documentId: '', // Web sources non hanno documentId
-          filename: webResult.title || 'Senza titolo',
-          similarity: 1.0, // Web sources non hanno similarity
-          content: webResult.content || '',
-          chunkIndex: 0, // Web sources non hanno chunkIndex
-          type: 'web' as const,
-          title: webResult.title || 'Senza titolo',
-          url: webResult.url || '',
-        }
-      }
-      return null
-    })
-    .filter((s): s is Source => s !== null)
+  const sources: Source[] = []
+  for (let idx = 0; idx < sortedCitedIndices.length; idx++) {
+    const citedIndex = sortedCitedIndices[idx]
+    // Gli indici nella risposta partono da 1, quindi sottraiamo 1 per accedere all'array
+    const webResult = webResults[citedIndex - 1]
+    if (webResult) {
+      sources.push({
+        index: idx + 1, // Rinumerazione sequenziale (1, 2, 3...)
+        documentId: '', // Web sources non hanno documentId
+        filename: webResult.title || 'Senza titolo',
+        similarity: 1.0, // Web sources non hanno similarity
+        content: webResult.content || '',
+        chunkIndex: 0, // Web sources non hanno chunkIndex
+        type: 'web' as const,
+        title: webResult.title || 'Senza titolo',
+        url: webResult.url || '',
+      })
+    }
+  }
+  return sources
 }
 
 /**
