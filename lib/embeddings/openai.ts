@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { normalizeTextForEmbedding } from './text-preprocessing'
+import { logEmbeddingCall } from '@/lib/observability/langfuse'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -40,6 +41,17 @@ export async function generateEmbedding(
       console.error(`[embeddings] Invalid embedding dimensions: expected 1536, got ${embedding.length}`)
       throw new Error(`Invalid embedding dimensions: expected 1536, got ${embedding.length}. This may indicate a model configuration issue.`)
     }
+
+    // Log embedding call to Langfuse
+    const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
+    logEmbeddingCall(
+      null, // traceId (standalone per embedding singolo)
+      model,
+      normalizedText,
+      embedding,
+      usage,
+      { operation: 'single-embedding', textLength: normalizedText.length, dimensions: embedding.length }
+    )
 
     return embedding
   } catch (error: unknown) {
@@ -115,6 +127,17 @@ export async function generateEmbeddings(
       console.error(`[embeddings] Invalid embedding dimensions found: ${invalidDims.join(', ')}. Expected 1536 for all embeddings.`)
       throw new Error(`Invalid embedding dimensions: found ${invalidEmbeddings.length} embeddings with incorrect dimensions. Expected 1536, got: ${invalidDims.join(', ')}`)
     }
+
+    // Log embedding call to Langfuse
+    const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
+    logEmbeddingCall(
+      null, // traceId (standalone per batch embedding)
+      model,
+      normalizedTexts,
+      embeddings,
+      usage,
+      { operation: 'batch-embedding', inputCount: normalizedTexts.length, dimensions: embeddings[0]?.length || 1536 }
+    )
 
     return embeddings
   } catch (error: unknown) {

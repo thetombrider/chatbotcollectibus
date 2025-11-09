@@ -18,6 +18,7 @@ import { generateResponse, processResponse, type ResponseContext } from './handl
 import { buildContext, filterRelevantResults, calculateAverageSimilarity } from './services/context-builder'
 import { createKBSources, createWebSources, createMetaSources, combineSources } from './services/source-service'
 import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
+import { createChatTrace, finalizeTrace } from '@/lib/observability/langfuse'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 
@@ -31,6 +32,13 @@ async function handleChatRequest(
   skipCache: boolean,
   streamController: StreamController
 ): Promise<void> {
+  // Create Langfuse trace for this chat request
+  const traceId = createChatTrace(
+    conversationId || 'anonymous',
+    message,
+    { webSearchEnabled, skipCache }
+  )
+
   // STEP 1: Salva messaggio utente
   if (conversationId) {
     await saveUserMessage(conversationId, message)
@@ -69,6 +77,19 @@ async function handleChatRequest(
         query_enhanced: enhancement.shouldEnhance,
         original_query: message,
         enhanced_query: enhancement.shouldEnhance ? queryToEmbed : undefined,
+      })
+    }
+    
+    // Finalize Langfuse trace (cache hit)
+    if (traceId) {
+      finalizeTrace(traceId, {
+        response: cached.response.substring(0, 500), // Limita lunghezza
+        sourcesCount: cached.sources.length,
+        cached: true,
+      }, {
+        analysis: analysis.intent,
+        enhancement: enhancement.shouldEnhance,
+        cacheHit: true,
       })
     }
     
@@ -196,6 +217,20 @@ async function handleChatRequest(
 
   // Pulisci context globale (temporaneo)
   clearWebSearchResults()
+
+  // Finalize Langfuse trace
+  if (traceId) {
+    finalizeTrace(traceId, {
+      response: processed.content.substring(0, 500), // Limita lunghezza
+      sourcesCount: allSources.length,
+      cached: false,
+    }, {
+      analysis: analysis.intent,
+      enhancement: enhancement.shouldEnhance,
+      searchResultsCount: searchResults.length,
+      relevantResultsCount: relevantResults.length,
+    })
+  }
 }
 
 /**

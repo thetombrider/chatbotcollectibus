@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { findCachedQueryAnalysis, saveCachedQueryAnalysis } from '@/lib/supabase/query-analysis-cache'
+import { logLLMCall } from '@/lib/observability/langfuse'
 
 /**
  * Unified Query Analysis Module
@@ -231,6 +232,22 @@ Rispondi SOLO in JSON valido, senza altro testo:
     })
 
     const content = response.choices[0]?.message?.content?.trim()
+    
+    // Log LLM call to Langfuse
+    const usage = response.usage ? {
+      promptTokens: response.usage.prompt_tokens,
+      completionTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens,
+    } : undefined
+    
+    logLLMCall(
+      'query-analysis', // traceId (standalone per query analysis)
+      ANALYSIS_MODEL,
+      { query, prompt },
+      content,
+      usage,
+      { operation: 'query-analysis', queryLength: query.length }
+    )
     if (!content) {
       console.warn('[query-analysis] Empty LLM response')
       return getDefaultResult(query, articleNumberRegex)

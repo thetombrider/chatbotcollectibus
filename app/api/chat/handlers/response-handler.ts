@@ -18,6 +18,7 @@ import {
 } from '@/lib/services/citation-service'
 import type { Source } from '@/lib/services/citation-service'
 import type { StreamController } from './stream-handler'
+import { logLLMCall } from '@/lib/observability/langfuse'
 
 export interface ResponseContext {
   message: string
@@ -140,6 +141,25 @@ export async function generateResponse(
           streamController.sendText(content)
         }
       }
+      
+      // Log main LLM call to Langfuse (after streaming completes)
+      // Note: Mastra agent doesn't expose usage tokens directly, so we log without usage
+      logLLMCall(
+        'chat-response', // traceId (standalone per main response)
+        'openrouter/google/gemini-2.5-flash', // Model from agent config
+        messages,
+        fullResponse,
+        undefined, // Usage not available from Mastra stream
+        {
+          operation: 'chat-response',
+          messageLength: message.length,
+          responseLength: fullResponse.length,
+          hasContext: contextText !== null,
+          contextLength: contextText?.length || 0,
+          sourcesInsufficient: SOURCES_INSUFFICIENT,
+          avgSimilarity,
+        }
+      )
     } else {
       throw new Error('No valid stream source found')
     }
