@@ -23,6 +23,7 @@ import {
   createSpan,
   endSpan,
   updateTrace,
+  flushLangfuse,
   type TraceContext 
 } from '@/lib/observability/langfuse'
 import { createServerSupabaseClient } from '@/lib/supabase/client'
@@ -136,6 +137,9 @@ async function handleChatRequest(
         enhancement: enhancement.shouldEnhance,
         cacheHit: true,
       })
+
+      // CRITICAL: Flush Langfuse anche per cache hit
+      await flushLangfuse()
     }
     
     return
@@ -309,6 +313,10 @@ async function handleChatRequest(
       webSourcesCount: processed.webSources?.length || 0,
       kbSourcesCount: processed.sources?.length || 0,
     })
+
+    // CRITICAL: Flush Langfuse prima che la funzione serverless termini
+    // In produzione su Vercel, senza flush gli ultimi eventi vanno persi
+    await flushLangfuse()
   }
 }
 
@@ -357,11 +365,16 @@ export async function POST(req: NextRequest) {
           traceContext // Passa traceContext al handler
         )
         streamController.close()
-        } catch (error) {
+      } catch (error) {
         console.error('[api/chat] Error:', error)
         const errorMessage = error instanceof Error ? error.message : 'Failed to generate response'
         streamController.sendError(errorMessage)
         streamController.close()
+
+        // CRITICAL: Flush Langfuse anche in caso di errore
+        if (traceContext) {
+          await flushLangfuse()
+        }
       }
     })
 
