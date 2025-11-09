@@ -94,7 +94,7 @@ QUERY META - INFORMAZIONI SUL DATABASE:
   // Costruisci sezione citazioni standard
   const buildCitationsSection = (): string => {
     return `
-CITAZIONI - REGOLE IMPORTANTI:
+CITAZIONI - REGOLE CRITICHE:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
 - Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
 - Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
@@ -102,20 +102,27 @@ CITAZIONI - REGOLE IMPORTANTI:
 - NON inventare numeri di documento che non esistono nel contesto
 - Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
 
+REGOLA CRITICA - VERIFICA NOME FILE:
+- PRIMA di citare un documento, VERIFICA che il nome del file nel contesto corrisponda al contenuto che stai citando
+- Se stai parlando di "GRI 402", DEVI citare il documento che contiene "GRI 402" nel nome del file o nel contenuto
+- NON citare documenti con nomi diversi (es. NON citare "GRI 202" se stai parlando di "GRI 402")
+- Controlla SEMPRE il nome del file nel contesto: "[Documento N: nome_file]" per assicurarti di citare il documento corretto
+
 ESEMPIO:
 Se il contesto contiene:
-[Documento 1: file1.pdf]
-Testo del documento 1...
+[Documento 1: GRI-202.pdf]
+Testo del documento GRI 202...
 
-[Documento 2: file2.pdf]
-Testo del documento 2...
+[Documento 2: GRI-402.pdf]
+Testo del documento GRI 402...
 
-E usi informazioni da entrambi, cita: [cit:1,2]
+E stai parlando di GRI 402, DEVI citare [cit:2] (il documento con GRI-402.pdf), NON [cit:1]
 
 IMPORTANTE: 
 - NON inventare citazioni
 - Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
-- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto`
+- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
+- VERIFICA SEMPRE che il nome del file corrisponda al contenuto che stai citando`
   }
 
   // Caso 0: Meta query - usa tool meta_query per ottenere documenti dal database

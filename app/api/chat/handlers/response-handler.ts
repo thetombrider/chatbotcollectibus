@@ -221,9 +221,24 @@ export async function processResponse(
   if (!isMetaQuery && !hasMetaQueryDocuments) {
     // Query normale: processa citazioni normalmente
     if (citedIndices.length > 0) {
+      // Log per debugging: verifica quali documenti vengono citati
+      console.log('[response-handler] Citations found:', citedIndices)
+      console.log('[response-handler] Available sources:', finalSources.map(s => ({
+        index: s.index,
+        filename: s.filename,
+        similarity: s.similarity,
+      })))
+      
       const kbResult = processCitations(processedResponse, finalSources, 'cit')
       processedResponse = kbResult.content
       kbSources = kbResult.sources
+      
+      // Log per debugging: verifica quali sources sono state selezionate
+      console.log('[response-handler] Selected sources after processing:', kbSources.map(s => ({
+        index: s.index,
+        filename: s.filename,
+        similarity: s.similarity,
+      })))
     } else {
       kbSources = []
     }
