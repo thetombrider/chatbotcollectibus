@@ -98,7 +98,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       
       console.log('[useChat] Sending request with webSearchEnabled:', webSearchEnabled)
       
-      const res = await fetch('/api/chat', {
+      // Switch tra route originale e refactorizzata via env var
+      // Per testare la route refactorizzata, imposta NEXT_PUBLIC_USE_V2_ROUTE=true in .env.local
+      const chatEndpoint = process.env.NEXT_PUBLIC_USE_V2_ROUTE === 'true' 
+        ? '/api/chat/v2' 
+        : '/api/chat'
+      
+      const res = await fetch(chatEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),

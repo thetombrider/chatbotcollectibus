@@ -496,11 +496,14 @@ export async function POST(req: NextRequest) {
             }
             
             // Valuta se le fonti sono sufficienti
-            // Le fonti sono INSUFFICIENTI se ALMENO UNA delle seguenti condizioni è vera (OR logico):
-            // 1. Non ci sono risultati rilevanti (relevantResults.length === 0)
-            // 2. La similarità media è troppo bassa (< 0.25)
-            // Basta che UNA delle due condizioni sia vera per considerare le fonti insufficienti
-            SOURCES_INSUFFICIENT = relevantResults.length === 0 || avgSimilarity < 0.5
+            // Logica migliorata per determinare se le fonti sono sufficienti:
+            // - Se non ci sono risultati, fonti insufficienti
+            // - Se ci sono >= 3 risultati con similarità media >= 0.35, fonti sufficienti
+            // - Se ci sono < 3 risultati ma similarità media >= 0.45, fonti sufficienti
+            // - Altrimenti fonti insufficienti
+            SOURCES_INSUFFICIENT = relevantResults.length === 0 || 
+              (relevantResults.length < 3 && avgSimilarity < 0.45) ||
+              (relevantResults.length >= 3 && avgSimilarity < 0.35)
             console.log('[api/chat] Sources sufficient?', !SOURCES_INSUFFICIENT, {
               resultsCount: relevantResults.length,
               avgSimilarity: avgSimilarity.toFixed(3),
