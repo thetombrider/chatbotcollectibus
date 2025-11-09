@@ -174,14 +174,15 @@ Devi rilevare:
 
 1. INTENT SEMANTICO (uno solo):
    - "comparison": Confronto tra 2+ entità (es: "confronta GDPR e ESPR", "differenze tra X e Y")
-   - "definition": Definizione/concept (es: "cos'è il GDPR", "definizione di sostenibilità")
+   - "definition": SOLO definizione formale/concept breve (es: "cos'è il GDPR", "definizione di sostenibilità", "che cosa significa X")
+     IMPORTANTE: "spiegami X", "descrivimi X", "raccontami di X" NON sono "definition" ma "general"
    - "requirements": Requisiti/obblighi (es: "requisiti GDPR", "cosa serve per compliance")
    - "procedure": Procedure/processi (es: "come implementare GDPR", "processo per compliance")
    - "article_lookup": Ricerca articolo specifico (es: "articolo 28 GDPR", "art. 5")
    - "meta": Query sul database stesso (es: "quanti documenti ci sono", "che norme ci sono")
    - "timeline": Scadenze/timeline (es: "quando scade GDPR", "scadenze compliance")
    - "causes_effects": Cause/effetti (es: "perché serve GDPR", "conseguenze non compliance")
-   - "general": Query generica (fallback)
+   - "general": Spiegazione generale/descrizione completa (es: "spiegami X", "descrivimi X", "raccontami di X", "parlami di X")
 
 2. QUERY COMPARATIVA:
    - Se intent è "comparison", estrai i termini da confrontare (min 2, max 5)
@@ -199,6 +200,9 @@ IMPORTANTE:
 - Se la query è comparativa, intent DEVE essere "comparison"
 - Se la query è meta, intent DEVE essere "meta"
 - Se la query menziona un articolo specifico, intent DEVE essere "article_lookup" (a meno che non sia anche comparativa o meta)
+- DISTINGUI tra "definition" e "general":
+  * "definition": SOLO per richieste di definizione breve/formale ("cos'è", "definizione di", "che cosa significa")
+  * "general": per richieste di spiegazione/descrizione completa ("spiegami", "descrivimi", "raccontami", "parlami di")
 - Estrai SOLO i termini principali per confronti (es: "GDPR", "ESPR", non "confronto", "differenza")
 
 Rispondi SOLO in JSON valido, senza altro testo:

@@ -6,6 +6,7 @@
 
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
+import { extractPossibleFilenames, searchByFilename, combineSearchResults } from '@/lib/supabase/filename-search'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 
@@ -78,6 +79,7 @@ export async function performMultiQuerySearch(
 
 /**
  * Esegue la ricerca vettoriale in base al tipo di query
+ * Include anche ricerca per nome file come fallback
  */
 export async function performSearch(
   query: string,
@@ -87,12 +89,37 @@ export async function performSearch(
 ): Promise<SearchResult[]> {
   const { isComparative, comparativeTerms } = analysis
 
+  let vectorResults: SearchResult[]
+  
   if (isComparative && comparativeTerms && comparativeTerms.length >= 2) {
     // Query comparativa: usa strategia multi-query
-    return await performMultiQuerySearch(comparativeTerms, query, queryEmbedding, articleNumber)
+    vectorResults = await performMultiQuerySearch(comparativeTerms, query, queryEmbedding, articleNumber)
   } else {
     // Query standard: hybrid search normale
-    return await hybridSearch(queryEmbedding, query, 10, 0.3, 0.7, articleNumber)
+    vectorResults = await hybridSearch(queryEmbedding, query, 10, 0.3, 0.7, articleNumber)
   }
+
+  // Fallback: cerca anche per nome file se la query contiene acronimi/nomi di normative
+  const possibleFilenames = extractPossibleFilenames(query)
+  let filenameResults: SearchResult[] = []
+  
+  if (possibleFilenames.length > 0) {
+    console.log('[search-handler] Possible filenames detected:', possibleFilenames)
+    filenameResults = await searchByFilename(possibleFilenames, 10)
+    console.log('[search-handler] Filename search results:', filenameResults.length)
+  }
+
+  // Combina risultati vettoriali e per nome file
+  if (filenameResults.length > 0) {
+    const combined = combineSearchResults(vectorResults, filenameResults)
+    console.log('[search-handler] Combined results:', {
+      vector: vectorResults.length,
+      filename: filenameResults.length,
+      combined: combined.length,
+    })
+    return combined
+  }
+
+  return vectorResults
 }
 

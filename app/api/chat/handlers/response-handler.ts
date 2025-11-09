@@ -63,12 +63,21 @@ export async function generateResponse(
   
   // Logica migliorata per determinare se le fonti sono sufficienti:
   // - Se non ci sono risultati, fonti insufficienti
-  // - Se ci sono >= 3 risultati con similarità media >= 0.35, fonti sufficienti
-  // - Se ci sono < 3 risultati ma similarità media >= 0.45, fonti sufficienti
+  // - Se ci sono >= 3 risultati con similarità media >= 0.30, fonti sufficienti
+  // - Se ci sono < 3 risultati ma similarità media >= 0.40, fonti sufficienti
   // - Altrimenti fonti insufficienti
   const SOURCES_INSUFFICIENT = relevantResults.length === 0 || 
-    (relevantResults.length < 3 && avgSimilarity < 0.45) ||
-    (relevantResults.length >= 3 && avgSimilarity < 0.35)
+    (relevantResults.length < 3 && avgSimilarity < 0.40) ||
+    (relevantResults.length >= 3 && avgSimilarity < 0.30)
+  
+  // Log per debugging
+  console.log('[response-handler] Sources evaluation:', {
+    resultsCount: relevantResults.length,
+    avgSimilarity: avgSimilarity.toFixed(3),
+    sourcesInsufficient: SOURCES_INSUFFICIENT,
+    hasContext: contextText !== null,
+    contextLength: contextText?.length || 0,
+  })
 
   // Calcola uniqueDocumentNames per query comparative
   const uniqueDocumentNames = contextText && analysis.comparativeTerms

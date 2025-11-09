@@ -96,8 +96,21 @@ async function handleChatRequest(
     searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber)
     
     // Filtra risultati rilevanti
-    const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.40
+    // Threshold più basso per includere più risultati (0.35 invece di 0.40)
+    // Questo permette di includere risultati con similarità 0.35-0.40 che potrebbero essere comunque utili
+    const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.35
     relevantResults = filterRelevantResults(searchResults, RELEVANCE_THRESHOLD)
+    
+    // Log per debugging
+    const avgSimilarity = relevantResults.length > 0
+      ? relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length
+      : 0
+    console.log('[api/chat] Search results:', {
+      total: searchResults.length,
+      relevant: relevantResults.length,
+      avgSimilarity: avgSimilarity.toFixed(3),
+      threshold: RELEVANCE_THRESHOLD,
+    })
     
     // Costruisci contesto
     context = buildContext(relevantResults)

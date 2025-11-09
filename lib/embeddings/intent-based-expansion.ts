@@ -89,10 +89,11 @@ const EXPANSION_STRATEGIES = new Map<QueryIntent, ExpansionStrategy>([
   }],
   
   // General: Use generic expansion (synonyms + related terms)
+  // Per spiegazioni generali, usa termini più ampi invece di definizioni formali
   ['general', {
     intent: 'general',
-    expansionTerms: [], // Will use LLM-guided expansion
-    expansionMethod: 'llm_guided',
+    expansionTerms: ['spiegazione', 'descrizione', 'informazioni', 'dettagli', 'caratteristiche', 'aspetti', 'elementi', 'explanation', 'description', 'information', 'details', 'features', 'aspects', 'elements'],
+    expansionMethod: 'llm_guided', // Usa LLM per espansione più ricca
   }],
 ])
 

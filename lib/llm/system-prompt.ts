@@ -163,6 +163,8 @@ IMPORTANTE:
 - Confronta esplicitamente i concetti trovati in entrambe le normative
 - Cita SOLO informazioni presenti nel contesto fornito
 - Se trovi concetti simili in documenti diversi, menzionalo esplicitamente
+- Riconosci che termini correlati possono riferirsi alla stessa cosa (es: CSRD e Corporate Sustainability Reporting Directive sono la stessa cosa)
+- Usa le informazioni dal contesto anche se i termini non corrispondono esattamente
 
 Contesto dai documenti:
 ${context}`
@@ -174,6 +176,15 @@ ${context}`
       : ''
 
     return `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${buildMetaQuerySection()}${webSearchInstruction}${buildCitationsSection()}
+
+ISTRUZIONI IMPORTANTI:
+- DEVI usare il contesto fornito per rispondere alla domanda dell'utente
+- Cerca informazioni correlate anche se i termini nella query non corrispondono esattamente a quelli nel contesto
+- Riconosci che termini correlati possono riferirsi alla stessa cosa (es: CSRD e Corporate Sustainability Reporting Directive sono la stessa cosa; ESRS sono parte della CSRD)
+- Se il contesto contiene informazioni rilevanti anche con termini diversi, USA QUELLE INFORMAZIONI
+- NON dire che non hai informazioni se il contesto contiene informazioni rilevanti, anche con terminologia diversa
+- Se il contesto parla di ESRS e l'utente chiede della CSRD, spiega che ESRS sono parte della CSRD e usa le informazioni dal contesto
+- Se il contesto parla di una normativa e l'utente usa un nome diverso ma si riferisce alla stessa cosa, usa le informazioni dal contesto
 
 Contesto dai documenti:
 ${context}`

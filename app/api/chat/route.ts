@@ -3,6 +3,7 @@ import { ragAgent, getWebSearchResults, clearWebSearchResults, getMetaQueryDocum
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import { hybridSearch } from '@/lib/supabase/vector-operations'
+import { extractPossibleFilenames, searchByFilename, combineSearchResults } from '@/lib/supabase/filename-search'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
@@ -458,6 +459,23 @@ export async function POST(req: NextRequest) {
               searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7, articleNumber)
             }
             
+            // Fallback: cerca anche per nome file se la query contiene acronimi/nomi di normative
+            const possibleFilenames = extractPossibleFilenames(queryToEmbed)
+            if (possibleFilenames.length > 0) {
+              console.log('[api/chat] Possible filenames detected:', possibleFilenames)
+              const filenameResults = await searchByFilename(possibleFilenames, 10)
+              console.log('[api/chat] Filename search results:', filenameResults.length)
+              
+              if (filenameResults.length > 0) {
+                searchResults = combineSearchResults(searchResults, filenameResults)
+                console.log('[api/chat] Combined results:', {
+                  vector: searchResults.length - filenameResults.length,
+                  filename: filenameResults.length,
+                  combined: searchResults.length,
+                })
+              }
+            }
+            
             // Log dei risultati per debugging
             console.log('[api/chat] Search results:', searchResults.map((r: SearchResult) => ({
               filename: r.document_filename,
@@ -468,9 +486,11 @@ export async function POST(req: NextRequest) {
             })))
             
             // Threshold per filtrare i risultati rilevanti
+            // Threshold più basso (0.35 invece di 0.40) per includere più risultati
+            // Questo permette di includere risultati con similarità 0.35-0.40 che potrebbero essere comunque utili
             // Se viene filtrato per articolo specifico, abbassa la soglia perché 
             // l'utente ha chiesto esplicitamente quell'articolo
-            const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.40
+            const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.35
             console.log('[api/chat] Relevance threshold:', RELEVANCE_THRESHOLD, articleNumber ? `(lowered for article ${articleNumber})` : '(standard)')
             relevantResults = searchResults.filter((r: SearchResult) => r.similarity >= RELEVANCE_THRESHOLD)
             
@@ -498,12 +518,12 @@ export async function POST(req: NextRequest) {
             // Valuta se le fonti sono sufficienti
             // Logica migliorata per determinare se le fonti sono sufficienti:
             // - Se non ci sono risultati, fonti insufficienti
-            // - Se ci sono >= 3 risultati con similarità media >= 0.35, fonti sufficienti
-            // - Se ci sono < 3 risultati ma similarità media >= 0.45, fonti sufficienti
+            // - Se ci sono >= 3 risultati con similarità media >= 0.30, fonti sufficienti
+            // - Se ci sono < 3 risultati ma similarità media >= 0.40, fonti sufficienti
             // - Altrimenti fonti insufficienti
             SOURCES_INSUFFICIENT = relevantResults.length === 0 || 
-              (relevantResults.length < 3 && avgSimilarity < 0.45) ||
-              (relevantResults.length >= 3 && avgSimilarity < 0.35)
+              (relevantResults.length < 3 && avgSimilarity < 0.40) ||
+              (relevantResults.length >= 3 && avgSimilarity < 0.30)
             console.log('[api/chat] Sources sufficient?', !SOURCES_INSUFFICIENT, {
               resultsCount: relevantResults.length,
               avgSimilarity: avgSimilarity.toFixed(3),
