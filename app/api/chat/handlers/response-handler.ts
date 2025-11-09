@@ -4,7 +4,7 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { ragAgent } from '@/lib/mastra/agent'
+import { ragAgent, runWithAgentContext } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
@@ -119,74 +119,84 @@ export async function generateResponse(
 
   let fullResponse = ''
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await ragAgent.stream(messages as any, streamOptions as any)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
-
-    if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
-      let firstChunk = true
-      for await (const chunk of streamSource) {
+  // Esegui l'agent con il contesto per passare traceId e risultati
+  await runWithAgentContext(
+    {
+      traceId: context.traceId || null,
+      webSearchResults: [],
+      metaQueryDocuments: [],
+    },
+    async () => {
+      try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
-        if (content) {
-          if (firstChunk) {
-            streamController.hideStatus()
-            firstChunk = false
+        const result = await ragAgent.stream(messages as any, streamOptions as any)
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
+
+        if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
+          let firstChunk = true
+          for await (const chunk of streamSource) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
+            if (content) {
+              if (firstChunk) {
+                streamController.hideStatus()
+                firstChunk = false
+              }
+              
+              fullResponse += content
+              streamController.sendText(content)
+            }
           }
+        } else {
+          throw new Error('No valid stream source found')
+        }
+      } catch (streamError) {
+        console.error('[response-handler] Stream failed, trying generate():', streamError)
+        
+        // Fallback a generate() se stream() non funziona
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const generated = await ragAgent.generate(messages as any)
+        
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
+        fullResponse = generatedText
+        
+        if (fullResponse) {
+          streamController.hideStatus()
           
-          fullResponse += content
-          streamController.sendText(content)
+          // Stream la risposta completa in chunks per simulare lo streaming
+          const words = fullResponse.split(/\s+/)
+          for (const word of words) {
+            const chunk = word + ' '
+            streamController.sendText(chunk)
+            await new Promise(resolve => setTimeout(resolve, 10))
+          }
         }
       }
-      
-      // Log main LLM call to Langfuse (after streaming completes)
-      // Note: Mastra agent doesn't expose usage tokens directly, so we log without usage
-      if (context.traceId) {
-        logLLMCall(
-          context.traceId, // Usa il traceId reale dal context
-          'openrouter/google/gemini-2.5-flash', // Model from agent config
-          messages,
-          fullResponse,
-          undefined, // Usage not available from Mastra stream
-          {
-            operation: 'chat-response',
-            messageLength: message.length,
-            responseLength: fullResponse.length,
-            hasContext: contextText !== null,
-            contextLength: contextText?.length || 0,
-            sourcesInsufficient: SOURCES_INSUFFICIENT,
-            avgSimilarity,
-          }
-        )
-      }
-    } else {
-      throw new Error('No valid stream source found')
     }
-  } catch (streamError) {
-    console.error('[response-handler] Stream failed, trying generate():', streamError)
-    
-    // Fallback a generate() se stream() non funziona
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const generated = await ragAgent.generate(messages as any)
-    
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
-    fullResponse = generatedText
-    
-    if (fullResponse) {
-      streamController.hideStatus()
-      
-      // Stream la risposta completa in chunks per simulare lo streaming
-      const words = fullResponse.split(/\s+/)
-      for (const word of words) {
-        const chunk = word + ' '
-        streamController.sendText(chunk)
-        await new Promise(resolve => setTimeout(resolve, 10))
+  )
+
+  // Log main LLM call to Langfuse (after streaming completes)
+  // Note: Mastra agent doesn't expose usage tokens directly, so we log without usage
+  if (context.traceId && fullResponse) {
+    logLLMCall(
+      context.traceId, // Usa il traceId reale dal context
+      'openrouter/google/gemini-2.5-flash', // Model from agent config
+      messages,
+      fullResponse,
+      undefined, // Usage not available from Mastra stream
+      {
+        operation: 'chat-response',
+        messageLength: message.length,
+        responseLength: fullResponse.length,
+        hasContext: contextText !== null,
+        contextLength: contextText?.length || 0,
+        sourcesInsufficient: SOURCES_INSUFFICIENT,
+        avgSimilarity,
       }
-    }
+    )
   }
 
   return fullResponse

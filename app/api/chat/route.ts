@@ -19,6 +19,7 @@ import { buildContext, filterRelevantResults } from './services/context-builder'
 import { createKBSources, combineSources } from './services/source-service'
 import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
 import { createChatTrace, finalizeTrace, createStepSpan, finalizeSpan } from '@/lib/observability/langfuse'
+import { createServerSupabaseClient } from '@/lib/supabase/client'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 
@@ -30,14 +31,30 @@ async function handleChatRequest(
   conversationId: string | null,
   webSearchEnabled: boolean,
   skipCache: boolean,
-  streamController: StreamController
+  streamController: StreamController,
+  traceId?: string | null
 ): Promise<void> {
-  // Create Langfuse trace for this chat request
-  const traceId = createChatTrace(
-    conversationId || 'anonymous',
-    message,
-    { webSearchEnabled, skipCache }
-  )
+  // Se traceId non è fornito, crea un nuovo trace
+  // (questo può accadere se viene chiamato direttamente senza trace)
+  if (!traceId) {
+    // Estrai userId dalla sessione Supabase
+    let userId: string | null = null
+    try {
+      const supabase = await createServerSupabaseClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      userId = user?.id || null
+    } catch (error) {
+      console.warn('[api/chat] Failed to get user from session:', error)
+      // Continua senza userId se non disponibile
+    }
+
+    traceId = createChatTrace(
+      conversationId || 'anonymous',
+      userId,
+      message,
+      { webSearchEnabled, skipCache }
+    )
+  }
 
   // STEP 1: Salva messaggio utente
   if (conversationId) {
@@ -100,7 +117,8 @@ async function handleChatRequest(
     // Finalize Langfuse trace (cache hit)
     if (traceId) {
       finalizeTrace(traceId, {
-        response: cached.response.substring(0, 500), // Limita lunghezza
+        response: cached.response, // Risposta completa (non troncata)
+        responseLength: cached.response.length,
         sourcesCount: cached.sources.length,
         cached: true,
       }, {
@@ -268,10 +286,11 @@ async function handleChatRequest(
   // Pulisci context globale (temporaneo)
   clearWebSearchResults()
 
-  // Finalize Langfuse trace
+  // Finalize Langfuse trace con la risposta completa
   if (traceId) {
     finalizeTrace(traceId, {
-      response: processed.content.substring(0, 500), // Limita lunghezza
+      response: processed.content, // Risposta completa (non troncata)
+      responseLength: processed.content.length,
       sourcesCount: allSources.length,
       cached: false,
     }, {
@@ -279,6 +298,8 @@ async function handleChatRequest(
       enhancement: enhancement.shouldEnhance,
       searchResultsCount: searchResults.length,
       relevantResultsCount: relevantResults.length,
+      webSourcesCount: processed.webSources?.length || 0,
+      kbSourcesCount: processed.sources?.length || 0,
     })
   }
 }
@@ -297,15 +318,35 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Estrai userId dalla sessione Supabase
+    let userId: string | null = null
+    try {
+      const supabase = await createServerSupabaseClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      userId = user?.id || null
+    } catch (error) {
+      console.warn('[api/chat] Failed to get user from session:', error)
+      // Continua senza userId se non disponibile
+    }
+
+    // Crea trace Langfuse per questa richiesta chat
+    const traceId = createChatTrace(
+      conversationId || 'anonymous',
+      userId,
+      message,
+      { webSearchEnabled, skipCache }
+    )
+
     // Crea stream
     const stream = createStream(async (streamController) => {
       try {
         await handleChatRequest(
           message,
           conversationId || null,
-              webSearchEnabled,
+          webSearchEnabled,
           skipCache,
-          streamController
+          streamController,
+          traceId // Passa traceId al handler
         )
         streamController.close()
         } catch (error) {

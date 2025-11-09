@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent'
+import { AsyncLocalStorage } from 'async_hooks'
 
 /**
  * Mastra Agent configuration per RAG
@@ -12,6 +13,35 @@ if (!openrouterApiKey) {
   throw new Error(
     'OPENROUTER_API_KEY is not set. Please add it to your .env.local file.'
   )
+}
+
+/**
+ * Context per passare traceId e risultati senza race conditions
+ * Usa AsyncLocalStorage per mantenere il contesto per ogni richiesta
+ */
+interface AgentContext {
+  traceId: string | null
+  webSearchResults: any[]
+  metaQueryDocuments: Array<{ id: string; filename: string; index: number }>
+}
+
+const agentContextStore = new AsyncLocalStorage<AgentContext>()
+
+/**
+ * Esegue una funzione con un contesto agent
+ */
+export async function runWithAgentContext<T>(
+  context: AgentContext,
+  fn: () => Promise<T>
+): Promise<T> {
+  return agentContextStore.run(context, fn)
+}
+
+/**
+ * Ottiene il contesto agent corrente
+ */
+function getAgentContext(): AgentContext | undefined {
+  return agentContextStore.getStore()
 }
 
 // Tool per vector search
@@ -54,19 +84,18 @@ async function semanticCacheTool({ query }: { query: string }) {
   return cached ? { cached: true, response: cached.response_text } : { cached: false }
 }
 
-// Context globale per salvare i risultati della ricerca web
-// Questo ci permette di accedere ai risultati dopo che l'agent ha finito
-const webSearchResultsContext = new Map<string, any[]>()
-
-// Context globale per salvare i documenti dalle query meta
-// Questo ci permette di accedere ai documenti dopo che l'agent ha finito
-const metaQueryDocumentsContext = new Map<string, Array<{ id: string; filename: string; index: number }>>()
-
 // Tool per ricerca web con Tavily
 async function webSearchTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
   }
+
+  const context = getAgentContext()
+  const traceId = context?.traceId || null
+
+  // Crea span per tool call
+  const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
+  const toolSpanId = createToolSpan(traceId, 'web_search', { query })
 
   try {
     // Usa Tavily per la ricerca web
@@ -75,13 +104,12 @@ async function webSearchTool({ query }: { query: string }) {
     
     const results = await searchWeb(query, 5)
     
-    // Salva i risultati nel contesto usando la query come chiave
-    // Questo ci permette di recuperarli dopo che l'agent ha finito
-    const contextKey = `web_search_${Date.now()}_${query.substring(0, 50)}`
-    webSearchResultsContext.set(contextKey, results.results || [])
+    // Salva i risultati nel contesto locale (senza race conditions)
+    if (context) {
+      context.webSearchResults = results.results || []
+    }
     
     console.log('[mastra/agent] Web search results saved to context:', {
-      contextKey,
       resultsCount: results.results?.length || 0,
     })
 
@@ -93,14 +121,30 @@ async function webSearchTool({ query }: { query: string }) {
       content: result.content || '',
     }))
 
-    return {
+    const toolOutput = {
       results: formattedResults,
       query: results.query,
-      contextKey, // Includiamo la chiave nel risultato per poterla recuperare
       citationFormat: 'IMPORTANTE: Cita questi risultati usando il formato [web:N] dove N è l\'indice numerico (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, ecc. NON usare il contextKey o altri identificatori.',
     }
+
+    // Finalizza span con output
+    finalizeSpan(toolSpanId, {
+      resultsCount: formattedResults.length,
+      query: results.query,
+    }, {
+      toolName: 'web_search',
+    })
+
+    return toolOutput
   } catch (error) {
     console.error('[mastra/agent] Web search failed:', error)
+    
+    // Finalizza span con errore
+    finalizeSpan(toolSpanId, undefined, {
+      toolName: 'web_search',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+    
     throw new Error(`Web search failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
@@ -110,6 +154,13 @@ async function metaQueryTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
   }
+
+  const context = getAgentContext()
+  const traceId = context?.traceId || null
+
+  // Crea span per tool call
+  const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
+  const toolSpanId = createToolSpan(traceId, 'meta_query', { query })
 
   try {
     const { analyzeQuery } = await import('@/lib/embeddings/query-analysis')
@@ -135,10 +186,12 @@ async function metaQueryTool({ query }: { query: string }) {
     const queryLower = query.toLowerCase()
 
     // Determine which function to call based on query content and metaType
+    let toolOutput: unknown
+
     if (metaType === 'stats' || queryLower.includes('quanti') || queryLower.includes('statistiche') || queryLower.includes('statistics')) {
       // Statistics query
       const stats = await getDatabaseStats()
-      return {
+      toolOutput = {
         isMeta: true,
         metaType: 'stats',
         data: stats,
@@ -152,7 +205,7 @@ async function metaQueryTool({ query }: { query: string }) {
       if (folderMatch) {
         const folderName = folderMatch[1]
         const folderStats = await getFolderStats(folderName)
-        return {
+        toolOutput = {
           isMeta: true,
           metaType: 'folders',
           data: {
@@ -160,19 +213,19 @@ async function metaQueryTool({ query }: { query: string }) {
             specificFolder: folderStats,
           },
         }
-      }
-      
-      return {
-        isMeta: true,
-        metaType: 'folders',
-        data: {
-          allFolders: folders,
-        },
+      } else {
+        toolOutput = {
+          isMeta: true,
+          metaType: 'folders',
+          data: {
+            allFolders: folders,
+          },
+        }
       }
     } else if (metaType === 'structure' || queryLower.includes('tipo') || queryLower.includes('type') || queryLower.includes('formato') || queryLower.includes('format')) {
       // Document types query
       const types = await getDocumentTypesMeta()
-      return {
+      toolOutput = {
         isMeta: true,
         metaType: 'structure',
         data: {
@@ -210,21 +263,23 @@ async function metaQueryTool({ query }: { query: string }) {
         limit,
       })
       
-      // Salva i documenti nel context con indici numerati per le citazioni
-      const contextKey = `meta_query_${Date.now()}_${query.substring(0, 50)}`
+      // Salva i documenti nel contesto locale (senza race conditions)
+      const context = getAgentContext()
       const documentsWithIndex = documents.map((doc, idx) => ({
         id: doc.id,
         filename: doc.filename,
         index: idx + 1, // Indici partono da 1 per le citazioni
       }))
-      metaQueryDocumentsContext.set(contextKey, documentsWithIndex)
+      
+      if (context) {
+        context.metaQueryDocuments = documentsWithIndex
+      }
       
       console.log('[mastra/agent] Meta query documents saved to context:', {
-        contextKey,
         documentsCount: documentsWithIndex.length,
       })
       
-      return {
+      toolOutput = {
         isMeta: true,
         metaType: 'list',
         data: {
@@ -238,79 +293,75 @@ async function metaQueryTool({ query }: { query: string }) {
             file_type: fileType,
             limit,
           },
-          contextKey, // Includiamo la chiave per recuperare i documenti dopo
         },
       }
     } else {
       // Default: return general stats
       const stats = await getDatabaseStats()
-      return {
+      toolOutput = {
         isMeta: true,
         metaType: 'stats',
         data: stats,
       }
     }
+
+    // Finalizza span con output
+    finalizeSpan(toolSpanId, {
+      metaType: (toolOutput as { metaType?: string })?.metaType,
+      isMeta: (toolOutput as { isMeta?: boolean })?.isMeta,
+    }, {
+      toolName: 'meta_query',
+    })
+
+    return toolOutput
   } catch (error) {
     console.error('[mastra/agent] Meta query failed:', error)
+    
+    // Finalizza span con errore
+    finalizeSpan(toolSpanId, undefined, {
+      toolName: 'meta_query',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+    
     throw new Error(`Meta query failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
 /**
- * Recupera i risultati della ricerca web dal contesto
- * @param contextKey - Chiave del contesto (opzionale, se non fornita restituisce tutti i risultati)
+ * Recupera i risultati della ricerca web dal contesto corrente
  * @returns Array di risultati della ricerca web
  */
-export function getWebSearchResults(contextKey?: string): any[] {
-  if (contextKey) {
-    return webSearchResultsContext.get(contextKey) || []
-  }
-  // Se non c'è una chiave specifica, restituisce tutti i risultati più recenti
-  const allResults: any[] = []
-  webSearchResultsContext.forEach((results) => {
-    allResults.push(...results)
-  })
-  return allResults
+export function getWebSearchResults(): any[] {
+  const context = getAgentContext()
+  return context?.webSearchResults || []
 }
 
 /**
- * Pulisce i risultati della ricerca web dal contesto
- * @param contextKey - Chiave del contesto (opzionale, se non fornita pulisce tutto)
+ * Pulisce i risultati della ricerca web dal contesto corrente
  */
-export function clearWebSearchResults(contextKey?: string): void {
-  if (contextKey) {
-    webSearchResultsContext.delete(contextKey)
-  } else {
-    webSearchResultsContext.clear()
+export function clearWebSearchResults(): void {
+  const context = getAgentContext()
+  if (context) {
+    context.webSearchResults = []
   }
 }
 
 /**
- * Recupera i documenti dalle query meta dal contesto
- * @param contextKey - Chiave del contesto (opzionale, se non fornita restituisce tutti i documenti)
+ * Recupera i documenti dalle query meta dal contesto corrente
  * @returns Array di documenti con id, filename e index
  */
-export function getMetaQueryDocuments(contextKey?: string): Array<{ id: string; filename: string; index: number }> {
-  if (contextKey) {
-    return metaQueryDocumentsContext.get(contextKey) || []
-  }
-  // Se non c'è una chiave specifica, restituisce tutti i documenti più recenti
-  const allDocuments: Array<{ id: string; filename: string; index: number }> = []
-  metaQueryDocumentsContext.forEach((documents) => {
-    allDocuments.push(...documents)
-  })
-  return allDocuments
+export function getMetaQueryDocuments(): Array<{ id: string; filename: string; index: number }> {
+  const context = getAgentContext()
+  return context?.metaQueryDocuments || []
 }
 
 /**
- * Pulisce i documenti dalle query meta dal contesto
- * @param contextKey - Chiave del contesto (opzionale, se non fornita pulisce tutto)
+ * Pulisce i documenti dalle query meta dal contesto corrente
  */
-export function clearMetaQueryDocuments(contextKey?: string): void {
-  if (contextKey) {
-    metaQueryDocumentsContext.delete(contextKey)
-  } else {
-    metaQueryDocumentsContext.clear()
+export function clearMetaQueryDocuments(): void {
+  const context = getAgentContext()
+  if (context) {
+    context.metaQueryDocuments = []
   }
 }
 

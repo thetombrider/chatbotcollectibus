@@ -61,13 +61,15 @@ function getLangfuseClient(): Langfuse | null {
 /**
  * Crea un trace per una richiesta chat
  * 
- * @param conversationId - ID della conversazione
+ * @param chatId - ID della conversazione (chatId)
+ * @param userId - ID dell'utente (opzionale)
  * @param message - Messaggio utente
  * @param metadata - Metadata aggiuntiva
  * @returns Trace ID o null se Langfuse non è configurato
  */
 export function createChatTrace(
-  conversationId: string,
+  chatId: string,
+  userId: string | null,
   message: string,
   metadata?: Record<string, unknown>
 ): string | null {
@@ -79,9 +81,10 @@ export function createChatTrace(
   try {
     const trace = client.trace({
       name: 'chat-request',
-      userId: conversationId,
+      userId: userId || undefined, // userId per Langfuse (opzionale)
       input: { message }, // Aggiungi input al trace
       metadata: {
+        chatId, // chatId nelle metadata per tracciare le sessioni
         message: message.substring(0, 200), // Limita lunghezza per metadata
         ...metadata,
       },
@@ -269,10 +272,14 @@ export function logEmbeddingCall(
  * @param metadata - Metadata aggiuntiva
  */
 export function finalizeTrace(
-  traceId: string,
+  traceId: string | null,
   output?: unknown,
   metadata?: Record<string, unknown>
 ): void {
+  if (!traceId) {
+    return
+  }
+
   const client = getLangfuseClient()
   if (!client) {
     return
@@ -342,6 +349,51 @@ export function createStepSpan(
 }
 
 /**
+ * Crea uno span per una tool call
+ * 
+ * @param traceId - ID del trace padre
+ * @param toolName - Nome del tool
+ * @param input - Input del tool
+ * @param output - Output del tool (opzionale)
+ * @param metadata - Metadata aggiuntiva
+ * @returns Span ID o null se Langfuse non è configurato
+ */
+export function createToolSpan(
+  traceId: string | null,
+  toolName: string,
+  input: unknown,
+  output?: unknown,
+  metadata?: Record<string, unknown>
+): string | null {
+  if (!traceId) {
+    return null
+  }
+
+  const client = getLangfuseClient()
+  if (!client) {
+    return null
+  }
+
+  try {
+    const span = client.span({
+      traceId,
+      name: `tool-${toolName}`,
+      input: typeof input === 'string' ? input : JSON.stringify(input),
+      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      metadata: {
+        toolName,
+        ...metadata,
+      },
+    })
+
+    return span.id
+  } catch (error) {
+    console.error('[langfuse] Failed to create tool span:', error)
+    return null
+  }
+}
+
+/**
  * Finalizza uno span
  * 
  * @param spanId - ID dello span da finalizzare
@@ -386,17 +438,19 @@ export function finalizeSpan(
  * Crea un trace per una richiesta chat completa
  * Helper function che crea trace e span iniziale
  * 
- * @param conversationId - ID della conversazione
+ * @param chatId - ID della conversazione (chatId)
+ * @param userId - ID dell'utente (opzionale)
  * @param message - Messaggio utente
  * @param metadata - Metadata aggiuntiva
  * @returns Trace ID o null se Langfuse non è configurato
  */
 export function createChatTraceWithSpan(
-  conversationId: string,
+  chatId: string,
+  userId: string | null,
   message: string,
   metadata?: Record<string, unknown>
 ): string | null {
-  const traceId = createChatTrace(conversationId, message, metadata)
+  const traceId = createChatTrace(chatId, userId, message, metadata)
   if (!traceId) {
     return null
   }
