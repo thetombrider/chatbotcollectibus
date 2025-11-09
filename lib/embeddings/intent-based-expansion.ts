@@ -227,11 +227,11 @@ Now expand the query. Respond with ONLY the expanded query text, nothing else.`
     const expanded = response.choices[0]?.message?.content?.trim() || query
     
     // Log LLM call to Langfuse
-    const usage = response.usage ? {
-      promptTokens: response.usage.prompt_tokens,
-      completionTokens: response.usage.completion_tokens,
-      totalTokens: response.usage.total_tokens,
-    } : undefined
+    // const usage = response.usage ? {
+    //   promptTokens: response.usage.prompt_tokens,
+    //   completionTokens: response.usage.completion_tokens,
+    //   totalTokens: response.usage.total_tokens,
+    // } : undefined
     
     // TODO: Re-implement with new Langfuse patterns (createGeneration, etc.)
     // logLLMCall(

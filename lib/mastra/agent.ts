@@ -155,7 +155,7 @@ async function metaQueryTool({ query }: { query: string }) {
     throw new Error('Query cannot be empty')
   }
 
-  const context = getAgentContext()
+  // const context = getAgentContext()
   // const traceId = context?.traceId || null
 
   // TODO: Re-implement with new Langfuse patterns (createSpan, etc.)
