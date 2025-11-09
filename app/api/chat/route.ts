@@ -185,6 +185,7 @@ async function handleChatRequest(
     sources: kbSources,
     webSearchEnabled,
     articleNumber,
+    traceId, // Passa traceId al context per logging LLM
   }
 
   const responseSpanId = createStepSpan(traceId, 'response-generation', {

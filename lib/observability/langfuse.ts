@@ -316,12 +316,22 @@ export function createStepSpan(
   }
 
   try {
+    // Assicurati che ci sia almeno input o output per evitare spans vuoti
+    const hasInput = input !== null && input !== undefined
+    const hasOutput = output !== null && output !== undefined
+    
+    if (!hasInput && !hasOutput && (!metadata || Object.keys(metadata).length === 0)) {
+      // Non creare span se non c'è nessun dato
+      console.warn(`[langfuse] Skipping empty span creation: ${name}`)
+      return null
+    }
+
     const span = client.span({
       traceId,
       name,
-      input: input ? (typeof input === 'string' ? input : JSON.stringify(input)) : undefined,
-      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
-      metadata,
+      input: hasInput ? (typeof input === 'string' ? input : JSON.stringify(input)) : undefined,
+      output: hasOutput ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      metadata: metadata || {},
     })
 
     return span.id
@@ -353,10 +363,19 @@ export function finalizeSpan(
   }
 
   try {
+    // Assicurati che ci sia almeno output o metadata per evitare aggiornamenti vuoti
+    const hasOutput = output !== null && output !== undefined
+    const hasMetadata = metadata && Object.keys(metadata).length > 0
+    
+    if (!hasOutput && !hasMetadata) {
+      // Non aggiornare span se non c'è nessun dato
+      return
+    }
+
     client.span({
       id: spanId,
-      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
-      metadata,
+      output: hasOutput ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      metadata: metadata || {},
     })
   } catch (error) {
     console.error('[langfuse] Failed to finalize span:', error)
