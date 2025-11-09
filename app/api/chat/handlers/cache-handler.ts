@@ -40,7 +40,13 @@ export async function lookupCache(
 
     // Processa le citazioni nel testo cached usando le sources salvate
     let processedResponse = cached.response_text
-    let cachedSources = cached.sources || []
+    // Filtra sources e assicura che chunkIndex sia un numero (non null)
+    let cachedSources: Source[] = (cached.sources || [])
+      .filter(s => s.chunkIndex !== null)
+      .map(s => ({
+        ...s,
+        chunkIndex: s.chunkIndex ?? 0,
+      })) as Source[]
     
     // Estrai citazioni dal testo cached
     const { extractCitedIndices } = await import('@/lib/services/citation-service')
