@@ -425,7 +425,7 @@ const generateResponseStep = createStep({
       ? [...new Set(inputData.relevantResults.map((r: any) => r.document_filename || 'Documento sconosciuto'))]
       : []
     
-    const systemPrompt = buildSystemPrompt({
+    const systemPrompt = await buildSystemPrompt({
       hasContext: inputData.context !== undefined,
       context: inputData.context,
       documentCount: inputData.relevantResults.length,

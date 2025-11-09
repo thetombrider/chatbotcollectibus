@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { findCachedQueryAnalysis, saveCachedQueryAnalysis } from '@/lib/supabase/query-analysis-cache'
+import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
 // TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
 // import { logLLMCall } from '@/lib/observability/langfuse'
 
@@ -168,56 +169,22 @@ async function analyzeWithLLM(
   articleNumberRegex: number | null
 ): Promise<QueryAnalysisResult> {
   try {
-    const prompt = `Analizza questa query e determina tutte le sue caratteristiche in una sola volta.
+    // Fetch prompt from Langfuse with fallback
+    const articleNumberHint = articleNumberRegex
+      ? `NOTA: Regex ha rilevato articolo ${articleNumberRegex} - conferma o correggi se necessario.`
+      : ''
 
-Query: "${query}"
-
-Devi rilevare:
-
-1. INTENT SEMANTICO (uno solo):
-   - "comparison": Confronto tra 2+ entità (es: "confronta GDPR e ESPR", "differenze tra X e Y")
-   - "definition": SOLO definizione formale/concept breve (es: "cos'è il GDPR", "definizione di sostenibilità", "che cosa significa X")
-     IMPORTANTE: "spiegami X", "descrivimi X", "raccontami di X" NON sono "definition" ma "general"
-   - "requirements": Requisiti/obblighi (es: "requisiti GDPR", "cosa serve per compliance")
-   - "procedure": Procedure/processi (es: "come implementare GDPR", "processo per compliance")
-   - "article_lookup": Ricerca articolo specifico (es: "articolo 28 GDPR", "art. 5")
-   - "meta": Query sul database stesso (es: "quanti documenti ci sono", "che norme ci sono")
-   - "timeline": Scadenze/timeline (es: "quando scade GDPR", "scadenze compliance")
-   - "causes_effects": Cause/effetti (es: "perché serve GDPR", "conseguenze non compliance")
-   - "general": Spiegazione generale/descrizione completa (es: "spiegami X", "descrivimi X", "raccontami di X", "parlami di X")
-
-2. QUERY COMPARATIVA:
-   - Se intent è "comparison", estrai i termini da confrontare (min 2, max 5)
-   - Tipo: "differences" (differenze), "similarities" (somiglianze), "general_comparison" (confronto generale)
-
-3. QUERY META:
-   - Se intent è "meta", determina il tipo: "stats" (statistiche), "list" (liste), "folders" (cartelle), "structure" (struttura)
-
-4. RIFERIMENTO ARTICOLO:
-   - Se la query menziona un articolo specifico, estrai il numero (1-999)
-   - ${articleNumberRegex ? `NOTA: Regex ha rilevato articolo ${articleNumberRegex} - conferma o correggi se necessario.` : ''}
-
-IMPORTANTE:
-- L'intent deve essere UNO SOLO (il più rilevante)
-- Se la query è comparativa, intent DEVE essere "comparison"
-- Se la query è meta, intent DEVE essere "meta"
-- Se la query menziona un articolo specifico, intent DEVE essere "article_lookup" (a meno che non sia anche comparativa o meta)
-- DISTINGUI tra "definition" e "general":
-  * "definition": SOLO per richieste di definizione breve/formale ("cos'è", "definizione di", "che cosa significa")
-  * "general": per richieste di spiegazione/descrizione completa ("spiegami", "descrivimi", "raccontami", "parlami di")
-- Estrai SOLO i termini principali per confronti (es: "GDPR", "ESPR", non "confronto", "differenza")
-
-Rispondi SOLO in JSON valido, senza altro testo:
-{
-  "intent": "comparison" | "definition" | "requirements" | "procedure" | "article_lookup" | "meta" | "timeline" | "causes_effects" | "general",
-  "is_comparative": true/false,
-  "comparative_terms": ["term1", "term2", ...] o null,
-  "comparison_type": "differences" | "similarities" | "general_comparison" | null,
-  "is_meta": true/false,
-  "meta_type": "stats" | "list" | "folders" | "structure" | null,
-  "article_number": numero o null,
-  "confidence": 0.0-1.0
-}`
+    const prompt = await compilePrompt(
+      PROMPTS.QUERY_ANALYSIS,
+      {
+        query,
+        articleNumberHint,
+      },
+      {
+        // Fallback to hard-coded prompt if Langfuse fails
+        fallback: buildFallbackAnalysisPrompt(query, articleNumberRegex),
+      }
+    )
 
     const response = await openrouter.chat.completions.create({
       model: ANALYSIS_MODEL,
@@ -374,5 +341,61 @@ function getDefaultResult(query: string, articleNumber?: number | null): QueryAn
     fromCache: false,
     articleNumber: articleNumber || undefined,
   }
+}
+
+/**
+ * Builds fallback analysis prompt (used when Langfuse is unavailable)
+ */
+function buildFallbackAnalysisPrompt(query: string, articleNumberRegex: number | null): string {
+  return `Analizza questa query e determina tutte le sue caratteristiche in una sola volta.
+
+Query: "${query}"
+
+Devi rilevare:
+
+1. INTENT SEMANTICO (uno solo):
+   - "comparison": Confronto tra 2+ entità (es: "confronta GDPR e ESPR", "differenze tra X e Y")
+   - "definition": SOLO definizione formale/concept breve (es: "cos'è il GDPR", "definizione di sostenibilità", "che cosa significa X")
+     IMPORTANTE: "spiegami X", "descrivimi X", "raccontami di X" NON sono "definition" ma "general"
+   - "requirements": Requisiti/obblighi (es: "requisiti GDPR", "cosa serve per compliance")
+   - "procedure": Procedure/processi (es: "come implementare GDPR", "processo per compliance")
+   - "article_lookup": Ricerca articolo specifico (es: "articolo 28 GDPR", "art. 5")
+   - "meta": Query sul database stesso (es: "quanti documenti ci sono", "che norme ci sono")
+   - "timeline": Scadenze/timeline (es: "quando scade GDPR", "scadenze compliance")
+   - "causes_effects": Cause/effetti (es: "perché serve GDPR", "conseguenze non compliance")
+   - "general": Spiegazione generale/descrizione completa (es: "spiegami X", "descrivimi X", "raccontami di X", "parlami di X")
+
+2. QUERY COMPARATIVA:
+   - Se intent è "comparison", estrai i termini da confrontare (min 2, max 5)
+   - Tipo: "differences" (differenze), "similarities" (somiglianze), "general_comparison" (confronto generale)
+
+3. QUERY META:
+   - Se intent è "meta", determina il tipo: "stats" (statistiche), "list" (liste), "folders" (cartelle), "structure" (struttura)
+
+4. RIFERIMENTO ARTICOLO:
+   - Se la query menziona un articolo specifico, estrai il numero (1-999)
+   - ${articleNumberRegex ? `NOTA: Regex ha rilevato articolo ${articleNumberRegex} - conferma o correggi se necessario.` : ''}
+
+IMPORTANTE:
+- L'intent deve essere UNO SOLO (il più rilevante)
+- Se la query è comparativa, intent DEVE essere "comparison"
+- Se la query è meta, intent DEVE essere "meta"
+- Se la query menziona un articolo specifico, intent DEVE essere "article_lookup" (a meno che non sia anche comparativa o meta)
+- DISTINGUI tra "definition" e "general":
+  * "definition": SOLO per richieste di definizione breve/formale ("cos'è", "definizione di", "che cosa significa")
+  * "general": per richieste di spiegazione/descrizione completa ("spiegami", "descrivimi", "raccontami", "parlami di")
+- Estrai SOLO i termini principali per confronti (es: "GDPR", "ESPR", non "confronto", "differenza")
+
+Rispondi SOLO in JSON valido, senza altro testo:
+{
+  "intent": "comparison" | "definition" | "requirements" | "procedure" | "article_lookup" | "meta" | "timeline" | "causes_effects" | "general",
+  "is_comparative": true/false,
+  "comparative_terms": ["term1", "term2", ...] o null,
+  "comparison_type": "differences" | "similarities" | "general_comparison" | null,
+  "is_meta": true/false,
+  "meta_type": "stats" | "list" | "folders" | "structure" | null,
+  "article_number": numero o null,
+  "confidence": 0.0-1.0
+}`
 }
 

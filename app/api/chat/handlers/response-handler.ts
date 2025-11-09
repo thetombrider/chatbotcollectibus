@@ -95,8 +95,8 @@ export async function generateResponse(
     ? extractUniqueDocumentNames(relevantResults)
     : []
 
-  // Costruisci system prompt
-  const systemPrompt = buildSystemPrompt({
+  // Costruisci system prompt (now async with Langfuse)
+  const systemPrompt = await buildSystemPrompt({
     hasContext: contextText !== null,
     context: contextText || undefined,
     documentCount: relevantResults.length,

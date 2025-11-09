@@ -3,7 +3,14 @@
  * 
  * Centralizza tutta la logica di costruzione del system prompt
  * per evitare duplicazioni tra route.ts e agent.ts
+ * 
+ * NOW USES LANGFUSE PROMPT MANAGEMENT:
+ * - Prompts are fetched from Langfuse with versioning
+ * - Fallback to hard-coded prompts if Langfuse is unavailable
+ * - Dynamic sections are compiled as variables
  */
+
+import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
 
 export interface SystemPromptOptions {
   /** Se ci sono documenti rilevanti nella knowledge base */
@@ -41,7 +48,7 @@ export interface SystemPromptOptions {
  * @param options - Opzioni per la costruzione del prompt
  * @returns System prompt formattato
  */
-export function buildSystemPrompt(options: SystemPromptOptions): string {
+export async function buildSystemPrompt(options: SystemPromptOptions): Promise<string> {
   const {
     hasContext,
     context,
@@ -55,10 +62,109 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     isMetaQuery = false,
   } = options
 
-  // Costruisci istruzione per ricerca web se necessario
-  const buildWebSearchInstruction = (): string => {
+  // Build dynamic sections that are injected into prompts
+  const webSearchInstruction = buildWebSearchInstruction(
+    webSearchEnabled,
+    sourcesInsufficient,
+    avgSimilarity
+  )
+  const metaQuerySection = buildMetaQuerySection()
+  const citationsSection = buildCitationsSection(documentCount)
+  const articleContext = articleNumber
+    ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
+    : ''
+
+  // Variables for prompt compilation
+  const variables = {
+    context: context || '',
+    documentCount,
+    webSearchInstruction,
+    metaQuerySection,
+    citationsSection,
+    articleContext,
+    comparativeTerms: comparativeTerms?.join(' e ') || '',
+    uniqueDocuments: uniqueDocumentNames.join(', ') || 'vari documenti',
+    avgSimilarity: avgSimilarity.toFixed(2),
+  }
+
+  try {
+    // Case 0: Meta query
+    if (isMetaQuery) {
+      return await compilePrompt(PROMPTS.SYSTEM_META_QUERY, variables, {
+        fallback: buildFallbackMetaPrompt(metaQuerySection),
+      })
+    }
+
+    // Case 1: Has context
+    if (hasContext && context) {
+      // Case 1a: Comparative query
+      if (comparativeTerms && comparativeTerms.length > 0) {
+        return await compilePrompt(PROMPTS.SYSTEM_RAG_COMPARATIVE, variables, {
+          fallback: buildFallbackComparativePrompt(
+            comparativeTerms,
+            uniqueDocumentNames,
+            context,
+            metaQuerySection,
+            webSearchInstruction,
+            citationsSection
+          ),
+        })
+      }
+
+      // Case 1b: Normal query with context
+      return await compilePrompt(PROMPTS.SYSTEM_RAG_WITH_CONTEXT, variables, {
+        fallback: buildFallbackWithContextPrompt(
+          context,
+          articleContext,
+          metaQuerySection,
+          webSearchInstruction,
+          citationsSection
+        ),
+      })
+    }
+
+    // Case 2: No context
     if (webSearchEnabled && sourcesInsufficient) {
-      return `\n\nIMPORTANTE - RICERCA WEB:
+      // Case 2a: No context + web search enabled
+      return await compilePrompt(PROMPTS.SYSTEM_RAG_NO_CONTEXT_WEB, variables, {
+        fallback: buildFallbackNoContextWebPrompt(metaQuerySection),
+      })
+    }
+
+    // Case 2b: No context + no web search
+    return await compilePrompt(PROMPTS.SYSTEM_RAG_NO_CONTEXT, variables, {
+      fallback: buildFallbackNoContextPrompt(metaQuerySection),
+    })
+  } catch (error) {
+    console.error('[system-prompt] Error building prompt from Langfuse:', error)
+    
+    // Ultimate fallback: use hard-coded prompts
+    return buildFallbackPrompt(options)
+  }
+}
+
+/**
+ * Synchronous version for backward compatibility
+ * NOTE: This will use fallback prompts since Langfuse fetching is async
+ * 
+ * @deprecated Use async buildSystemPrompt instead
+ */
+export function buildSystemPromptSync(options: SystemPromptOptions): string {
+  console.warn('[system-prompt] Using sync version - Langfuse prompts will not be used')
+  return buildFallbackPrompt(options)
+}
+
+// ============================================================================
+// Dynamic Section Builders (used as variables in Langfuse prompts)
+// ============================================================================
+
+function buildWebSearchInstruction(
+  webSearchEnabled: boolean,
+  sourcesInsufficient: boolean,
+  avgSimilarity: number
+): string {
+  if (webSearchEnabled && sourcesInsufficient) {
+    return `\n\nIMPORTANTE - RICERCA WEB:
 - Le fonti nella knowledge base non sono completamente sufficienti per rispondere a questa domanda (similarità media: ${avgSimilarity.toFixed(2)})
 - DEVI usare il tool web_search per cercare informazioni aggiuntive e aggiornate sul web
 - Dopo aver ottenuto i risultati della ricerca web, integra le informazioni nella tua risposta
@@ -67,13 +173,12 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 - NON usare altri formati come [web_search_...], [web_...] o altri identificatori
 - Usa [cit:N] per le fonti dalla knowledge base e [web:N] per le fonti web
 - Combina le informazioni dalla knowledge base con quelle trovate sul web per una risposta completa`
-    }
-    return ''
   }
+  return ''
+}
 
-  // Costruisci sezione query meta
-  const buildMetaQuerySection = (): string => {
-    return `
+function buildMetaQuerySection(): string {
+  return `
 QUERY META - INFORMAZIONI SUL DATABASE:
 - Se l'utente chiede informazioni sul DATABASE STESSO (non sul contenuto dei documenti), usa il tool meta_query
 - Esempi di query meta:
@@ -89,11 +194,10 @@ QUERY META - INFORMAZIONI SUL DATABASE:
 - Se la query chiede "che codici fornitori ci sono", elenca TUTTI i codici fornitori presenti, non solo alcuni
 - Formatta le risposte meta in modo chiaro e leggibile
 - Puoi combinare risultati meta con risultati RAG normali se la query lo richiede`
-  }
+}
 
-  // Costruisci sezione citazioni standard
-  const buildCitationsSection = (): string => {
-    return `
+function buildCitationsSection(documentCount: number): string {
+  return `
 CITAZIONI - REGOLE CRITICHE:
 - Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
 - Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
@@ -123,13 +227,74 @@ IMPORTANTE:
 - Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
 - Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
 - VERIFICA SEMPRE che il nome del file corrisponda al contenuto che stai citando`
+}
+
+// ============================================================================
+// Fallback Prompt Builders (used when Langfuse is unavailable)
+// ============================================================================
+
+function buildFallbackPrompt(options: SystemPromptOptions): string {
+  const {
+    hasContext,
+    context,
+    documentCount = 0,
+    uniqueDocumentNames = [],
+    comparativeTerms,
+    articleNumber,
+    webSearchEnabled = false,
+    sourcesInsufficient = false,
+    avgSimilarity = 0,
+    isMetaQuery = false,
+  } = options
+
+  const webSearchInstruction = buildWebSearchInstruction(
+    webSearchEnabled,
+    sourcesInsufficient,
+    avgSimilarity
+  )
+  const metaQuerySection = buildMetaQuerySection()
+  const citationsSection = buildCitationsSection(documentCount)
+
+  if (isMetaQuery) {
+    return buildFallbackMetaPrompt(metaQuerySection)
   }
 
-  // Caso 0: Meta query - usa tool meta_query per ottenere documenti dal database
-  if (isMetaQuery) {
-    return `Sei un assistente per un team di consulenza. L'utente ha fatto una query META sul database (chiede informazioni sul database stesso, non sul contenuto dei documenti).
+  if (hasContext && context) {
+    if (comparativeTerms && comparativeTerms.length > 0) {
+      return buildFallbackComparativePrompt(
+        comparativeTerms,
+        uniqueDocumentNames,
+        context,
+        metaQuerySection,
+        webSearchInstruction,
+        citationsSection
+      )
+    }
 
-${buildMetaQuerySection()}
+    const articleContext = articleNumber
+      ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
+      : ''
+
+    return buildFallbackWithContextPrompt(
+      context,
+      articleContext,
+      metaQuerySection,
+      webSearchInstruction,
+      citationsSection
+    )
+  }
+
+  if (webSearchEnabled && sourcesInsufficient) {
+    return buildFallbackNoContextWebPrompt(metaQuerySection)
+  }
+
+  return buildFallbackNoContextPrompt(metaQuerySection)
+}
+
+function buildFallbackMetaPrompt(metaQuerySection: string): string {
+  return `Sei un assistente per un team di consulenza. L'utente ha fatto una query META sul database (chiede informazioni sul database stesso, non sul contenuto dei documenti).
+
+${metaQuerySection}
 
 ISTRUZIONI IMPORTANTI:
 - DEVI usare il tool meta_query per ottenere i documenti dal database
@@ -148,23 +313,24 @@ Esempio formato corretto:
 ...
 
 Usa il tool meta_query ora per ottenere i documenti dal database.`
-  }
+}
 
-  // Caso 1: Ci sono documenti rilevanti
-  if (hasContext && context) {
-    const webSearchInstruction = buildWebSearchInstruction()
+function buildFallbackComparativePrompt(
+  comparativeTerms: string[],
+  uniqueDocumentNames: string[],
+  context: string,
+  metaQuerySection: string,
+  webSearchInstruction: string,
+  citationsSection: string
+): string {
+  const uniqueDocuments =
+    uniqueDocumentNames.length > 0 ? uniqueDocumentNames.join(', ') : 'vari documenti'
 
-    // Caso 1a: Query comparative con documenti
-    if (comparativeTerms && comparativeTerms.length > 0) {
-      const uniqueDocuments = uniqueDocumentNames.length > 0
-        ? uniqueDocumentNames.join(', ')
-        : 'vari documenti'
-      
-      return `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
+  return `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
 
 Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments}.
 
-Usa il seguente contesto dai documenti per rispondere.${buildMetaQuerySection()}${webSearchInstruction}${buildCitationsSection()}
+Usa il seguente contesto dai documenti per rispondere.${metaQuerySection}${webSearchInstruction}${citationsSection}
 
 IMPORTANTE: 
 - Confronta esplicitamente i concetti trovati in entrambe le normative
@@ -175,14 +341,16 @@ IMPORTANTE:
 
 Contesto dai documenti:
 ${context}`
-    }
+}
 
-    // Caso 1b: Query normale con documenti (con o senza articolo specifico)
-    const articleContext = articleNumber
-      ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
-      : ''
-
-    return `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${buildMetaQuerySection()}${webSearchInstruction}${buildCitationsSection()}
+function buildFallbackWithContextPrompt(
+  context: string,
+  articleContext: string,
+  metaQuerySection: string,
+  webSearchInstruction: string,
+  citationsSection: string
+): string {
+  return `Sei un assistente per un team di consulenza. Usa il seguente contesto dai documenti della knowledge base per rispondere.${articleContext}${metaQuerySection}${webSearchInstruction}${citationsSection}
 
 ISTRUZIONI IMPORTANTI:
 - DEVI usare il contesto fornito per rispondere alla domanda dell'utente
@@ -195,14 +363,12 @@ ISTRUZIONI IMPORTANTI:
 
 Contesto dai documenti:
 ${context}`
-  }
+}
 
-  // Caso 2: Nessun documento rilevante
-  if (webSearchEnabled && sourcesInsufficient) {
-    // Caso 2a: Nessun documento + web search abilitato
-    return `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
+function buildFallbackNoContextWebPrompt(metaQuerySection: string): string {
+  return `Sei un assistente per un team di consulenza. Non ci sono documenti rilevanti nella knowledge base per questa domanda.
 
-${buildMetaQuerySection()}
+${metaQuerySection}
 
 IMPORTANTE - RICERCA WEB:
 - Le fonti nella knowledge base non sono sufficienti per rispondere completamente a questa domanda
@@ -215,12 +381,12 @@ IMPORTANTE - RICERCA WEB:
 - Usa [web:N] per citare le fonti web trovate
 
 Rispondi in modo completo combinando le tue conoscenze generali con le informazioni trovate sul web.`
-  }
+}
 
-  // Caso 2b: Nessun documento + web search disabilitato
+function buildFallbackNoContextPrompt(metaQuerySection: string): string {
   return `Sei un assistente per un team di consulenza. 
 
-${buildMetaQuerySection()}
+${metaQuerySection}
 
 IMPORTANTE - SITUAZIONE ATTUALE:
 - Non ci sono documenti rilevanti nella knowledge base per questa domanda
@@ -236,4 +402,3 @@ ISTRUZIONI:
 
 Rispondi in modo breve e diretto, informando l'utente che non ci sono informazioni sufficienti nella knowledge base.`
 }
-

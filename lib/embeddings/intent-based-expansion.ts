@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import type { QueryAnalysisResult, QueryIntent } from './query-analysis'
+import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
 // TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
 // import { logLLMCall } from '@/lib/observability/langfuse'
 
@@ -185,32 +186,24 @@ async function expandWithLLM(
 ): Promise<string> {
   try {
     const intentContext = getIntentContext(intent)
-    
-    const prompt = `You are a semantic query expander for a consulting knowledge base.
+    const baseTermsSection = baseTerms.length > 0
+      ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}`
+      : ''
 
-Original query: "${query}"
-Intent: ${intent}
-${intentContext ? `Context: ${intentContext}` : ''}
-
-Expand this query by adding:
-1. Related terms and synonyms in both Italian and English
-2. Common acronym expansions (e.g., GDPR → General Data Protection Regulation)
-3. Relevant domain context for ${intent} queries
-4. Alternative phrasings
-${baseTerms.length > 0 ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}` : ''}
-
-Rules:
-- Keep expansion concise (max 30-40 words total)
-- Focus on terms that would appear in relevant documents
-- Do NOT add questions or complete sentences
-- Do NOT change the original intent
-- Combine original query + expansions naturally
-
-Example:
-Original: "GDPR"
-Expanded: "GDPR General Data Protection Regulation protezione dati personali privacy regolamento europeo privacy by design data subject rights"
-
-Now expand the query. Respond with ONLY the expanded query text, nothing else.`
+    // Fetch prompt from Langfuse with fallback
+    const prompt = await compilePrompt(
+      PROMPTS.QUERY_EXPANSION,
+      {
+        query,
+        intent,
+        intentContext: intentContext ? `Context: ${intentContext}` : '',
+        baseTermsSection,
+      },
+      {
+        // Fallback to hard-coded prompt if Langfuse fails
+        fallback: buildFallbackExpansionPrompt(query, intent, intentContext, baseTerms),
+      }
+    )
 
     const response = await openrouter.chat.completions.create({
       model: EXPANSION_MODEL,
@@ -335,5 +328,41 @@ function getIntentContext(intent: QueryIntent): string | null {
 export function registerExpansionStrategy(strategy: ExpansionStrategy): void {
   EXPANSION_STRATEGIES.set(strategy.intent, strategy)
   console.log('[intent-based-expansion] Registered strategy for intent:', strategy.intent)
+}
+
+/**
+ * Builds fallback expansion prompt (used when Langfuse is unavailable)
+ */
+function buildFallbackExpansionPrompt(
+  query: string,
+  intent: QueryIntent,
+  intentContext: string | null,
+  baseTerms: string[]
+): string {
+  return `You are a semantic query expander for a consulting knowledge base.
+
+Original query: "${query}"
+Intent: ${intent}
+${intentContext ? `Context: ${intentContext}` : ''}
+
+Expand this query by adding:
+1. Related terms and synonyms in both Italian and English
+2. Common acronym expansions (e.g., GDPR → General Data Protection Regulation)
+3. Relevant domain context for ${intent} queries
+4. Alternative phrasings
+${baseTerms.length > 0 ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}` : ''}
+
+Rules:
+- Keep expansion concise (max 30-40 words total)
+- Focus on terms that would appear in relevant documents
+- Do NOT add questions or complete sentences
+- Do NOT change the original intent
+- Combine original query + expansions naturally
+
+Example:
+Original: "GDPR"
+Expanded: "GDPR General Data Protection Regulation protezione dati personali privacy regolamento europeo privacy by design data subject rights"
+
+Now expand the query. Respond with ONLY the expanded query text, nothing else.`
 }
 
