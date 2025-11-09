@@ -10,33 +10,85 @@ import type { SearchResult } from './database.types'
 
 /**
  * Estrae possibili nomi di file dalla query
+ * Strategia migliorata: estrae termini chiave generici invece di solo acronimi hardcoded
+ * 
  * Es: "spiegami la CSRD" -> ["CSRD"]
  *     "GDPR e ESPR" -> ["GDPR", "ESPR"]
+ *     "regolamento 2016/679" -> ["2016", "679", "regolamento"]
+ *     "Corporate Sustainability Reporting Directive" -> ["Corporate", "Sustainability", "Reporting", "Directive"]
  */
 export function extractPossibleFilenames(query: string): string[] {
   const filenames: string[] = []
+  const seen = new Set<string>()
   
-  // Pattern per acronimi comuni (2-10 lettere maiuscole)
+  // 1. Pattern per acronimi (2-10 lettere maiuscole consecutive)
   const acronymPattern = /\b([A-Z]{2,10})\b/g
-  const matches = query.matchAll(acronymPattern)
+  const acronymMatches = query.matchAll(acronymPattern)
   
-  for (const match of matches) {
+  const commonWords = new Set([
+    'IL', 'LA', 'LO', 'LE', 'DI', 'DA', 'IN', 'SU', 'PER', 'CON', 'DEL', 'DELLA', 'DELLE', 'DELLO',
+    'CHE', 'CHI', 'COSA', 'COME', 'QUANDO', 'DOVE', 'PERCHÉ', 'PERCHE',
+    'THE', 'AND', 'OR', 'BUT', 'FOR', 'WITH', 'FROM', 'TO', 'OF', 'IN', 'ON', 'AT', 'BY'
+  ])
+  
+  for (const match of acronymMatches) {
     const acronym = match[1]
-    // Escludi parole comuni che non sono acronimi
-    const commonWords = ['IL', 'LA', 'LO', 'LE', 'DI', 'DA', 'IN', 'SU', 'PER', 'CON', 'DEL', 'DELLA', 'DELLE', 'DELLO']
-    if (!commonWords.includes(acronym)) {
+    if (!commonWords.has(acronym) && !seen.has(acronym)) {
       filenames.push(acronym)
+      seen.add(acronym)
     }
   }
   
-  // Pattern per nomi di normative comuni (es: "GDPR", "CSRD", "ESPR")
-  const regulationPattern = /\b(GDPR|CSRD|ESPR|ESRS|NFRD|SFDR|EU|UE)\b/gi
-  const regulationMatches = query.matchAll(regulationPattern)
+  // 2. Pattern per numeri di regolamento/direttiva (es: "2016/679", "2013/34")
+  const regulationNumberPattern = /\b(\d{4})\/\d+\b/g
+  const numberMatches = query.matchAll(regulationNumberPattern)
+  for (const match of numberMatches) {
+    const year = match[1]
+    if (!seen.has(year)) {
+      filenames.push(year)
+      seen.add(year)
+    }
+  }
   
-  for (const match of regulationMatches) {
-    const regulation = match[1].toUpperCase()
-    if (!filenames.includes(regulation)) {
-      filenames.push(regulation)
+  // 3. Estrai termini chiave importanti (nomi propri, termini tecnici)
+  // Rimuovi stop words e estrai parole significative
+  const stopWords = new Set([
+    'il', 'la', 'lo', 'le', 'gli', 'i', 'un', 'una', 'uno', 'di', 'da', 'in', 'su', 'per', 'con', 'del', 'della', 'delle', 'dello',
+    'che', 'chi', 'cosa', 'come', 'quando', 'dove', 'perché', 'perche',
+    'the', 'a', 'an', 'and', 'or', 'but', 'for', 'with', 'from', 'to', 'of', 'in', 'on', 'at', 'by',
+    'spiegami', 'spiega', 'descrivimi', 'raccontami', 'parlami', 'dimmi', 'mostrami',
+    'explain', 'describe', 'tell', 'show', 'what', 'is', 'are', 'was', 'were'
+  ])
+  
+  // Estrai parole con iniziale maiuscola (nomi propri, termini tecnici)
+  const capitalizedWordsPattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/g
+  const capitalizedMatches = query.matchAll(capitalizedWordsPattern)
+  
+  for (const match of capitalizedMatches) {
+    const phrase = match[1]
+    // Dividi in parole singole
+    const words = phrase.split(/\s+/)
+    for (const word of words) {
+      const lowerWord = word.toLowerCase()
+      if (!stopWords.has(lowerWord) && word.length >= 3 && !seen.has(word)) {
+        filenames.push(word)
+        seen.add(word)
+      }
+    }
+  }
+  
+  // 4. Estrai anche termini tecnici comuni (anche se minuscoli ma significativi)
+  const technicalTerms = [
+    'regolamento', 'direttiva', 'normativa', 'legge', 'decreto',
+    'regulation', 'directive', 'regulation', 'law', 'decree',
+    'gdpr', 'csrd', 'espr', 'esrs', 'nfrd', 'sfdr'
+  ]
+  
+  const lowerQuery = query.toLowerCase()
+  for (const term of technicalTerms) {
+    if (lowerQuery.includes(term) && !seen.has(term.toUpperCase())) {
+      filenames.push(term.toUpperCase())
+      seen.add(term.toUpperCase())
     }
   }
   

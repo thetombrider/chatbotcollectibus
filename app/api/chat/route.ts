@@ -459,11 +459,37 @@ export async function POST(req: NextRequest) {
               searchResults = await hybridSearch(queryEmbedding, queryToEmbed, 10, 0.3, 0.7, articleNumber)
             }
             
-            // Fallback: cerca anche per nome file se la query contiene acronimi/nomi di normative
+            // Strategia 1+2: Cerca sempre per nome file se ci sono termini chiave,
+            // ma con priorità quando similarità vettoriale è bassa (< 0.5)
+            const avgSimilarity = searchResults.length > 0
+              ? searchResults.reduce((sum: number, r: SearchResult) => sum + r.similarity, 0) / searchResults.length
+              : 0
+            
             const possibleFilenames = extractPossibleFilenames(queryToEmbed)
-            if (possibleFilenames.length > 0) {
-              console.log('[api/chat] Possible filenames detected:', possibleFilenames)
-              const filenameResults = await searchByFilename(possibleFilenames, 10)
+            let filenameResults: SearchResult[] = []
+            
+            // Cerca per nome file se:
+            // 1. Ci sono termini chiave estratti dalla query, OPPURE
+            // 2. Similarità vettoriale è bassa (< 0.5) - fallback
+            const shouldSearchByFilename = possibleFilenames.length > 0 || avgSimilarity < 0.5
+            
+            if (shouldSearchByFilename) {
+              let searchTerms = possibleFilenames
+              
+              if (possibleFilenames.length > 0) {
+                console.log('[api/chat] Possible filenames detected:', possibleFilenames)
+              } else {
+                console.log('[api/chat] Low vector similarity detected (avg:', avgSimilarity.toFixed(3), '), using filename search as fallback')
+                // Se non ci sono termini chiave ma similarità è bassa, estrai termini dalla query originale
+                const queryTerms = queryToEmbed
+                  .toLowerCase()
+                  .split(/\s+/)
+                  .filter(term => term.length >= 3)
+                  .slice(0, 5) // Prendi i primi 5 termini significativi
+                searchTerms = queryTerms
+              }
+              
+              filenameResults = await searchByFilename(searchTerms, 10)
               console.log('[api/chat] Filename search results:', filenameResults.length)
               
               if (filenameResults.length > 0) {
@@ -472,6 +498,7 @@ export async function POST(req: NextRequest) {
                   vector: searchResults.length - filenameResults.length,
                   filename: filenameResults.length,
                   combined: searchResults.length,
+                  avgSimilarity: avgSimilarity.toFixed(3),
                 })
               }
             }

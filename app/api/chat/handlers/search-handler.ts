@@ -99,12 +99,35 @@ export async function performSearch(
     vectorResults = await hybridSearch(queryEmbedding, query, 10, 0.3, 0.7, articleNumber)
   }
 
-  // Fallback: cerca anche per nome file se la query contiene acronimi/nomi di normative
+  // Calcola similarità media per decidere se usare fallback
+  const avgSimilarity = vectorResults.length > 0
+    ? vectorResults.reduce((sum, r) => sum + r.similarity, 0) / vectorResults.length
+    : 0
+  
+  // Strategia 1+2: Cerca sempre per nome file se ci sono termini chiave,
+  // ma con priorità quando similarità vettoriale è bassa (< 0.5)
   const possibleFilenames = extractPossibleFilenames(query)
   let filenameResults: SearchResult[] = []
   
-  if (possibleFilenames.length > 0) {
-    console.log('[search-handler] Possible filenames detected:', possibleFilenames)
+  // Cerca per nome file se:
+  // 1. Ci sono termini chiave estratti dalla query, OPPURE
+  // 2. Similarità vettoriale è bassa (< 0.5) - fallback
+  const shouldSearchByFilename = possibleFilenames.length > 0 || avgSimilarity < 0.5
+  
+  if (shouldSearchByFilename) {
+    if (possibleFilenames.length > 0) {
+      console.log('[search-handler] Possible filenames detected:', possibleFilenames)
+    } else {
+      console.log('[search-handler] Low vector similarity detected (avg:', avgSimilarity.toFixed(3), '), using filename search as fallback')
+      // Se non ci sono termini chiave ma similarità è bassa, estrai termini dalla query originale
+      const queryTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(term => term.length >= 3)
+        .slice(0, 5) // Prendi i primi 5 termini significativi
+      possibleFilenames.push(...queryTerms)
+    }
+    
     filenameResults = await searchByFilename(possibleFilenames, 10)
     console.log('[search-handler] Filename search results:', filenameResults.length)
   }
@@ -116,6 +139,7 @@ export async function performSearch(
       vector: vectorResults.length,
       filename: filenameResults.length,
       combined: combined.length,
+      avgSimilarity: avgSimilarity.toFixed(3),
     })
     return combined
   }
