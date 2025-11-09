@@ -80,6 +80,7 @@ export function createChatTrace(
     const trace = client.trace({
       name: 'chat-request',
       userId: conversationId,
+      input: { message }, // Aggiungi input al trace
       metadata: {
         message: message.substring(0, 200), // Limita lunghezza per metadata
         ...metadata,
@@ -220,7 +221,8 @@ export function logEmbeddingCall(
   try {
     // Normalizza input/output
     const normalizedInput = Array.isArray(input) ? input : [input]
-    // Normalizza output: se è array di array, usa così; altrimenti wrappa in array
+    // Per gli embeddings, non inviare l'array completo (troppo grande)
+    // Invia solo metadata sull'output invece dell'array completo
     const normalizedOutput: number[][] = Array.isArray(output) && Array.isArray(output[0])
       ? output as number[][]
       : [output as number[]]
@@ -232,8 +234,15 @@ export function logEmbeddingCall(
       modelParameters: {
         provider: 'openai',
       },
-      input: normalizedInput,
-      output: normalizedOutput,
+      input: normalizedInput, // Input testo è OK
+      // Per output, invia solo metadata invece dell'array completo (troppo grande per Langfuse)
+      output: {
+        type: 'embedding',
+        count: normalizedOutput.length,
+        dimensions: normalizedOutput[0]?.length || 1536,
+        // Includi solo il primo embedding come esempio (opzionale)
+        sample: normalizedOutput[0]?.slice(0, 10), // Primi 10 valori come esempio
+      },
       usage: usage ? {
         promptTokens: usage.tokens,
         totalTokens: usage.tokens,
@@ -277,6 +286,80 @@ export function finalizeTrace(
     })
   } catch (error) {
     console.error('[langfuse] Failed to finalize trace:', error)
+  }
+}
+
+/**
+ * Crea uno span per uno step del processo
+ * 
+ * @param traceId - ID del trace padre
+ * @param name - Nome dello span
+ * @param input - Input dello step (opzionale)
+ * @param output - Output dello step (opzionale)
+ * @param metadata - Metadata aggiuntiva
+ * @returns Span ID o null se Langfuse non è configurato
+ */
+export function createStepSpan(
+  traceId: string | null,
+  name: string,
+  input?: unknown,
+  output?: unknown,
+  metadata?: Record<string, unknown>
+): string | null {
+  if (!traceId) {
+    return null
+  }
+
+  const client = getLangfuseClient()
+  if (!client) {
+    return null
+  }
+
+  try {
+    const span = client.span({
+      traceId,
+      name,
+      input: input ? (typeof input === 'string' ? input : JSON.stringify(input)) : undefined,
+      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      metadata,
+    })
+
+    return span.id
+  } catch (error) {
+    console.error('[langfuse] Failed to create step span:', error)
+    return null
+  }
+}
+
+/**
+ * Finalizza uno span
+ * 
+ * @param spanId - ID dello span da finalizzare
+ * @param output - Output finale (opzionale)
+ * @param metadata - Metadata aggiuntiva
+ */
+export function finalizeSpan(
+  spanId: string | null,
+  output?: unknown,
+  metadata?: Record<string, unknown>
+): void {
+  if (!spanId) {
+    return
+  }
+
+  const client = getLangfuseClient()
+  if (!client) {
+    return
+  }
+
+  try {
+    client.span({
+      id: spanId,
+      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      metadata,
+    })
+  } catch (error) {
+    console.error('[langfuse] Failed to finalize span:', error)
   }
 }
 

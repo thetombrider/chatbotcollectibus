@@ -18,7 +18,7 @@ import { generateResponse, processResponse, type ResponseContext } from './handl
 import { buildContext, filterRelevantResults, calculateAverageSimilarity } from './services/context-builder'
 import { createKBSources, createWebSources, createMetaSources, combineSources } from './services/source-service'
 import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
-import { createChatTrace, finalizeTrace } from '@/lib/observability/langfuse'
+import { createChatTrace, finalizeTrace, createStepSpan, finalizeSpan } from '@/lib/observability/langfuse'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 
@@ -51,18 +51,35 @@ async function handleChatRequest(
 
   // STEP 3: Analisi query
   streamController.sendStatus('Analisi della query...')
+  const analysisSpanId = createStepSpan(traceId, 'query-analysis', { message })
   const analysis = await analyzeQuery(message)
+  finalizeSpan(analysisSpanId, {
+    intent: analysis.intent,
+    isMeta: analysis.isMeta,
+    isComparative: analysis.isComparative,
+    articleNumber: analysis.articleNumber,
+  })
 
   // STEP 4: Enhancement query
   streamController.sendStatus('Miglioramento query...')
+  const enhancementSpanId = createStepSpan(traceId, 'query-enhancement', { 
+    original: message, 
+    analysis 
+  })
   const enhancement = await enhanceQueryIfNeeded(message, analysis)
   const queryToEmbed = enhancement.enhanced
   const articleNumber = analysis.articleNumber || enhancement.articleNumber
+  finalizeSpan(enhancementSpanId, {
+    enhanced: queryToEmbed,
+    shouldEnhance: enhancement.shouldEnhance,
+  })
 
   // STEP 5: Check cache
   streamController.sendStatus('Verifica cache...')
-  const queryEmbedding = await generateEmbedding(queryToEmbed)
+  const cacheSpanId = createStepSpan(traceId, 'cache-lookup', { query: queryToEmbed })
+  const queryEmbedding = await generateEmbedding(queryToEmbed, 'text-embedding-3-large', traceId)
   const cached = await lookupCache(queryToEmbed, queryEmbedding, skipCache)
+  finalizeSpan(cacheSpanId, { cached: cached.cached })
 
   if (cached.cached && cached.response && cached.sources) {
     // Cache hit: invia risposta cached
@@ -112,7 +129,12 @@ async function handleChatRequest(
       streamController.sendStatus('Ricerca documenti nella knowledge base...')
     }
 
-    searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber)
+    const searchSpanId = createStepSpan(traceId, 'vector-search', { 
+      query: queryToEmbed,
+      isComparative: analysis.isComparative,
+      comparativeTerms: analysis.comparativeTerms,
+    })
+    searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber, traceId)
     
     // Filtra risultati rilevanti
     // Threshold più basso per includere più risultati (0.35 invece di 0.40)
@@ -136,6 +158,13 @@ async function handleChatRequest(
     
     // Crea sources KB
     kbSources = createKBSources(relevantResults)
+    
+    finalizeSpan(searchSpanId, {
+      totalResults: searchResults.length,
+      relevantResults: relevantResults.length,
+      avgSimilarity: avgSimilarity.toFixed(3),
+      threshold: RELEVANCE_THRESHOLD,
+    })
   } else {
     // Query meta: salta ricerca vettoriale
     streamController.sendStatus('Recupero documenti dal database...')
@@ -158,7 +187,17 @@ async function handleChatRequest(
     articleNumber,
   }
 
+  const responseSpanId = createStepSpan(traceId, 'response-generation', {
+    query: queryToEmbed,
+    contextLength: context?.length || 0,
+    sourcesCount: kbSources.length,
+    searchResultsCount: searchResults.length,
+  })
   const fullResponse = await generateResponse(responseContext, streamController)
+  finalizeSpan(responseSpanId, {
+    responseLength: fullResponse?.length || 0,
+    truncated: fullResponse?.substring(0, 200) || '',
+  })
 
   // STEP 8: Valida risposta non vuota
   if (!fullResponse || fullResponse.trim().length === 0) {
@@ -189,7 +228,17 @@ async function handleChatRequest(
     index: doc.index,
   }))
 
+  const processingSpanId = createStepSpan(traceId, 'response-processing', {
+    responseLength: fullResponse?.length || 0,
+    webResultsCount: webSearchResults.length,
+    metaDocumentsCount: metaQueryDocuments.length,
+  })
   const processed = await processResponse(fullResponse, responseContext)
+  finalizeSpan(processingSpanId, {
+    processedLength: processed.content?.length || 0,
+    sourcesCount: processed.sources?.length || 0,
+    webSourcesCount: processed.webSources?.length || 0,
+  })
 
   // STEP 10: Combina sources
   const allSources = combineSources(processed.sources, processed.webSources)

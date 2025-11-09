@@ -17,7 +17,8 @@ export async function performMultiQuerySearch(
   terms: string[],
   originalQuery: string,
   originalEmbedding: number[],
-  articleNumber?: number
+  articleNumber?: number,
+  traceId?: string | null
 ): Promise<SearchResult[]> {
   console.log('[search-handler] Performing multi-query search for terms:', terms)
   
@@ -25,7 +26,7 @@ export async function performMultiQuerySearch(
   const searchPromises = terms.map(async (term) => {
     try {
       const targetedQuery = term
-      const targetedEmbedding = await generateEmbedding(targetedQuery)
+      const targetedEmbedding = await generateEmbedding(targetedQuery, 'text-embedding-3-large', traceId)
       
       // Ricerca con threshold più alto per risultati più rilevanti
       const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7, articleNumber)
@@ -85,7 +86,8 @@ export async function performSearch(
   query: string,
   queryEmbedding: number[],
   analysis: QueryAnalysisResult,
-  articleNumber?: number
+  articleNumber?: number,
+  traceId?: string | null
 ): Promise<SearchResult[]> {
   const { isComparative, comparativeTerms } = analysis
 
@@ -93,7 +95,7 @@ export async function performSearch(
   
   if (isComparative && comparativeTerms && comparativeTerms.length >= 2) {
     // Query comparativa: usa strategia multi-query
-    vectorResults = await performMultiQuerySearch(comparativeTerms, query, queryEmbedding, articleNumber)
+    vectorResults = await performMultiQuerySearch(comparativeTerms, query, queryEmbedding, articleNumber, traceId)
   } else {
     // Query standard: hybrid search normale
     vectorResults = await hybridSearch(queryEmbedding, query, 10, 0.3, 0.7, articleNumber)

@@ -14,6 +14,7 @@ const openai = new OpenAI({
  * 
  * @param text - Testo da convertire in embedding
  * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
+ * @param traceId - ID del trace Langfuse per collegare la chiamata (opzionale)
  * @returns Array numerico rappresentante l'embedding
  * 
  * @example
@@ -21,7 +22,8 @@ const openai = new OpenAI({
  */
 export async function generateEmbedding(
   text: string,
-  model: string = 'text-embedding-3-large'
+  model: string = 'text-embedding-3-large',
+  traceId?: string | null
 ): Promise<number[]> {
   try {
     // Normalizza testo prima di generare embedding
@@ -45,7 +47,7 @@ export async function generateEmbedding(
     // Log embedding call to Langfuse
     const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
     logEmbeddingCall(
-      null, // traceId (standalone per embedding singolo)
+      traceId || null, // traceId (collega al trace principale se disponibile)
       model,
       normalizedText,
       embedding,
@@ -95,6 +97,7 @@ export async function generateEmbedding(
  * 
  * @param texts - Array di testi da convertire in embeddings
  * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
+ * @param traceId - ID del trace Langfuse per collegare la chiamata (opzionale)
  * @returns Array di arrays numerici rappresentanti gli embeddings
  * 
  * @example
@@ -105,7 +108,8 @@ export async function generateEmbedding(
  */
 export async function generateEmbeddings(
   texts: string[],
-  model: string = 'text-embedding-3-large'
+  model: string = 'text-embedding-3-large',
+  traceId?: string | null
 ): Promise<number[][]> {
   try {
     // Normalizza tutti i testi prima di generare embeddings
@@ -131,7 +135,7 @@ export async function generateEmbeddings(
     // Log embedding call to Langfuse
     const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
     logEmbeddingCall(
-      null, // traceId (standalone per batch embedding)
+      traceId || null, // traceId (collega al trace principale se disponibile)
       model,
       normalizedTexts,
       embeddings,
