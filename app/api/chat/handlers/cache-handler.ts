@@ -5,7 +5,6 @@
  */
 
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
-import { generateEmbedding } from '@/lib/embeddings/openai'
 import type { Source } from '@/lib/services/citation-service'
 import { processCitations } from '@/lib/services/citation-service'
 

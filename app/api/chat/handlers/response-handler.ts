@@ -8,8 +8,7 @@ import { ragAgent } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
-import { buildContext, extractUniqueDocumentNames, calculateAverageSimilarity, filterRelevantResults } from '../services/context-builder'
-import { createKBSources } from '../services/source-service'
+import { extractUniqueDocumentNames, calculateAverageSimilarity } from '../services/context-builder'
 import { 
   normalizeWebCitations, 
   processCitations, 
