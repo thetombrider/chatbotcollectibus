@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { findCachedQueryAnalysis, saveCachedQueryAnalysis } from '@/lib/supabase/query-analysis-cache'
-import { logLLMCall } from '@/lib/observability/langfuse'
+// TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
+// import { logLLMCall } from '@/lib/observability/langfuse'
 
 /**
  * Unified Query Analysis Module
@@ -240,14 +241,16 @@ Rispondi SOLO in JSON valido, senza altro testo:
       totalTokens: response.usage.total_tokens,
     } : undefined
     
-    logLLMCall(
-      'query-analysis', // traceId (standalone per query analysis)
-      ANALYSIS_MODEL,
-      { query, prompt },
-      content,
-      usage,
-      { operation: 'query-analysis', queryLength: query.length }
-    )
+    // TODO: Re-implement with new Langfuse patterns (createGeneration, etc.)
+    // logLLMCall(
+    //   'query-analysis', // traceId (standalone per query analysis)
+    //   ANALYSIS_MODEL,
+    //   { query, prompt },
+    //   content,
+    //   usage,
+    //   { operation: 'query-analysis', queryLength: query.length }
+    // )
+    
     if (!content) {
       console.warn('[query-analysis] Empty LLM response')
       return getDefaultResult(query, articleNumberRegex)

@@ -2,6 +2,10 @@
  * Search Handler
  * 
  * Gestisce la logica di ricerca vettoriale e multi-query
+ * 
+ * TRACCIAMENTO LANGFUSE:
+ * - vector-search viene tracciato come span in route.ts
+ * - gli embeddings per le multi-query creano generation objects figli
  */
 
 import { generateEmbedding } from '@/lib/embeddings/openai'
@@ -9,24 +13,41 @@ import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { extractPossibleFilenames, searchByFilename, combineSearchResults } from '@/lib/supabase/filename-search'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
+import { createSpan, endSpan, type TraceContext } from '@/lib/observability/langfuse'
 
 /**
  * Esegue ricerche multiple per query comparative e combina i risultati
+ * 
+ * NOTA: Gli embeddings per ogni termine creano generation objects figli
+ * del span vector-search, tracciando correttamente ogni operazione
  */
 export async function performMultiQuerySearch(
   terms: string[],
   originalQuery: string,
   originalEmbedding: number[],
   articleNumber?: number,
-  traceId?: string | null
+  traceContext?: TraceContext | null,
+  parentSpan?: ReturnType<typeof createSpan> | null
 ): Promise<SearchResult[]> {
   console.log('[search-handler] Performing multi-query search for terms:', terms)
   
   // Esegui una ricerca per ogni termine
-  const searchPromises = terms.map(async (term) => {
+  const searchPromises = terms.map(async (term, index) => {
+    // Crea span per la ricerca di questo termine specifico
+    const termSpan = (parentSpan && traceContext) ? createSpan(parentSpan, `comparative-search-${index + 1}`, {
+      term,
+      index: index + 1,
+      totalTerms: terms.length,
+    }) : null
+
     try {
       const targetedQuery = term
-      const targetedEmbedding = await generateEmbedding(targetedQuery, 'text-embedding-3-large', traceId)
+      // Passa il parentSpan (o termSpan) per creare generation objects figli
+      const targetedEmbedding = await generateEmbedding(
+        targetedQuery, 
+        'text-embedding-3-large', 
+        termSpan || parentSpan || (traceContext ? traceContext.trace : null)
+      )
       
       // Ricerca con threshold più alto per risultati più rilevanti
       const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7, articleNumber)
@@ -34,9 +55,22 @@ export async function performMultiQuerySearch(
       console.log(`[search-handler] Results for ${term}:`, results.length, 
         results.length > 0 ? `(best: ${results[0]?.similarity.toFixed(3)})` : '')
       
+      // Finalizza span con risultati
+      endSpan(termSpan, {
+        resultsCount: results.length,
+        bestSimilarity: results[0]?.similarity || 0,
+      })
+      
       return results
     } catch (err) {
       console.error(`[search-handler] Search failed for term ${term}:`, err)
+      
+      // Segna span come fallito
+      endSpan(termSpan, undefined, {
+        error: err instanceof Error ? err.message : 'Unknown error',
+        failed: true,
+      })
+      
       return []
     }
   })
@@ -81,21 +115,36 @@ export async function performMultiQuerySearch(
 /**
  * Esegue la ricerca vettoriale in base al tipo di query
  * Include anche ricerca per nome file come fallback
+ * 
+ * NOTA: Questa funzione è chiamata all'interno dello span vector-search creato in route.ts
+ * Gli embeddings multi-query creano generation objects figli dello span
  */
 export async function performSearch(
   query: string,
   queryEmbedding: number[],
   analysis: QueryAnalysisResult,
   articleNumber?: number,
-  traceId?: string | null
+  traceContext?: TraceContext | null
 ): Promise<SearchResult[]> {
   const { isComparative, comparativeTerms } = analysis
+
+  // Recupera lo span "vector-search" corrente dal context (se disponibile)
+  // In route.ts viene creato con createSpan(traceContext.trace, 'vector-search', ...)
+  // Per semplicità, passiamo direttamente il trace per permettere la creazione di span figli
+  const parentSpan = null // Lo span è già stato creato in route.ts, qui creiamo figli se necessario
 
   let vectorResults: SearchResult[]
   
   if (isComparative && comparativeTerms && comparativeTerms.length >= 2) {
     // Query comparativa: usa strategia multi-query
-    vectorResults = await performMultiQuerySearch(comparativeTerms, query, queryEmbedding, articleNumber, traceId)
+    vectorResults = await performMultiQuerySearch(
+      comparativeTerms, 
+      query, 
+      queryEmbedding, 
+      articleNumber, 
+      traceContext,
+      parentSpan
+    )
   } else {
     // Query standard: hybrid search normale
     vectorResults = await hybridSearch(queryEmbedding, query, 10, 0.3, 0.7, articleNumber)

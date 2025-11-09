@@ -91,11 +91,11 @@ async function webSearchTool({ query }: { query: string }) {
   }
 
   const context = getAgentContext()
-  const traceId = context?.traceId || null
+  // const traceId = context?.traceId || null
 
-  // Crea span per tool call
-  const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
-  const toolSpanId = createToolSpan(traceId, 'web_search', { query })
+  // TODO: Re-implement with new Langfuse patterns (createSpan, etc.)
+  // const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
+  // const toolSpanId = createToolSpan(traceId, 'web_search', { query })
 
   try {
     // Usa Tavily per la ricerca web
@@ -127,23 +127,23 @@ async function webSearchTool({ query }: { query: string }) {
       citationFormat: 'IMPORTANTE: Cita questi risultati usando il formato [web:N] dove N è l\'indice numerico (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, ecc. NON usare il contextKey o altri identificatori.',
     }
 
-    // Finalizza span con output
-    finalizeSpan(toolSpanId, {
-      resultsCount: formattedResults.length,
-      query: results.query,
-    }, {
-      toolName: 'web_search',
-    })
+    // TODO: Re-implement span finalization
+    // finalizeSpan(toolSpanId, {
+    //   resultsCount: formattedResults.length,
+    //   query: results.query,
+    // }, {
+    //   toolName: 'web_search',
+    // })
 
     return toolOutput
   } catch (error) {
     console.error('[mastra/agent] Web search failed:', error)
     
-    // Finalizza span con errore
-    finalizeSpan(toolSpanId, undefined, {
-      toolName: 'web_search',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    })
+    // TODO: Re-implement span finalization
+    // finalizeSpan(toolSpanId, undefined, {
+    //   toolName: 'web_search',
+    //   error: error instanceof Error ? error.message : 'Unknown error',
+    // })
     
     throw new Error(`Web search failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
@@ -156,11 +156,11 @@ async function metaQueryTool({ query }: { query: string }) {
   }
 
   const context = getAgentContext()
-  const traceId = context?.traceId || null
+  // const traceId = context?.traceId || null
 
-  // Crea span per tool call
-  const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
-  const toolSpanId = createToolSpan(traceId, 'meta_query', { query })
+  // TODO: Re-implement with new Langfuse patterns (createSpan, etc.)
+  // const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
+  // const toolSpanId = createToolSpan(traceId, 'meta_query', { query })
 
   try {
     const { analyzeQuery } = await import('@/lib/embeddings/query-analysis')
@@ -305,23 +305,23 @@ async function metaQueryTool({ query }: { query: string }) {
       }
     }
 
-    // Finalizza span con output
-    finalizeSpan(toolSpanId, {
-      metaType: (toolOutput as { metaType?: string })?.metaType,
-      isMeta: (toolOutput as { isMeta?: boolean })?.isMeta,
-    }, {
-      toolName: 'meta_query',
-    })
+    // TODO: Re-implement span finalization
+    // finalizeSpan(toolSpanId, {
+    //   metaType: (toolOutput as { metaType?: string })?.metaType,
+    //   isMeta: (toolOutput as { isMeta?: boolean })?.isMeta,
+    // }, {
+    //   toolName: 'meta_query',
+    // })
 
     return toolOutput
   } catch (error) {
     console.error('[mastra/agent] Meta query failed:', error)
     
-    // Finalizza span con errore
-    finalizeSpan(toolSpanId, undefined, {
-      toolName: 'meta_query',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    })
+    // TODO: Re-implement span finalization
+    // finalizeSpan(toolSpanId, undefined, {
+    //   toolName: 'meta_query',
+    //   error: error instanceof Error ? error.message : 'Unknown error',
+    // })
     
     throw new Error(`Meta query failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }

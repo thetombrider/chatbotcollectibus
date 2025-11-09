@@ -5,9 +5,20 @@
  * - Tracing delle chiamate LLM
  * - Metriche (token, costi, latency)
  * - Dashboard per monitoring
+ * 
+ * BEST PRACTICES (da documentazione ufficiale):
+ * - Usare propagateAttributes() per userId, sessionId, metadata, version, tags
+ * - Tutti gli span devono essere collegati al trace padre
+ * - Tracciare input e output per ogni operazione
+ * - Usare generation objects per LLM calls ed embeddings
  */
 
 import { Langfuse } from 'langfuse'
+import type { 
+  LangfuseSpanClient,
+  LangfuseGenerationClient,
+  LangfuseTraceClient 
+} from 'langfuse'
 
 // Singleton Langfuse client
 let langfuseClient: Langfuse | null = null
@@ -51,7 +62,7 @@ export function initLangfuse(): Langfuse | null {
 /**
  * Ottiene il client Langfuse (inizializza se necessario)
  */
-function getLangfuseClient(): Langfuse | null {
+export function getLangfuseClient(): Langfuse | null {
   if (!langfuseClient) {
     return initLangfuse()
   }
@@ -59,38 +70,74 @@ function getLangfuseClient(): Langfuse | null {
 }
 
 /**
- * Crea un trace per una richiesta chat
+ * Flush dei dati pending (importante in ambienti serverless)
+ */
+export async function flushLangfuse(): Promise<void> {
+  const client = getLangfuseClient()
+  if (client) {
+    try {
+      await client.flushAsync()
+    } catch (error) {
+      console.error('[langfuse] Failed to flush:', error)
+    }
+  }
+}
+
+/**
+ * Interfaccia per il contesto del trace
+ */
+export interface TraceContext {
+  traceId: string
+  trace: LangfuseTraceClient
+  userId: string | null
+  sessionId: string
+}
+
+/**
+ * Crea un trace per una richiesta chat con propagazione automatica degli attributi
  * 
- * @param chatId - ID della conversazione (chatId)
+ * IMPORTANTE: Questa funzione restituisce un TraceContext che include il trace object.
+ * Usa il trace object per creare span figli con trace.span() o generation con trace.generation()
+ * 
+ * @param chatId - ID della conversazione (usato come sessionId)
  * @param userId - ID dell'utente (opzionale)
- * @param message - Messaggio utente
+ * @param message - Messaggio utente (input del trace)
  * @param metadata - Metadata aggiuntiva
- * @returns Trace ID o null se Langfuse non è configurato
+ * @returns TraceContext o null se Langfuse non è configurato
  */
 export function createChatTrace(
   chatId: string,
   userId: string | null,
   message: string,
   metadata?: Record<string, unknown>
-): string | null {
+): TraceContext | null {
   const client = getLangfuseClient()
   if (!client) {
     return null
   }
 
   try {
+    // Crea il trace con attributi base
     const trace = client.trace({
       name: 'chat-request',
-      userId: userId || undefined, // userId per Langfuse (opzionale)
-      input: { message }, // Aggiungi input al trace
+      userId: userId || undefined,
+      sessionId: chatId, // sessionId = chatId per aggregazioni
+      input: { message }, // Input del trace
       metadata: {
-        chatId, // chatId nelle metadata per tracciare le sessioni
-        message: message.substring(0, 200), // Limita lunghezza per metadata
         ...metadata,
+        messageLength: message.length,
       },
+      tags: metadata?.tags as string[] || [],
     })
 
-    return trace.id
+    console.log(`[langfuse] Trace created: ${trace.id} (user: ${userId || 'anonymous'}, session: ${chatId})`)
+
+    return {
+      traceId: trace.id,
+      trace,
+      userId,
+      sessionId: chatId,
+    }
   } catch (error) {
     console.error('[langfuse] Failed to create chat trace:', error)
     return null
@@ -98,366 +145,311 @@ export function createChatTrace(
 }
 
 /**
- * Crea uno span per una chiamata LLM
+ * Crea uno span figlio collegato al trace
  * 
- * @param traceId - ID del trace padre
+ * IMPORTANTE: Usa il trace object dal TraceContext per creare span figli
+ * Questo garantisce che lo span sia correttamente collegato al trace padre
+ * 
+ * @param trace - Trace object dal TraceContext
  * @param name - Nome dello span
- * @param input - Input della chiamata LLM
- * @param output - Output della chiamata LLM (opzionale)
+ * @param input - Input dello span
  * @param metadata - Metadata aggiuntiva
- * @returns Span ID o null se Langfuse non è configurato
+ * @returns Span object o null se fallisce
  */
-export function createLLMSpan(
-  traceId: string,
+export function createSpan(
+  trace: LangfuseTraceClient | LangfuseSpanClient,
   name: string,
-  input: unknown,
-  output?: unknown,
+  input?: unknown,
   metadata?: Record<string, unknown>
-): string | null {
-  const client = getLangfuseClient()
-  if (!client) {
-    return null
-  }
-
+): LangfuseSpanClient | null {
   try {
-    const span = client.span({
-      traceId,
+    const span = trace.span({
       name,
-      input: typeof input === 'string' ? input : JSON.stringify(input),
-      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+      input,
       metadata,
     })
 
-    return span.id
+    return span
   } catch (error) {
-    console.error('[langfuse] Failed to create LLM span:', error)
+    console.error('[langfuse] Failed to create span:', error)
     return null
   }
 }
 
 /**
- * Registra una chiamata LLM (generation)
+ * Aggiorna uno span con output e metadata
  * 
- * @param traceId - ID del trace padre
- * @param model - Nome del modello LLM
- * @param input - Input della chiamata (messaggi o prompt)
- * @param output - Output della chiamata LLM
- * @param usage - Usage tokens (opzionale)
+ * @param span - Span object da aggiornare
+ * @param output - Output dello span
  * @param metadata - Metadata aggiuntiva
- * @returns Generation ID o null se Langfuse non è configurato
  */
-export function logLLMCall(
-  traceId: string,
-  model: string,
-  input: unknown,
-  output: unknown,
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number },
+export function updateSpan(
+  span: LangfuseSpanClient | null,
+  output?: unknown,
   metadata?: Record<string, unknown>
-): string | null {
-  const client = getLangfuseClient()
-  if (!client) {
-    return null
+): void {
+  if (!span) {
+    return
   }
 
   try {
-    // Normalizza input/output per Langfuse
-    const normalizedInput = typeof input === 'string' 
-      ? input 
-      : Array.isArray(input) 
-        ? input 
-        : JSON.stringify(input)
-    
-    const normalizedOutput = typeof output === 'string' 
-      ? output 
-      : output !== null && output !== undefined
-        ? JSON.stringify(output)
-        : undefined
+    span.update({
+      output,
+      metadata,
+    })
+  } catch (error) {
+    console.error('[langfuse] Failed to update span:', error)
+  }
+}
 
-    const generation = client.generation({
-      traceId,
-      name: 'llm-call',
+/**
+ * Finalizza uno span (segna come completato)
+ * 
+ * @param span - Span object da finalizzare
+ * @param output - Output finale (opzionale)
+ * @param metadata - Metadata aggiuntiva (opzionale)
+ */
+export function endSpan(
+  span: LangfuseSpanClient | null,
+  output?: unknown,
+  metadata?: Record<string, unknown>
+): void {
+  if (!span) {
+    return
+  }
+
+  try {
+    if (output !== undefined || metadata !== undefined) {
+      span.update({
+        output,
+        metadata,
+      })
+    }
+    span.end()
+  } catch (error) {
+    console.error('[langfuse] Failed to end span:', error)
+  }
+}
+
+/**
+ * Crea una generation per una chiamata LLM
+ * 
+ * IMPORTANTE: Usa il trace o span object per creare generation figlie
+ * Questo garantisce che la generation sia correttamente collegata al trace/span padre
+ * 
+ * @param parent - Trace o Span object padre
+ * @param name - Nome della generation
+ * @param model - Nome del modello LLM
+ * @param input - Input della chiamata (messaggi o prompt)
+ * @param metadata - Metadata aggiuntiva
+ * @returns Generation object o null se fallisce
+ */
+export function createGeneration(
+  parent: LangfuseTraceClient | LangfuseSpanClient,
+  name: string,
+  model: string,
+  input: unknown,
+  metadata?: Record<string, unknown>
+): LangfuseGenerationClient | null {
+  try {
+    const generation = parent.generation({
+      name,
       model,
+      input,
       modelParameters: {
         provider: model.includes('openrouter') ? 'openrouter' : 'openai',
       },
-      input: normalizedInput,
-      output: normalizedOutput,
-      usage: usage ? {
-        promptTokens: usage.promptTokens,
-        completionTokens: usage.completionTokens,
-        totalTokens: usage.totalTokens,
-      } : undefined,
       metadata,
     })
 
-    return generation.id
+    return generation
   } catch (error) {
-    console.error('[langfuse] Failed to log LLM call:', error)
+    console.error('[langfuse] Failed to create generation:', error)
     return null
   }
 }
 
 /**
- * Registra una chiamata di embedding
+ * Aggiorna una generation con output e usage
  * 
- * @param traceId - ID del trace padre (opzionale)
- * @param model - Nome del modello embedding
- * @param input - Input della chiamata (testo)
- * @param output - Output della chiamata (embedding vector)
+ * @param generation - Generation object da aggiornare
+ * @param output - Output della generation
  * @param usage - Usage tokens (opzionale)
  * @param metadata - Metadata aggiuntiva
- * @returns Generation ID o null se Langfuse non è configurato
  */
-export function logEmbeddingCall(
-  traceId: string | null,
-  model: string,
-  input: string | string[],
-  output: number[] | number[][],
-  usage?: { tokens: number },
+export function updateGeneration(
+  generation: LangfuseGenerationClient | null,
+  output?: unknown,
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number },
   metadata?: Record<string, unknown>
-): string | null {
-  const client = getLangfuseClient()
-  if (!client) {
-    return null
+): void {
+  if (!generation) {
+    return
   }
 
   try {
-    // Normalizza input/output
+    generation.update({
+      output,
+      usage,
+      metadata,
+    })
+  } catch (error) {
+    console.error('[langfuse] Failed to update generation:', error)
+  }
+}
+
+/**
+ * Finalizza una generation (segna come completata)
+ * 
+ * @param generation - Generation object da finalizzare
+ * @param output - Output finale (opzionale)
+ * @param usage - Usage tokens (opzionale)
+ * @param metadata - Metadata aggiuntiva (opzionale)
+ */
+export function endGeneration(
+  generation: LangfuseGenerationClient | null,
+  output?: unknown,
+  usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number },
+  metadata?: Record<string, unknown>
+): void {
+  if (!generation) {
+    return
+  }
+
+  try {
+    if (output !== undefined || usage !== undefined || metadata !== undefined) {
+      generation.update({
+        output,
+        usage,
+        metadata,
+      })
+    }
+    generation.end()
+  } catch (error) {
+    console.error('[langfuse] Failed to end generation:', error)
+  }
+}
+
+/**
+ * Crea una generation per una chiamata di embedding
+ * 
+ * IMPORTANTE: Gli embeddings sono trattati come generation objects
+ * Questo permette di tracciare costi e usage tokens
+ * 
+ * @param parent - Trace o Span object padre
+ * @param model - Nome del modello embedding
+ * @param input - Input della chiamata (testo)
+ * @param metadata - Metadata aggiuntiva
+ * @returns Generation object o null se fallisce
+ */
+export function createEmbeddingGeneration(
+  parent: LangfuseTraceClient | LangfuseSpanClient,
+  model: string,
+  input: string | string[],
+  metadata?: Record<string, unknown>
+): LangfuseGenerationClient | null {
+  try {
+    // Normalizza input
     const normalizedInput = Array.isArray(input) ? input : [input]
-    // Per gli embeddings, non inviare l'array completo (troppo grande)
-    // Invia solo metadata sull'output invece dell'array completo
+
+    const generation = parent.generation({
+      name: 'embedding',
+      model,
+      input: normalizedInput,
+      modelParameters: {
+        provider: 'openai',
+      },
+      metadata: {
+        inputCount: normalizedInput.length,
+        ...metadata,
+      },
+    })
+
+    return generation
+  } catch (error) {
+    console.error('[langfuse] Failed to create embedding generation:', error)
+    return null
+  }
+}
+
+/**
+ * Aggiorna una generation di embedding con output e usage
+ * 
+ * NOTA: L'output degli embeddings è troppo grande per essere inviato integralmente.
+ * Inviamo solo metadata (dimensioni, count, sample) invece del vettore completo.
+ * 
+ * @param generation - Generation object da aggiornare
+ * @param output - Output della chiamata (embedding vector)
+ * @param usage - Usage tokens (opzionale)
+ */
+export function updateEmbeddingGeneration(
+  generation: LangfuseGenerationClient | null,
+  output: number[] | number[][],
+  usage?: { tokens?: number; promptTokens?: number; totalTokens?: number }
+): void {
+  if (!generation) {
+    return
+  }
+
+  try {
+    // Normalizza output
     const normalizedOutput: number[][] = Array.isArray(output) && Array.isArray(output[0])
       ? output as number[][]
       : [output as number[]]
 
-    const generation = client.generation({
-      traceId: traceId || undefined,
-      name: 'embedding-call',
-      model,
-      modelParameters: {
-        provider: 'openai',
-      },
-      input: normalizedInput, // Input testo è OK
-      // Per output, invia solo metadata invece dell'array completo (troppo grande per Langfuse)
-      output: {
-        type: 'embedding',
-        count: normalizedOutput.length,
-        dimensions: normalizedOutput[0]?.length || 1536,
-        // Includi solo il primo embedding come esempio (opzionale)
-        sample: normalizedOutput[0]?.slice(0, 10), // Primi 10 valori come esempio
-      },
-      usage: usage ? {
-        promptTokens: usage.tokens,
-        totalTokens: usage.tokens,
-      } : undefined,
-      metadata: {
-        inputCount: normalizedInput.length,
-        outputDimensions: normalizedOutput[0]?.length || 1536,
-        ...metadata,
-      },
-    })
+    // Per output, invia solo metadata invece dell'array completo (troppo grande per Langfuse)
+    const outputMetadata = {
+      type: 'embedding',
+      count: normalizedOutput.length,
+      dimensions: normalizedOutput[0]?.length || 1536,
+      // Includi solo il primo embedding come esempio (primi 10 valori)
+      sample: normalizedOutput[0]?.slice(0, 10),
+    }
 
-    return generation.id
+    generation.update({
+      output: outputMetadata,
+      usage: usage ? {
+        promptTokens: usage.promptTokens || usage.tokens || 0,
+        totalTokens: usage.totalTokens || usage.tokens || 0,
+      } : undefined,
+    })
   } catch (error) {
-    console.error('[langfuse] Failed to log embedding call:', error)
-    return null
+    console.error('[langfuse] Failed to update embedding generation:', error)
   }
 }
 
 /**
- * Finalizza un trace
+ * Aggiorna un trace con output e metadata
  * 
- * @param traceId - ID del trace da finalizzare
- * @param output - Output finale (opzionale)
+ * @param trace - Trace object da aggiornare
+ * @param output - Output finale
  * @param metadata - Metadata aggiuntiva
  */
-export function finalizeTrace(
-  traceId: string | null,
+export function updateTrace(
+  trace: LangfuseTraceClient | null,
   output?: unknown,
   metadata?: Record<string, unknown>
 ): void {
-  if (!traceId) {
-    return
-  }
-
-  const client = getLangfuseClient()
-  if (!client) {
+  if (!trace) {
     return
   }
 
   try {
-    client.trace({
-      id: traceId,
-      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
+    trace.update({
+      output,
       metadata,
     })
   } catch (error) {
-    console.error('[langfuse] Failed to finalize trace:', error)
+    console.error('[langfuse] Failed to update trace:', error)
   }
 }
 
-/**
- * Crea uno span per uno step del processo
- * 
- * @param traceId - ID del trace padre
- * @param name - Nome dello span
- * @param input - Input dello step (opzionale)
- * @param output - Output dello step (opzionale)
- * @param metadata - Metadata aggiuntiva
- * @returns Span ID o null se Langfuse non è configurato
- */
-export function createStepSpan(
-  traceId: string | null,
-  name: string,
-  input?: unknown,
-  output?: unknown,
-  metadata?: Record<string, unknown>
-): string | null {
-  if (!traceId) {
-    return null
-  }
-
-  const client = getLangfuseClient()
-  if (!client) {
-    return null
-  }
-
-  try {
-    // Assicurati che ci sia almeno input o output per evitare spans vuoti
-    const hasInput = input !== null && input !== undefined
-    const hasOutput = output !== null && output !== undefined
-    
-    if (!hasInput && !hasOutput && (!metadata || Object.keys(metadata).length === 0)) {
-      // Non creare span se non c'è nessun dato
-      console.warn(`[langfuse] Skipping empty span creation: ${name}`)
-      return null
-    }
-
-    const span = client.span({
-      traceId,
-      name,
-      input: hasInput ? (typeof input === 'string' ? input : JSON.stringify(input)) : undefined,
-      output: hasOutput ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
-      metadata: metadata || {},
-    })
-
-    return span.id
-  } catch (error) {
-    console.error('[langfuse] Failed to create step span:', error)
-    return null
-  }
-}
-
-/**
- * Crea uno span per una tool call
- * 
- * @param traceId - ID del trace padre
- * @param toolName - Nome del tool
- * @param input - Input del tool
- * @param output - Output del tool (opzionale)
- * @param metadata - Metadata aggiuntiva
- * @returns Span ID o null se Langfuse non è configurato
- */
-export function createToolSpan(
-  traceId: string | null,
-  toolName: string,
-  input: unknown,
-  output?: unknown,
-  metadata?: Record<string, unknown>
-): string | null {
-  if (!traceId) {
-    return null
-  }
-
-  const client = getLangfuseClient()
-  if (!client) {
-    return null
-  }
-
-  try {
-    const span = client.span({
-      traceId,
-      name: `tool-${toolName}`,
-      input: typeof input === 'string' ? input : JSON.stringify(input),
-      output: output ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
-      metadata: {
-        toolName,
-        ...metadata,
-      },
-    })
-
-    return span.id
-  } catch (error) {
-    console.error('[langfuse] Failed to create tool span:', error)
-    return null
-  }
-}
-
-/**
- * Finalizza uno span
- * 
- * @param spanId - ID dello span da finalizzare
- * @param output - Output finale (opzionale)
- * @param metadata - Metadata aggiuntiva
- */
-export function finalizeSpan(
-  spanId: string | null,
-  output?: unknown,
-  metadata?: Record<string, unknown>
-): void {
-  if (!spanId) {
-    return
-  }
-
-  const client = getLangfuseClient()
-  if (!client) {
-    return
-  }
-
-  try {
-    // Assicurati che ci sia almeno output o metadata per evitare aggiornamenti vuoti
-    const hasOutput = output !== null && output !== undefined
-    const hasMetadata = metadata && Object.keys(metadata).length > 0
-    
-    if (!hasOutput && !hasMetadata) {
-      // Non aggiornare span se non c'è nessun dato
-      return
-    }
-
-    client.span({
-      id: spanId,
-      output: hasOutput ? (typeof output === 'string' ? output : JSON.stringify(output)) : undefined,
-      metadata: metadata || {},
-    })
-  } catch (error) {
-    console.error('[langfuse] Failed to finalize span:', error)
-  }
-}
-
-/**
- * Crea un trace per una richiesta chat completa
- * Helper function che crea trace e span iniziale
- * 
- * @param chatId - ID della conversazione (chatId)
- * @param userId - ID dell'utente (opzionale)
- * @param message - Messaggio utente
- * @param metadata - Metadata aggiuntiva
- * @returns Trace ID o null se Langfuse non è configurato
- */
-export function createChatTraceWithSpan(
-  chatId: string,
-  userId: string | null,
-  message: string,
-  metadata?: Record<string, unknown>
-): string | null {
-  const traceId = createChatTrace(chatId, userId, message, metadata)
-  if (!traceId) {
-    return null
-  }
-
-  // Crea span iniziale per la richiesta
-  createLLMSpan(traceId, 'chat-request', { message }, undefined, metadata)
-  
-  return traceId
-}
+// Note: Le vecchie funzioni basate su traceId stringa sono state rimosse
+// Usa invece le nuove funzioni che accettano trace/span objects:
+// - createSpan() per creare span figli
+// - createGeneration() per chiamate LLM
+// - createEmbeddingGeneration() per embeddings
+// - updateSpan(), endSpan() per gestire il ciclo di vita degli span
+// - updateGeneration(), endGeneration() per gestire le generation
+// - updateTrace() per aggiornare il trace
 

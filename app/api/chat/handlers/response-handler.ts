@@ -17,7 +17,11 @@ import {
 } from '@/lib/services/citation-service'
 import type { Source } from '@/lib/services/citation-service'
 import type { StreamController } from './stream-handler'
-import { logLLMCall } from '@/lib/observability/langfuse'
+import { 
+  createGeneration,
+  endGeneration,
+  type TraceContext 
+} from '@/lib/observability/langfuse'
 
 export interface ResponseContext {
   message: string
@@ -33,7 +37,7 @@ export interface ResponseContext {
   metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
   webSearchEnabled: boolean
   articleNumber?: number
-  traceId?: string | null
+  traceContext?: TraceContext | null
 }
 
 export interface ResponseResult {
@@ -119,10 +123,10 @@ export async function generateResponse(
 
   let fullResponse = ''
 
-  // Esegui l'agent con il contesto per passare traceId e risultati
+  // Esegui l'agent con il contesto per passare traceContext e risultati
   await runWithAgentContext(
     {
-      traceId: context.traceId || null,
+      traceId: context.traceContext?.traceId || null,
       webSearchResults: [],
       metaQueryDocuments: [],
     },
@@ -179,22 +183,32 @@ export async function generateResponse(
   )
 
   // Log main LLM call to Langfuse (after streaming completes)
-  // Note: Mastra agent doesn't expose usage tokens directly, so we log without usage
-  if (context.traceId && fullResponse) {
-    logLLMCall(
-      context.traceId, // Usa il traceId reale dal context
+  // NOTA: Mastra agent non espone token usage direttamente, quindi loghiamo senza usage
+  // Se possibile, in futuro intercettare i token usage dal response stream
+  if (context.traceContext && fullResponse) {
+    // Crea generation per la chiamata LLM principale
+    const generation = createGeneration(
+      context.traceContext.trace,
+      'chat-response',
       'openrouter/google/gemini-2.5-flash', // Model from agent config
       messages,
-      fullResponse,
-      undefined, // Usage not available from Mastra stream
       {
         operation: 'chat-response',
         messageLength: message.length,
-        responseLength: fullResponse.length,
         hasContext: contextText !== null,
         contextLength: contextText?.length || 0,
         sourcesInsufficient: SOURCES_INSUFFICIENT,
         avgSimilarity,
+      }
+    )
+
+    // Finalizza generation con output
+    endGeneration(
+      generation,
+      fullResponse,
+      undefined, // Usage not available from Mastra stream
+      {
+        responseLength: fullResponse.length,
       }
     )
   }

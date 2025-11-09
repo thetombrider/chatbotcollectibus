@@ -2,11 +2,16 @@
  * Cache Handler
  * 
  * Gestisce la logica di cache semantica per le risposte
+ * 
+ * TRACCIAMENTO LANGFUSE:
+ * - cache-lookup viene tracciato come span in route.ts
+ * - qui si aggiunge solo metadata aggiuntiva per dettagli interni
  */
 
 import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-cache'
 import type { Source } from '@/lib/services/citation-service'
 import { processCitations } from '@/lib/services/citation-service'
+import type { TraceContext } from '@/lib/observability/langfuse'
 
 export interface CachedResponse {
   response_text: string
@@ -21,13 +26,18 @@ export interface CacheResult {
 
 /**
  * Cerca una risposta cached per la query
+ * 
+ * NOTA: Il tracciamento avviene a livello di span in route.ts
+ * Questa funzione fornisce solo dati per il tracciamento
  */
 export async function lookupCache(
   query: string,
   queryEmbedding: number[],
-  skipCache: boolean = false
+  skipCache: boolean = false,
+  _traceContext?: TraceContext | null
 ): Promise<CacheResult> {
   if (skipCache) {
+    console.log('[cache-handler] Cache lookup skipped (skipCache=true)')
     return { cached: false }
   }
 
@@ -35,8 +45,14 @@ export async function lookupCache(
     const cached = await findCachedResponse(queryEmbedding)
     
     if (!cached || !cached.response_text || cached.response_text.trim().length === 0) {
+      console.log('[cache-handler] Cache miss')
       return { cached: false }
     }
+
+    console.log('[cache-handler] Cache hit found', {
+      responseLength: cached.response_text.length,
+      sourcesCount: cached.sources?.length || 0,
+    })
 
     // Processa le citazioni nel testo cached usando le sources salvate
     let processedResponse = cached.response_text

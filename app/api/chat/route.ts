@@ -18,7 +18,13 @@ import { generateResponse, processResponse, type ResponseContext } from './handl
 import { buildContext, filterRelevantResults } from './services/context-builder'
 import { createKBSources, combineSources } from './services/source-service'
 import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
-import { createChatTrace, finalizeTrace, createStepSpan, finalizeSpan } from '@/lib/observability/langfuse'
+import { 
+  createChatTrace, 
+  createSpan,
+  endSpan,
+  updateTrace,
+  type TraceContext 
+} from '@/lib/observability/langfuse'
 import { createServerSupabaseClient } from '@/lib/supabase/client'
 
 export const maxDuration = 60 // 60 secondi per Vercel
@@ -32,11 +38,11 @@ async function handleChatRequest(
   webSearchEnabled: boolean,
   skipCache: boolean,
   streamController: StreamController,
-  traceId?: string | null
+  traceContext?: TraceContext | null
 ): Promise<void> {
-  // Se traceId non è fornito, crea un nuovo trace
+  // Se traceContext non è fornito, crea un nuovo trace
   // (questo può accadere se viene chiamato direttamente senza trace)
-  if (!traceId) {
+  if (!traceContext) {
     // Estrai userId dalla sessione Supabase
     let userId: string | null = null
     try {
@@ -48,7 +54,7 @@ async function handleChatRequest(
       // Continua senza userId se non disponibile
     }
 
-    traceId = createChatTrace(
+    traceContext = createChatTrace(
       conversationId || 'anonymous',
       userId,
       message,
@@ -68,9 +74,9 @@ async function handleChatRequest(
 
   // STEP 3: Analisi query
   streamController.sendStatus('Analisi della query...')
-  const analysisSpanId = createStepSpan(traceId, 'query-analysis', { message })
+  const analysisSpan = traceContext ? createSpan(traceContext.trace, 'query-analysis', { message }) : null
   const analysis = await analyzeQuery(message)
-  finalizeSpan(analysisSpanId, {
+  endSpan(analysisSpan, {
     intent: analysis.intent,
     isMeta: analysis.isMeta,
     isComparative: analysis.isComparative,
@@ -79,24 +85,28 @@ async function handleChatRequest(
 
   // STEP 4: Enhancement query
   streamController.sendStatus('Miglioramento query...')
-  const enhancementSpanId = createStepSpan(traceId, 'query-enhancement', { 
+  const enhancementSpan = traceContext ? createSpan(traceContext.trace, 'query-enhancement', { 
     original: message, 
     analysis 
-  })
+  }) : null
   const enhancement = await enhanceQueryIfNeeded(message, analysis)
   const queryToEmbed = enhancement.enhanced
   const articleNumber = analysis.articleNumber || enhancement.articleNumber
-  finalizeSpan(enhancementSpanId, {
+  endSpan(enhancementSpan, {
     enhanced: queryToEmbed,
     shouldEnhance: enhancement.shouldEnhance,
   })
 
   // STEP 5: Check cache
   streamController.sendStatus('Verifica cache...')
-  const cacheSpanId = createStepSpan(traceId, 'cache-lookup', { query: queryToEmbed })
-  const queryEmbedding = await generateEmbedding(queryToEmbed, 'text-embedding-3-large', traceId)
-  const cached = await lookupCache(queryToEmbed, queryEmbedding, skipCache)
-  finalizeSpan(cacheSpanId, { cached: cached.cached })
+  const cacheSpan = traceContext ? createSpan(traceContext.trace, 'cache-lookup', { query: queryToEmbed }) : null
+  const queryEmbedding = await generateEmbedding(
+    queryToEmbed, 
+    'text-embedding-3-large', 
+    traceContext ? traceContext.trace : null
+  )
+  const cached = await lookupCache(queryToEmbed, queryEmbedding, skipCache, traceContext)
+  endSpan(cacheSpan, { cached: cached.cached })
 
   if (cached.cached && cached.response && cached.sources) {
     // Cache hit: invia risposta cached
@@ -115,8 +125,8 @@ async function handleChatRequest(
     }
     
     // Finalize Langfuse trace (cache hit)
-    if (traceId) {
-      finalizeTrace(traceId, {
+    if (traceContext) {
+      updateTrace(traceContext.trace, {
         response: cached.response, // Risposta completa (non troncata)
         responseLength: cached.response.length,
         sourcesCount: cached.sources.length,
@@ -147,12 +157,12 @@ async function handleChatRequest(
       streamController.sendStatus('Ricerca documenti nella knowledge base...')
     }
 
-    const searchSpanId = createStepSpan(traceId, 'vector-search', { 
+    const searchSpan = traceContext ? createSpan(traceContext.trace, 'vector-search', { 
       query: queryToEmbed,
       isComparative: analysis.isComparative,
       comparativeTerms: analysis.comparativeTerms,
-    })
-    searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber, traceId)
+    }) : null
+    searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber, traceContext)
     
     // Filtra risultati rilevanti
     // Threshold più basso per includere più risultati (0.35 invece di 0.40)
@@ -177,7 +187,7 @@ async function handleChatRequest(
     // Crea sources KB
     kbSources = createKBSources(relevantResults)
     
-    finalizeSpan(searchSpanId, {
+    endSpan(searchSpan, {
       totalResults: searchResults.length,
       relevantResults: relevantResults.length,
       avgSimilarity: avgSimilarity.toFixed(3),
@@ -203,17 +213,17 @@ async function handleChatRequest(
     sources: kbSources,
     webSearchEnabled,
     articleNumber,
-    traceId, // Passa traceId al context per logging LLM
+    traceContext, // Passa traceContext al context per logging LLM
   }
 
-  const responseSpanId = createStepSpan(traceId, 'response-generation', {
+  const responseSpan = traceContext ? createSpan(traceContext.trace, 'response-generation', {
     query: queryToEmbed,
     contextLength: context?.length || 0,
     sourcesCount: kbSources.length,
     searchResultsCount: searchResults.length,
-  })
+  }) : null
   const fullResponse = await generateResponse(responseContext, streamController)
-  finalizeSpan(responseSpanId, {
+  endSpan(responseSpan, {
     responseLength: fullResponse?.length || 0,
     truncated: fullResponse?.substring(0, 200) || '',
   })
@@ -247,13 +257,13 @@ async function handleChatRequest(
     index: doc.index,
   }))
 
-  const processingSpanId = createStepSpan(traceId, 'response-processing', {
+  const processingSpan = traceContext ? createSpan(traceContext.trace, 'response-processing', {
     responseLength: fullResponse?.length || 0,
     webResultsCount: webSearchResults.length,
     metaDocumentsCount: metaQueryDocuments.length,
-  })
+  }) : null
   const processed = await processResponse(fullResponse, responseContext)
-  finalizeSpan(processingSpanId, {
+  endSpan(processingSpan, {
     processedLength: processed.content?.length || 0,
     sourcesCount: processed.sources?.length || 0,
     webSourcesCount: processed.webSources?.length || 0,
@@ -287,8 +297,8 @@ async function handleChatRequest(
   clearWebSearchResults()
 
   // Finalize Langfuse trace con la risposta completa
-  if (traceId) {
-    finalizeTrace(traceId, {
+  if (traceContext) {
+    updateTrace(traceContext.trace, {
       response: processed.content, // Risposta completa (non troncata)
       responseLength: processed.content.length,
       sourcesCount: allSources.length,
@@ -330,7 +340,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Crea trace Langfuse per questa richiesta chat
-    const traceId = createChatTrace(
+    const traceContext = createChatTrace(
       conversationId || 'anonymous',
       userId,
       message,
@@ -346,7 +356,7 @@ export async function POST(req: NextRequest) {
           webSearchEnabled,
           skipCache,
           streamController,
-          traceId // Passa traceId al handler
+          traceContext // Passa traceContext al handler
         )
         streamController.close()
         } catch (error) {

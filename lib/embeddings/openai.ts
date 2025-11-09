@@ -1,6 +1,11 @@
 import OpenAI from 'openai'
 import { normalizeTextForEmbedding } from './text-preprocessing'
-import { logEmbeddingCall } from '@/lib/observability/langfuse'
+import { 
+  createEmbeddingGeneration,
+  updateEmbeddingGeneration,
+  endGeneration,
+} from '@/lib/observability/langfuse'
+import type { LangfuseTraceClient, LangfuseSpanClient } from 'langfuse'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -14,21 +19,32 @@ const openai = new OpenAI({
  * 
  * @param text - Testo da convertire in embedding
  * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
- * @param traceId - ID del trace Langfuse per collegare la chiamata (opzionale)
+ * @param parent - Trace o Span object padre per collegare la generation (opzionale)
  * @returns Array numerico rappresentante l'embedding
  * 
  * @example
- * const embedding = await generateEmbedding("La GDPR stabilisce...")
+ * const embedding = await generateEmbedding("La GDPR stabilisce...", 'text-embedding-3-large', traceContext.trace)
  */
 export async function generateEmbedding(
   text: string,
   model: string = 'text-embedding-3-large',
-  traceId?: string | null
+  parent?: LangfuseTraceClient | LangfuseSpanClient | null
 ): Promise<number[]> {
+  // Normalizza testo prima di generare embedding
+  const normalizedText = normalizeTextForEmbedding(text)
+  
+  // Crea generation Langfuse per tracciare embedding
+  const generation = parent ? createEmbeddingGeneration(
+    parent,
+    model,
+    normalizedText,
+    { 
+      operation: 'single-embedding', 
+      textLength: normalizedText.length,
+    }
+  ) : null
+
   try {
-    // Normalizza testo prima di generare embedding
-    const normalizedText = normalizeTextForEmbedding(text)
-    
     const response = await openai.embeddings.create({
       model,
       input: normalizedText,
@@ -44,20 +60,24 @@ export async function generateEmbedding(
       throw new Error(`Invalid embedding dimensions: expected 1536, got ${embedding.length}. This may indicate a model configuration issue.`)
     }
 
-    // Log embedding call to Langfuse
+    // Aggiorna generation con output e usage
     const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
-    logEmbeddingCall(
-      traceId || null, // traceId (collega al trace principale se disponibile)
-      model,
-      normalizedText,
-      embedding,
-      usage,
-      { operation: 'single-embedding', textLength: normalizedText.length, dimensions: embedding.length }
-    )
+    if (generation) {
+      updateEmbeddingGeneration(generation, embedding, usage)
+      endGeneration(generation)
+    }
 
     return embedding
   } catch (error: unknown) {
     console.error('[embeddings] Generation failed:', error)
+    
+    // Segna generation come fallita se presente
+    if (generation) {
+      endGeneration(generation, undefined, undefined, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        failed: true 
+      })
+    }
     
     // Gestione errori più specifica
     if (error && typeof error === 'object' && 'code' in error) {
@@ -97,24 +117,35 @@ export async function generateEmbedding(
  * 
  * @param texts - Array di testi da convertire in embeddings
  * @param model - Modello OpenAI da usare (default: text-embedding-3-large)
- * @param traceId - ID del trace Langfuse per collegare la chiamata (opzionale)
+ * @param parent - Trace o Span object padre per collegare la generation (opzionale)
  * @returns Array di arrays numerici rappresentanti gli embeddings
  * 
  * @example
  * const embeddings = await generateEmbeddings([
  *   "Chunk 1 content...",
  *   "Chunk 2 content..."
- * ])
+ * ], 'text-embedding-3-large', traceContext.trace)
  */
 export async function generateEmbeddings(
   texts: string[],
   model: string = 'text-embedding-3-large',
-  traceId?: string | null
+  parent?: LangfuseTraceClient | LangfuseSpanClient | null
 ): Promise<number[][]> {
+  // Normalizza tutti i testi prima di generare embeddings
+  const normalizedTexts = texts.map(text => normalizeTextForEmbedding(text))
+  
+  // Crea generation Langfuse per tracciare embedding batch
+  const generation = parent ? createEmbeddingGeneration(
+    parent,
+    model,
+    normalizedTexts,
+    { 
+      operation: 'batch-embedding', 
+      inputCount: normalizedTexts.length,
+    }
+  ) : null
+
   try {
-    // Normalizza tutti i testi prima di generare embeddings
-    const normalizedTexts = texts.map(text => normalizeTextForEmbedding(text))
-    
     const response = await openai.embeddings.create({
       model,
       input: normalizedTexts,
@@ -132,20 +163,24 @@ export async function generateEmbeddings(
       throw new Error(`Invalid embedding dimensions: found ${invalidEmbeddings.length} embeddings with incorrect dimensions. Expected 1536, got: ${invalidDims.join(', ')}`)
     }
 
-    // Log embedding call to Langfuse
+    // Aggiorna generation con output e usage
     const usage = response.usage ? { tokens: response.usage.total_tokens } : undefined
-    logEmbeddingCall(
-      traceId || null, // traceId (collega al trace principale se disponibile)
-      model,
-      normalizedTexts,
-      embeddings,
-      usage,
-      { operation: 'batch-embedding', inputCount: normalizedTexts.length, dimensions: embeddings[0]?.length || 1536 }
-    )
+    if (generation) {
+      updateEmbeddingGeneration(generation, embeddings, usage)
+      endGeneration(generation)
+    }
 
     return embeddings
   } catch (error: unknown) {
     console.error('[embeddings] Batch generation failed:', error)
+    
+    // Segna generation come fallita se presente
+    if (generation) {
+      endGeneration(generation, undefined, undefined, { 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        failed: true 
+      })
+    }
     
     // Gestione errori più specifica
     if (error && typeof error === 'object' && 'code' in error) {

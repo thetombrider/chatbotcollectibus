@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import type { QueryAnalysisResult, QueryIntent } from './query-analysis'
-import { logLLMCall } from '@/lib/observability/langfuse'
+// TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
+// import { logLLMCall } from '@/lib/observability/langfuse'
 
 /**
  * Intent-Based Query Expansion Module
@@ -232,14 +233,15 @@ Now expand the query. Respond with ONLY the expanded query text, nothing else.`
       totalTokens: response.usage.total_tokens,
     } : undefined
     
-    logLLMCall(
-      'query-expansion', // traceId (standalone per query expansion)
-      EXPANSION_MODEL,
-      { query, intent, prompt },
-      expanded,
-      usage,
-      { operation: 'query-expansion', intent, queryLength: query.length }
-    )
+    // TODO: Re-implement with new Langfuse patterns (createGeneration, etc.)
+    // logLLMCall(
+    //   'query-expansion', // traceId (standalone per query expansion)
+    //   EXPANSION_MODEL,
+    //   { query, intent, prompt },
+    //   expanded,
+    //   usage,
+    //   { operation: 'query-expansion', intent, queryLength: query.length }
+    // )
     
     console.log('[intent-based-expansion] LLM expansion result:', {
       original: query.substring(0, 50),
