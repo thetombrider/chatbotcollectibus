@@ -56,17 +56,34 @@ export async function lookupCache(
 
     // Processa le citazioni nel testo cached usando le sources salvate
     let processedResponse = cached.response_text
-    // Filtra sources e assicura che chunkIndex sia un numero (non null)
+    // Normalizza sources: assicura che chunkIndex sia un numero (usa 0 se null/undefined)
+    // Non filtrare sources con chunkIndex null - potrebbero essere meta query sources
     let cachedSources: Source[] = (cached.sources || [])
-      .filter(s => s.chunkIndex !== null)
       .map(s => ({
         ...s,
         chunkIndex: s.chunkIndex ?? 0,
       })) as Source[]
     
+    // Log per debugging: verifica che le sources siano presenti dopo la normalizzazione
+    console.log('[cache-handler] Normalized sources:', {
+      originalCount: cached.sources?.length || 0,
+      normalizedCount: cachedSources.length,
+      sampleSources: cachedSources.slice(0, 3).map(s => ({
+        index: s.index,
+        filename: s.filename,
+        chunkIndex: s.chunkIndex,
+      })),
+    })
+    
     // Estrai citazioni dal testo cached
     const { extractCitedIndices } = await import('@/lib/services/citation-service')
     const citedIndices = extractCitedIndices(cached.response_text)
+    
+    // Log per debugging: verifica quali citazioni sono presenti
+    console.log('[cache-handler] Citations found in cached text:', {
+      citedIndices,
+      citedCount: citedIndices.length,
+    })
     
     if (citedIndices.length > 0 && cachedSources.length > 0) {
       // Verifica che gli indici citati corrispondano alle sources salvate
@@ -79,13 +96,22 @@ export async function lookupCache(
         const result = processCitations(processedResponse, cachedSources, 'cit')
         processedResponse = result.content
         cachedSources = result.sources
+        
+        // Log per debugging: verifica il risultato del processing
+        console.log('[cache-handler] Citations processed:', {
+          originalCitedCount: citedIndices.length,
+          validCitedCount: validCitedIndices.length,
+          finalSourcesCount: cachedSources.length,
+        })
       } else {
         // Nessuna citazione valida corrisponde alle sources, rimuovi tutte le citazioni
+        console.warn('[cache-handler] No valid citations match saved sources, removing all citations')
         processedResponse = cached.response_text.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, '')
         cachedSources = []
       }
     } else if (citedIndices.length > 0 && cachedSources.length === 0) {
       // Ci sono citazioni ma non ci sono sources salvate, rimuovi le citazioni
+      console.warn('[cache-handler] Citations found but no sources available, removing citations')
       processedResponse = cached.response_text.replace(/\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g, '')
     }
 

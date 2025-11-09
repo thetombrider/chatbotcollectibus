@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { analyzeQuery } from '@/lib/embeddings/query-analysis'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
-import { getWebSearchResults, clearWebSearchResults, getMetaQueryDocuments } from '@/lib/mastra/agent'
+import { clearWebSearchResults } from '@/lib/mastra/agent'
 import { createStream, StreamController } from './handlers/stream-handler'
 import { lookupCache, saveCache } from './handlers/cache-handler'
 import { performSearch } from './handlers/search-handler'
@@ -222,47 +222,45 @@ async function handleChatRequest(
     sourcesCount: kbSources.length,
     searchResultsCount: searchResults.length,
   }) : null
-  const fullResponse = await generateResponse(responseContext, streamController)
+  const generateResult = await generateResponse(responseContext, streamController)
   endSpan(responseSpan, {
-    responseLength: fullResponse?.length || 0,
-    truncated: fullResponse?.substring(0, 200) || '',
+    responseLength: generateResult.fullResponse?.length || 0,
+    truncated: generateResult.fullResponse?.substring(0, 200) || '',
   })
 
   // STEP 8: Valida risposta non vuota
-  if (!fullResponse || fullResponse.trim().length === 0) {
+  if (!generateResult.fullResponse || generateResult.fullResponse.trim().length === 0) {
     streamController.sendError('Failed to generate response: empty content')
     streamController.close()
     return
   }
 
   // STEP 9: Processa risposta (citazioni, sources, etc.)
-  // Recupera risultati web e meta dal context globale (temporaneo, da refactorare)
-  const webSearchResults = getWebSearchResults()
-  const metaQueryDocuments = getMetaQueryDocuments()
+  // I risultati web e meta sono ora inclusi in generateResult (recuperati dentro il context)
+  const webSearchResults = generateResult.webSearchResults || []
+  const metaQueryDocuments = generateResult.metaQueryDocuments || []
+
+  console.log('[api/chat] Retrieved from generateResponse:', {
+    webResultsCount: webSearchResults.length,
+    metaDocumentsCount: metaQueryDocuments.length,
+    metaDocumentsSample: metaQueryDocuments.slice(0, 3),
+  })
 
   // Aggiungi al context per processing
-  responseContext.webSearchResults = webSearchResults.map((r: unknown, idx: number) => ({
-    index: idx + 1,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    title: (r as any).title || 'Senza titolo',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    url: (r as any).url || '',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    content: (r as any).content || '',
-  }))
-
-  responseContext.metaQueryDocuments = metaQueryDocuments.map((doc) => ({
-    id: doc.id,
-    filename: doc.filename,
-    index: doc.index,
-  }))
+  responseContext.webSearchResults = webSearchResults
+  responseContext.metaQueryDocuments = metaQueryDocuments
+  
+  console.log('[api/chat] Added to response context:', {
+    webSearchResultsCount: responseContext.webSearchResults?.length || 0,
+    metaQueryDocumentsCount: responseContext.metaQueryDocuments?.length || 0,
+  })
 
   const processingSpan = traceContext ? createSpan(traceContext.trace, 'response-processing', {
-    responseLength: fullResponse?.length || 0,
+    responseLength: generateResult.fullResponse?.length || 0,
     webResultsCount: webSearchResults.length,
     metaDocumentsCount: metaQueryDocuments.length,
   }) : null
-  const processed = await processResponse(fullResponse, responseContext)
+  const processed = await processResponse(generateResult.fullResponse, responseContext)
   endSpan(processingSpan, {
     processedLength: processed.content?.length || 0,
     sourcesCount: processed.sources?.length || 0,

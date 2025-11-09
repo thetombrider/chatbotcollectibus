@@ -4,7 +4,7 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { ragAgent, runWithAgentContext } from '@/lib/mastra/agent'
+import { ragAgent, runWithAgentContext, getMetaQueryDocuments, getWebSearchResults } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
@@ -46,13 +46,19 @@ export interface ResponseResult {
   webSources: Source[]
 }
 
+export interface GenerateResponseResult {
+  fullResponse: string
+  metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
+  webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
+}
+
 /**
  * Genera la risposta usando l'agent Mastra
  */
 export async function generateResponse(
   context: ResponseContext,
   streamController: StreamController
-): Promise<string> {
+): Promise<GenerateResponseResult> {
   const {
     message,
     conversationHistory,
@@ -122,6 +128,8 @@ export async function generateResponse(
     : {}
 
   let fullResponse = ''
+  let capturedMetaDocuments: Array<{ id: string; filename: string; index: number }> = []
+  let capturedWebResults: Array<{ index: number; title: string; url: string; content: string }> = []
 
   // Esegui l'agent con il contesto per passare traceContext e risultati
   await runWithAgentContext(
@@ -179,6 +187,16 @@ export async function generateResponse(
           }
         }
       }
+      
+      // IMPORTANTE: Recupera i documenti dal context PRIMA di uscire da runWithAgentContext
+      // Se non lo facciamo qui, il context dell'AsyncLocalStorage viene perso
+      capturedMetaDocuments = getMetaQueryDocuments()
+      capturedWebResults = getWebSearchResults()
+      
+      console.log('[response-handler] Captured from agent context:', {
+        metaDocumentsCount: capturedMetaDocuments.length,
+        webResultsCount: capturedWebResults.length,
+      })
     }
   )
 
@@ -213,7 +231,16 @@ export async function generateResponse(
     )
   }
 
-  return fullResponse
+  return {
+    fullResponse,
+    metaQueryDocuments: capturedMetaDocuments,
+    webSearchResults: capturedWebResults.map((r: unknown) => ({
+      index: (r as { index: number }).index,
+      title: (r as { title: string }).title || 'Senza titolo',
+      url: (r as { url: string }).url || '',
+      content: (r as { content: string }).content || '',
+    })),
+  }
 }
 
 /**
@@ -224,6 +251,14 @@ export async function processResponse(
   context: ResponseContext
 ): Promise<ResponseResult> {
   const { sources, webSearchResults, metaQueryDocuments, analysis } = context
+
+  console.log('[response-handler] processResponse called with context:', {
+    sourcesCount: sources.length,
+    webSearchResultsCount: webSearchResults?.length || 0,
+    metaQueryDocumentsCount: metaQueryDocuments?.length || 0,
+    isMeta: analysis.isMeta,
+    metaType: analysis.metaType,
+  })
 
   // Normalizza citazioni web errate
   let processedResponse = normalizeWebCitations(fullResponse)
@@ -237,6 +272,13 @@ export async function processResponse(
   if (metaQueryDocuments && metaQueryDocuments.length > 0) {
     const { createMetaSources } = await import('../services/source-service')
     finalSources = createMetaSources(metaQueryDocuments)
+    console.log('[response-handler] Created meta sources:', {
+      count: finalSources.length,
+      sample: finalSources.slice(0, 3).map(s => ({
+        index: s.index,
+        filename: s.filename,
+      })),
+    })
   }
 
   // Processa citazioni KB
@@ -270,12 +312,36 @@ export async function processResponse(
     }
   } else {
     // Query meta: filtra sources basandosi sulle citazioni
+    console.log('[response-handler] Meta query detected, processing citations...')
+    console.log('[response-handler] Citations in response (first 200 chars):', processedResponse.substring(0, 200))
+    
     if (citedIndices.length > 0) {
+      console.log('[response-handler] Meta query citations found:', {
+        citedIndices: citedIndices.slice(0, 10), // Primi 10 per non loggare troppo
+        totalCited: citedIndices.length,
+        availableSources: finalSources.length,
+      })
+      
       const { filterSourcesByCitations, createCitationMapping, renumberCitations } = await import('@/lib/services/citation-service')
       kbSources = filterSourcesByCitations(citedIndices, finalSources)
+      
+      console.log('[response-handler] Filtered sources:', {
+        filteredCount: kbSources.length,
+        sample: kbSources.slice(0, 3).map(s => ({
+          index: s.index,
+          filename: s.filename,
+        })),
+      })
+      
       const mapping = createCitationMapping(citedIndices)
+      console.log('[response-handler] Citation mapping (first 10):', {
+        mappingSize: mapping.size,
+        sample: Array.from(mapping.entries()).slice(0, 10),
+      })
+      
       processedResponse = renumberCitations(processedResponse, mapping, 'cit')
     } else {
+      console.warn('[response-handler] Meta query but no citations found in response!')
       kbSources = []
     }
   }
@@ -292,10 +358,21 @@ export async function processResponse(
     processedResponse = renumberCitations(processedResponse, webMapping, 'web')
   }
 
-  return {
+  const result = {
     content: processedResponse,
     sources: kbSources,
     webSources,
   }
+  
+  // Log finale per verificare cosa viene ritornato
+  console.log('[response-handler] Final result:', {
+    contentLength: result.content.length,
+    sourcesCount: result.sources.length,
+    webSourcesCount: result.webSources.length,
+    hasCitations: result.content.includes('[cit:'),
+    citationSample: result.content.match(/\[cit:\d+\]/g)?.slice(0, 5) || [],
+  })
+  
+  return result
 }
 
