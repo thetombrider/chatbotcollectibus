@@ -17,6 +17,7 @@ export interface StreamMessage {
  */
 export class StreamController {
   private controller: ReadableStreamDefaultController<Uint8Array>
+  private isClosed: boolean = false
 
   constructor(controller: ReadableStreamDefaultController<Uint8Array>) {
     this.controller = controller
@@ -26,8 +27,18 @@ export class StreamController {
    * Invia un messaggio nello stream
    */
   enqueue(message: StreamMessage): void {
-    const data = `data: ${JSON.stringify(message)}\n\n`
-    this.controller.enqueue(new TextEncoder().encode(data))
+    if (this.isClosed) {
+      return
+    }
+    try {
+      const data = `data: ${JSON.stringify(message)}\n\n`
+      this.controller.enqueue(new TextEncoder().encode(data))
+    } catch (error) {
+      // Controller potrebbe essere chiuso
+      if (error instanceof Error && error.message.includes('closed')) {
+        this.isClosed = true
+      }
+    }
   }
 
   /**
@@ -76,7 +87,16 @@ export class StreamController {
    * Chiude lo stream
    */
   close(): void {
-    this.controller.close()
+    if (this.isClosed) {
+      return
+    }
+    try {
+      this.controller.close()
+      this.isClosed = true
+    } catch (error) {
+      // Controller potrebbe essere già chiuso
+      this.isClosed = true
+    }
   }
 }
 

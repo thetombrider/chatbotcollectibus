@@ -122,11 +122,23 @@ export async function generateResponse(
     },
   ]
 
-  // Disabilita tools se abbiamo già context sufficiente
+  // Disabilita tools solo se abbiamo context E le fonti sono sufficienti
+  // IMPORTANTE: Se le fonti sono insufficienti, permette sempre i tool (anche se c'è un context piccolo)
+  // Questo garantisce che web_search venga chiamato quando necessario
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const streamOptions = (contextText && !(webSearchEnabled && SOURCES_INSUFFICIENT))
+  const shouldDisableTools = contextText && !SOURCES_INSUFFICIENT
+  const streamOptions = shouldDisableTools
     ? { maxToolRoundtrips: 0 }
     : {}
+  
+  console.log('[response-handler] Stream options:', {
+    hasContext: !!contextText,
+    contextLength: contextText?.length || 0,
+    webSearchEnabled,
+    sourcesInsufficient: SOURCES_INSUFFICIENT,
+    shouldDisableTools,
+    maxToolRoundtrips: streamOptions.maxToolRoundtrips || 'unlimited',
+  })
 
   let fullResponse = ''
   let capturedMetaDocuments: Array<{ id: string; filename: string; index: number }> = []
@@ -154,12 +166,22 @@ export async function generateResponse(
             const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
             if (content) {
               if (firstChunk) {
-                streamController.hideStatus()
+                try {
+                  streamController.hideStatus()
+                } catch (error) {
+                  // Controller potrebbe essere chiuso, continua comunque
+                  console.warn('[response-handler] Failed to hide status:', error)
+                }
                 firstChunk = false
               }
               
               fullResponse += content
-              streamController.sendText(content)
+              try {
+                streamController.sendText(content)
+              } catch (error) {
+                // Controller potrebbe essere chiuso, continua comunque
+                console.warn('[response-handler] Failed to send text chunk:', error)
+              }
             }
           }
         } else {
@@ -169,23 +191,39 @@ export async function generateResponse(
         console.error('[response-handler] Stream failed, trying generate():', streamError)
         
         // Fallback a generate() se stream() non funziona
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const generated = await ragAgent.generate(messages as any)
-        
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
-        fullResponse = generatedText
-        
-        if (fullResponse) {
-          streamController.hideStatus()
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const generated = await ragAgent.generate(messages as any)
           
-          // Stream la risposta completa in chunks per simulare lo streaming
-          const words = fullResponse.split(/\s+/)
-          for (const word of words) {
-            const chunk = word + ' '
-            streamController.sendText(chunk)
-            await new Promise(resolve => setTimeout(resolve, 10))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
+          fullResponse = generatedText
+          
+          if (fullResponse) {
+            try {
+              streamController.hideStatus()
+              
+              // Stream la risposta completa in chunks per simulare lo streaming
+              const words = fullResponse.split(/\s+/)
+              for (const word of words) {
+                const chunk = word + ' '
+                try {
+                  streamController.sendText(chunk)
+                } catch (error) {
+                  // Controller chiuso, interrompi lo streaming
+                  console.warn('[response-handler] Stream controller closed during fallback streaming')
+                  break
+                }
+                await new Promise(resolve => setTimeout(resolve, 10))
+              }
+            } catch (error) {
+              // Controller chiuso, continua comunque per salvare la risposta
+              console.warn('[response-handler] Stream controller closed during fallback:', error)
+            }
           }
+        } catch (generateError) {
+          console.error('[response-handler] Generate fallback also failed:', generateError)
+          // Continua comunque per recuperare i risultati dal context
         }
       }
       
@@ -197,6 +235,11 @@ export async function generateResponse(
       console.log('[response-handler] Captured from agent context:', {
         metaDocumentsCount: capturedMetaDocuments.length,
         webResultsCount: capturedWebResults.length,
+        webResultsSample: capturedWebResults.slice(0, 2).map(r => ({
+          index: (r as { index?: number }).index,
+          hasTitle: !!(r as { title?: string }).title,
+          hasUrl: !!(r as { url?: string }).url,
+        })),
       })
     }
   )

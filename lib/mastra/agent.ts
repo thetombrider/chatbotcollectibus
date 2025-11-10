@@ -93,6 +93,13 @@ async function webSearchTool({ query }: { query: string }) {
   const context = getAgentContext()
   // const traceId = context?.traceId || null
 
+  // Log per debugging: verifica se il context è disponibile
+  console.log('[mastra/agent] Web search tool called:', {
+    hasContext: !!context,
+    contextWebResultsLength: context?.webSearchResults?.length || 0,
+    query: query.substring(0, 50),
+  })
+
   // TODO: Re-implement with new Langfuse patterns (createSpan, etc.)
   // const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
   // const toolSpanId = createToolSpan(traceId, 'web_search', { query })
@@ -104,15 +111,6 @@ async function webSearchTool({ query }: { query: string }) {
     
     const results = await searchWeb(query, 5)
     
-    // Salva i risultati nel contesto locale (senza race conditions)
-    if (context) {
-      context.webSearchResults = results.results || []
-    }
-    
-    console.log('[mastra/agent] Web search results saved to context:', {
-      resultsCount: results.results?.length || 0,
-    })
-
     // Formatta i risultati con indici numerici espliciti per le citazioni
     const formattedResults = (results.results || []).map((result, index) => ({
       index: index + 1, // Indice numerico per citazione (1, 2, 3...)
@@ -120,6 +118,21 @@ async function webSearchTool({ query }: { query: string }) {
       url: result.url || '',
       content: result.content || '',
     }))
+    
+    // Salva i risultati FORMATTATI nel contesto locale (senza race conditions)
+    // IMPORTANTE: Salva i risultati formattati con gli indici, non i risultati RAW
+    if (context) {
+      context.webSearchResults = formattedResults
+      console.log('[mastra/agent] Web search results saved to context:', {
+        resultsCount: formattedResults.length,
+        sampleIndex: formattedResults[0]?.index,
+        contextHasResults: context.webSearchResults.length > 0,
+      })
+    } else {
+      console.error('[mastra/agent] WARNING: Context not available when saving web search results!', {
+        resultsCount: formattedResults.length,
+      })
+    }
 
     const toolOutput = {
       results: formattedResults,
