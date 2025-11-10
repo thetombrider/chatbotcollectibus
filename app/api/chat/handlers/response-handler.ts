@@ -74,12 +74,13 @@ export async function generateResponse(
   
   // Logica migliorata per determinare se le fonti sono sufficienti:
   // - Se non ci sono risultati, fonti insufficienti
-  // - Se ci sono >= 3 risultati con similarità media >= 0.30, fonti sufficienti
-  // - Se ci sono < 3 risultati ma similarità media >= 0.40, fonti sufficienti
+  // - Se ci sono >= 3 risultati con similarità media >= 0.50, fonti sufficienti (alzato da 0.30 per evitare risultati semanticamente non correlati)
+  // - Se ci sono < 3 risultati ma similarità media >= 0.55, fonti sufficienti (alzato da 0.40)
   // - Altrimenti fonti insufficienti
+  // NOTA: soglie più alte = maggiore rilevanza semantica richiesta per considerare le fonti sufficienti
   const SOURCES_INSUFFICIENT = relevantResults.length === 0 || 
-    (relevantResults.length < 3 && avgSimilarity < 0.40) ||
-    (relevantResults.length >= 3 && avgSimilarity < 0.30)
+    (relevantResults.length < 3 && avgSimilarity < 0.55) ||
+    (relevantResults.length >= 3 && avgSimilarity < 0.50)
   
   // Log per debugging
   console.log('[response-handler] Sources evaluation:', {
