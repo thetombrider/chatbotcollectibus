@@ -104,9 +104,6 @@ export async function saveAssistantMessage(
     query_enhanced?: boolean
     original_query?: string
     enhanced_query?: string
-    meta_query_documents?: Array<{ id: string; filename: string; index: number; folder?: string | null }>
-    meta_query_document_ids?: string[]
-    meta_query_folder?: string | null
   }
 ): Promise<void> {
   try {
@@ -132,38 +129,6 @@ export async function saveAssistantMessage(
     }
   } catch (err) {
     console.error('[message-service] Failed to save assistant message:', err)
-  }
-}
-
-/**
- * Recupera la metadata dell'ultimo messaggio assistant per la conversazione
- */
-export async function getLatestAssistantMetadata(
-  conversationId: string
-): Promise<Record<string, unknown> | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('messages')
-      .select('metadata')
-      .eq('conversation_id', conversationId)
-      .eq('role', 'assistant')
-      .order('created_at', { ascending: false })
-      .limit(1)
-
-    if (error) {
-      console.error('[message-service] Failed to fetch latest assistant metadata:', error)
-      return null
-    }
-
-    const metadata = data?.[0]?.metadata
-    if (!metadata) {
-      return null
-    }
-
-    return metadata as Record<string, unknown>
-  } catch (error) {
-    console.error('[message-service] Unexpected error fetching assistant metadata:', error)
-    return null
   }
 }
 

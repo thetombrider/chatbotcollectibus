@@ -19,6 +19,13 @@ export interface MetaDocument {
   filename: string
   index: number
   folder?: string | null
+  chunkCount?: number
+  contentPreview?: string
+  chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+  fileType?: string
+  createdAt?: string
+  updatedAt?: string
+  processingStatus?: string | null
 }
 
 /**

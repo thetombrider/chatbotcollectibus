@@ -16,6 +16,7 @@ import {
   extractCitedIndices 
 } from '@/lib/services/citation-service'
 import type { Source } from '@/lib/services/citation-service'
+import type { MetaDocument } from '../services/source-service'
 import type { StreamController } from './stream-handler'
 import { 
   createGeneration,
@@ -34,7 +35,7 @@ export interface ResponseContext {
   context: string | null
   sources: Source[]
   webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
-  metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
+  metaQueryDocuments?: MetaDocument[]
   metaQueryChunks?: SearchResult[]
   webSearchEnabled: boolean
   articleNumber?: number
@@ -49,7 +50,7 @@ export interface ResponseResult {
 
 export interface GenerateResponseResult {
   fullResponse: string
-  metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
+  metaQueryDocuments?: MetaDocument[]
   metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti meta query
   webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
 }

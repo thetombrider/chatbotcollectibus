@@ -16,6 +16,24 @@ if (!openrouterApiKey) {
   )
 }
 
+const CHUNK_PREVIEW_MAX_LENGTH = 600
+const DOCUMENT_PREVIEW_MAX_LENGTH = 3200
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text
+  }
+  return `${text.slice(0, maxLength)}...`
+}
+
+function normalizeFolderQuery(name: string): string {
+  return name
+    .trim()
+    .replace(/^(di|del|della|dei|degli|delle)\s+/i, '')
+    .replace(/^(la|il|lo|i|gli|le)\s+/i, '')
+    .trim()
+}
+
 /**
  * Context per passare traceId e risultati senza race conditions
  * Usa AsyncLocalStorage per mantenere il contesto per ogni richiesta
@@ -23,7 +41,15 @@ if (!openrouterApiKey) {
 interface AgentContext {
   traceId: string | null
   webSearchResults: any[]
-  metaQueryDocuments: Array<{ id: string; filename: string; index: number }>
+  metaQueryDocuments: Array<{
+    id: string
+    filename: string
+    index: number
+    folder?: string | null
+    chunkCount?: number
+    chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+    contentPreview?: string
+  }>
   metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti recuperati da meta query
 }
 
@@ -278,14 +304,14 @@ async function metaQueryTool({ query }: { query: string }) {
       // Pattern 1: "cartella X" or "folder X"
       const folderPattern1 = query.match(/(?:cartella|folder)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
       if (folderPattern1) {
-        folderQuery = folderPattern1[1].trim()
+        folderQuery = normalizeFolderQuery(folderPattern1[1])
       }
       
       // Pattern 2: "nella X" or "nella cartella X" (more flexible)
       if (!folderQuery) {
         const folderPattern2 = query.match(/(?:nella|nella cartella|nel|nel folder|in|in the|in folder|in cartella)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
         if (folderPattern2) {
-          folderQuery = folderPattern2[1].trim()
+          folderQuery = normalizeFolderQuery(folderPattern2[1])
         }
       }
       
@@ -293,7 +319,7 @@ async function metaQueryTool({ query }: { query: string }) {
       if (!folderQuery) {
         const folderPattern3 = query.match(/(?:contenuti|che sono|presenti|salvati)\s+(?:nella|nel|in)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
         if (folderPattern3) {
-          folderQuery = folderPattern3[1].trim()
+          folderQuery = normalizeFolderQuery(folderPattern3[1])
         }
       }
       
@@ -340,25 +366,59 @@ async function metaQueryTool({ query }: { query: string }) {
       console.log('[mastra/agent] Retrieved chunks for meta query documents:', {
         documentsCount: documents.length,
         chunksCount: documentChunks.length,
-        avgChunksPerDoc: (documentChunks.length / documents.length).toFixed(1),
+        avgChunksPerDoc: documents.length > 0 ? (documentChunks.length / documents.length).toFixed(1) : '0.0',
+      })
+
+      // Organizza i chunks per documento
+      const chunksByDocument = new Map<string, SearchResult[]>()
+      documentChunks.forEach((chunk) => {
+        const current = chunksByDocument.get(chunk.document_id) || []
+        current.push(chunk)
+        chunksByDocument.set(chunk.document_id, current)
+      })
+
+      const documentsDetailed = documents.map((doc, idx) => {
+        const docChunks = (chunksByDocument.get(doc.id) || [])
+          .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
+          .slice(0, chunksPerDocument)
+
+        const chunkPreviews = docChunks.map((chunk) => ({
+          chunkIndex: chunk.chunk_index ?? 0,
+          content: truncateText(chunk.content, CHUNK_PREVIEW_MAX_LENGTH),
+        }))
+
+        const combinedPreview = chunkPreviews.length > 0
+          ? chunkPreviews
+              .map((preview) => `[#${preview.chunkIndex}] ${preview.content}`)
+              .join('\n\n')
+          : ''
+
+        return {
+          id: doc.id,
+          filename: doc.filename,
+          folder: doc.folder || null,
+          index: idx + 1, // Indici partono da 1 per le citazioni
+          chunkCount: doc.chunks_count ?? docChunks.length,
+          chunkPreviews,
+          contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
+          fileType: doc.file_type,
+          createdAt: doc.created_at,
+          updatedAt: doc.updated_at,
+          processingStatus: doc.processing_status,
+        }
       })
       
       // Salva i documenti E i chunks nel contesto locale (senza race conditions)
       const context = getAgentContext()
-      const documentsWithIndex = documents.map((doc, idx) => ({
-        id: doc.id,
-        filename: doc.filename,
-        index: idx + 1, // Indici partono da 1 per le citazioni
-      }))
       
       if (context) {
-        context.metaQueryDocuments = documentsWithIndex
+        context.metaQueryDocuments = documentsDetailed
         // CRITICAL: Salva anche i chunks per passarli come contesto RAG
         context.metaQueryChunks = documentChunks
       }
       
       console.log('[mastra/agent] Meta query documents saved to context:', {
-        documentsCount: documentsWithIndex.length,
+        documentsCount: documentsDetailed.length,
         chunksCount: documentChunks.length,
       })
       
@@ -366,10 +426,7 @@ async function metaQueryTool({ query }: { query: string }) {
         isMeta: true,
         metaType: 'list',
         data: {
-          documents: documents.map((doc, idx) => ({
-            ...doc,
-            citationIndex: idx + 1, // Indice per citazione [cit:N]
-          })),
+          documents: documentsDetailed,
           count: documents.length,
           filters: {
             folder,
@@ -433,7 +490,15 @@ export function clearWebSearchResults(): void {
  * Recupera i documenti dalle query meta dal contesto corrente
  * @returns Array di documenti con id, filename e index
  */
-export function getMetaQueryDocuments(): Array<{ id: string; filename: string; index: number }> {
+export function getMetaQueryDocuments(): Array<{
+  id: string
+  filename: string
+  index: number
+  folder?: string | null
+  chunkCount?: number
+  chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+  contentPreview?: string
+}> {
   const context = getAgentContext()
   return context?.metaQueryDocuments || []
 }
