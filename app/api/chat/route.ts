@@ -17,7 +17,7 @@ import { performSearch } from './handlers/search-handler'
 import { generateResponse, processResponse, type ResponseContext } from './handlers/response-handler'
 import { buildContext, filterRelevantResults } from './services/context-builder'
 import { createKBSources, combineSources } from './services/source-service'
-import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
+import { saveUserMessage, getConversationHistory, saveAssistantMessage, getLatestAssistantMetadata } from './services/message-service'
 import { 
   createChatTrace, 
   createSpan,
@@ -152,15 +152,67 @@ async function handleChatRequest(
     return
   }
 
-  // STEP 6: Vector search
-  const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
+  // STEP 6: Vector search OR Meta query with document chunks
+  // IMPORTANTE: Se la query richiede documenti in una cartella (meta query),
+  // recupera i chunks PRIMA di chiamare l'LLM per avere il contenuto effettivo
+  const isMetaQueryWithDocuments = analysis.isMeta && 
+    (analysis.metaType === 'list' || analysis.metaType === 'folders') &&
+    (message.toLowerCase().includes('documenti') || message.toLowerCase().includes('document') ||
+     message.toLowerCase().includes('riassunto') || message.toLowerCase().includes('summary') ||
+     message.toLowerCase().includes('contenuti'))
+  
+  const isMetaQuery = analysis.isMeta && !isMetaQueryWithDocuments
   
   let searchResults: Awaited<ReturnType<typeof performSearch>> = []
   let relevantResults: Awaited<ReturnType<typeof performSearch>> = []
+  let metaQueryChunks: SearchResult[] = []
   let context: string | null = null
   let kbSources: ReturnType<typeof createKBSources> = []
 
-  if (!isMetaQuery) {
+  if (isMetaQueryWithDocuments) {
+    // PRE-FETCH: Recupera documenti e chunks PRIMA di chiamare l'LLM
+    streamController.sendStatus('Recupero documenti dalla cartella...')
+    console.log('[api/chat] Meta query with documents detected, pre-fetching chunks')
+    
+    // Import necessary functions
+    const { listDocumentsMeta, findBestMatchingFolder } = await import('@/lib/supabase/meta-queries')
+    const { getChunksByDocumentIds } = await import('@/lib/supabase/vector-operations')
+    
+    // Extract folder from query (same logic as in agent.ts)
+    const folderPattern = message.match(/(?:cartella|folder|nella|nel|contenuti)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+    let folder: string | null = null
+    
+    if (folderPattern) {
+      const folderQuery = folderPattern[1].trim()
+      console.log('[api/chat] Extracted folder query:', folderQuery)
+      folder = await findBestMatchingFolder(folderQuery, 0.6)
+      console.log('[api/chat] Matched folder:', folder)
+    }
+    
+    if (folder) {
+      // Recupera documenti dalla cartella
+      const documents = await listDocumentsMeta({ folder, limit: 50 })
+      console.log('[api/chat] Found documents in folder:', { count: documents.length, folder })
+      
+      if (documents.length > 0) {
+        // Recupera chunks (5 per documento per avere overview)
+        const documentIds = documents.map(d => d.id)
+        metaQueryChunks = await getChunksByDocumentIds(documentIds, 5)
+        console.log('[api/chat] Retrieved chunks for meta query:', {
+          chunksCount: metaQueryChunks.length,
+          avgPerDoc: (metaQueryChunks.length / documents.length).toFixed(1),
+        })
+        
+        // Usa i chunks come searchResults per costruire il contesto
+        searchResults = metaQueryChunks
+        relevantResults = metaQueryChunks // Tutti rilevanti perché esplicitamente richiesti
+        
+        // Costruisci contesto dai chunks
+        context = buildContext(relevantResults)
+        kbSources = createKBSources(relevantResults)
+      }
+    }
+  } else if (!isMetaQuery) {
     // Query normale: esegui ricerca vettoriale
     if (analysis.comparativeTerms && analysis.comparativeTerms.length >= 2) {
       streamController.sendStatus(`Analisi comparativa tra ${analysis.comparativeTerms.join(' e ')}...`)

@@ -18,6 +18,7 @@ export interface MetaDocument {
   id: string
   filename: string
   index: number
+  folder?: string | null
 }
 
 /**

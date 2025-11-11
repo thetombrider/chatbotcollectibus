@@ -6,6 +6,85 @@ import type { SearchResult } from './database.types'
  */
 
 /**
+ * Recupera chunks da una lista di document IDs
+ * Utile per meta queries quando vogliamo il contenuto di documenti specifici
+ * 
+ * @param documentIds - Array di document IDs
+ * @param limit - Numero massimo di chunks per documento (default: 5)
+ * @returns Array di SearchResult con i chunks dei documenti specificati
+ */
+export async function getChunksByDocumentIds(
+  documentIds: string[],
+  limit: number = 5
+): Promise<SearchResult[]> {
+  if (documentIds.length === 0) {
+    return []
+  }
+
+  try {
+    console.log('[vector-operations] Fetching chunks for documents:', {
+      documentIds: documentIds.length,
+      limitPerDoc: limit,
+    })
+
+    // Per ogni documento, recupera i primi N chunks (ordinati per chunk_index)
+    const chunkPromises = documentIds.map(async (documentId) => {
+      const { data, error } = await supabaseAdmin
+        .from('document_chunks')
+        .select(`
+          id,
+          content,
+          chunk_index,
+          metadata,
+          document:documents (
+            id,
+            filename,
+            file_type,
+            folder
+          )
+        `)
+        .eq('document_id', documentId)
+        .order('chunk_index', { ascending: true })
+        .limit(limit)
+
+      if (error) {
+        console.error(`[vector-operations] Failed to fetch chunks for document ${documentId}:`, error)
+        return []
+      }
+
+      // Transform to SearchResult format
+      return (data || []).map((chunk) => ({
+        id: chunk.id,
+        content: chunk.content,
+        chunk_index: chunk.chunk_index,
+        metadata: chunk.metadata as Record<string, unknown> | null,
+        document_id: documentId,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        filename: (chunk.document as any)?.filename || 'Unknown',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        file_type: (chunk.document as any)?.file_type || 'unknown',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        folder: (chunk.document as any)?.folder || null,
+        similarity: 0.8, // Fixed high similarity since these are explicitly requested documents
+      }))
+    })
+
+    const allChunks = await Promise.all(chunkPromises)
+    const flattenedChunks = allChunks.flat()
+
+    console.log('[vector-operations] Retrieved chunks:', {
+      total: flattenedChunks.length,
+      perDocument: flattenedChunks.length / documentIds.length,
+    })
+
+    return flattenedChunks
+  } catch (error) {
+    console.error('[vector-operations] getChunksByDocumentIds failed:', error)
+    return []
+  }
+}
+
+/**
  * Cerca chunks simili usando vector similarity
  */
 export async function searchSimilarChunks(

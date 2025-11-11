@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent'
 import { AsyncLocalStorage } from 'async_hooks'
+import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
  * Mastra Agent configuration per RAG
@@ -23,6 +24,7 @@ interface AgentContext {
   traceId: string | null
   webSearchResults: any[]
   metaQueryDocuments: Array<{ id: string; filename: string; index: number }>
+  metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti recuperati da meta query
 }
 
 const agentContextStore = new AsyncLocalStorage<AgentContext>()
@@ -183,6 +185,7 @@ async function metaQueryTool({ query }: { query: string }) {
       listFoldersMeta,
       getDocumentTypesMeta,
       getFolderStats,
+      findBestMatchingFolder,
     } = await import('@/lib/supabase/meta-queries')
 
     // Use unified analysis (cached internally)
@@ -195,11 +198,23 @@ async function metaQueryTool({ query }: { query: string }) {
       }
     }
 
-    const metaType = analysis.metaType
+    let metaType = analysis.metaType // Make it mutable so we can change it
     const queryLower = query.toLowerCase()
 
     // Determine which function to call based on query content and metaType
     let toolOutput: unknown
+    
+    // IMPORTANT: Detect if user wants DOCUMENTS in folder vs INFO about folders
+    // Query like "documenti nella cartella X" should list documents, not folder stats
+    if (metaType === 'folders') {
+      const wantsDocuments = queryLower.includes('documenti') || queryLower.includes('document') || 
+                             queryLower.includes('file') || queryLower.includes('norme') ||
+                             queryLower.includes('elenca') || queryLower.includes('list')
+      if (wantsDocuments) {
+        console.log('[mastra/agent] Folders metaType detected but user wants documents, changing to list')
+        metaType = 'list' // Change to list so it goes to the right branch below
+      }
+    }
 
     if (metaType === 'stats' || queryLower.includes('quanti') || queryLower.includes('statistiche') || queryLower.includes('statistics')) {
       // Statistics query
@@ -209,8 +224,9 @@ async function metaQueryTool({ query }: { query: string }) {
         metaType: 'stats',
         data: stats,
       }
-    } else if (metaType === 'folders' || queryLower.includes('cartelle') || queryLower.includes('folder')) {
-      // Folders query
+    } else if ((metaType === 'folders' || queryLower.includes('cartelle') || queryLower.includes('folder')) && !toolOutput) {
+      // Folders info query (list of folders, folder statistics)
+      // Note: If user wants DOCUMENTS in folder, metaType is already changed to 'list' above
       const folders = await listFoldersMeta()
       
       // Check if asking about specific folder
@@ -235,7 +251,9 @@ async function metaQueryTool({ query }: { query: string }) {
           },
         }
       }
-    } else if (metaType === 'structure' || queryLower.includes('tipo') || queryLower.includes('type') || queryLower.includes('formato') || queryLower.includes('format')) {
+    }
+    
+    if ((metaType === 'structure' || queryLower.includes('tipo') || queryLower.includes('type') || queryLower.includes('formato') || queryLower.includes('format')) && !toolOutput) {
       // Document types query
       const types = await getDocumentTypesMeta()
       toolOutput = {
@@ -245,17 +263,53 @@ async function metaQueryTool({ query }: { query: string }) {
           documentTypes: types,
         },
       }
-    } else if (metaType === 'list' || queryLower.includes('elenca') || queryLower.includes('lista') || queryLower.includes('list') || queryLower.includes('quali') || queryLower.includes('che norme') || queryLower.includes('che documenti')) {
+    }
+    
+    if ((metaType === 'list' || queryLower.includes('elenca') || queryLower.includes('lista') || queryLower.includes('list') || queryLower.includes('quali') || queryLower.includes('che norme') || queryLower.includes('che documenti')) && !toolOutput) {
       // List documents query
       // Try to extract filters from query
       let folder: string | null | undefined
       let fileType: string | undefined
       let limit = 50
       
-      // Extract folder filter
-      const folderMatch = query.match(/(?:cartella|folder|in)\s+["']?([^"']+)["']?/i)
-      if (folderMatch) {
-        folder = folderMatch[1]
+      // IMPROVED: Extract folder filter with better patterns
+      let folderQuery: string | null = null
+      
+      // Pattern 1: "cartella X" or "folder X"
+      const folderPattern1 = query.match(/(?:cartella|folder)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+      if (folderPattern1) {
+        folderQuery = folderPattern1[1].trim()
+      }
+      
+      // Pattern 2: "nella X" or "nella cartella X" (more flexible)
+      if (!folderQuery) {
+        const folderPattern2 = query.match(/(?:nella|nella cartella|nel|nel folder|in|in the|in folder|in cartella)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+        if (folderPattern2) {
+          folderQuery = folderPattern2[1].trim()
+        }
+      }
+      
+      // Pattern 3: "contenuti nella X" or "che sono in X"
+      if (!folderQuery) {
+        const folderPattern3 = query.match(/(?:contenuti|che sono|presenti|salvati)\s+(?:nella|nel|in)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+        if (folderPattern3) {
+          folderQuery = folderPattern3[1].trim()
+        }
+      }
+      
+      console.log('[mastra/agent] Extracted folder query:', folderQuery)
+      
+      // If we found a folder query, use fuzzy matching to find the best match
+      if (folderQuery) {
+        const matchedFolder = await findBestMatchingFolder(folderQuery, 0.6)
+        if (matchedFolder) {
+          folder = matchedFolder
+          console.log('[mastra/agent] Using matched folder:', folder)
+        } else {
+          // No good match found, try using the raw query as-is (might be exact)
+          folder = folderQuery
+          console.log('[mastra/agent] No fuzzy match found, using raw folder query:', folder)
+        }
       }
       
       // Extract file type filter
@@ -276,7 +330,20 @@ async function metaQueryTool({ query }: { query: string }) {
         limit,
       })
       
-      // Salva i documenti nel contesto locale (senza race conditions)
+      // IMPORTANT: Recupera i chunks dei documenti trovati
+      // Questo permette all'LLM di avere il CONTENUTO effettivo, non solo i nomi
+      const { getChunksByDocumentIds } = await import('@/lib/supabase/vector-operations')
+      const documentIds = documents.map(doc => doc.id)
+      const chunksPerDocument = 5 // Primi 5 chunks per documento per avere overview
+      const documentChunks = await getChunksByDocumentIds(documentIds, chunksPerDocument)
+      
+      console.log('[mastra/agent] Retrieved chunks for meta query documents:', {
+        documentsCount: documents.length,
+        chunksCount: documentChunks.length,
+        avgChunksPerDoc: (documentChunks.length / documents.length).toFixed(1),
+      })
+      
+      // Salva i documenti E i chunks nel contesto locale (senza race conditions)
       const context = getAgentContext()
       const documentsWithIndex = documents.map((doc, idx) => ({
         id: doc.id,
@@ -286,10 +353,13 @@ async function metaQueryTool({ query }: { query: string }) {
       
       if (context) {
         context.metaQueryDocuments = documentsWithIndex
+        // CRITICAL: Salva anche i chunks per passarli come contesto RAG
+        context.metaQueryChunks = documentChunks
       }
       
       console.log('[mastra/agent] Meta query documents saved to context:', {
         documentsCount: documentsWithIndex.length,
+        chunksCount: documentChunks.length,
       })
       
       toolOutput = {
@@ -366,6 +436,15 @@ export function clearWebSearchResults(): void {
 export function getMetaQueryDocuments(): Array<{ id: string; filename: string; index: number }> {
   const context = getAgentContext()
   return context?.metaQueryDocuments || []
+}
+
+/**
+ * Recupera i chunks dei documenti dalle query meta dal contesto corrente
+ * @returns Array di SearchResult con i chunks dei documenti meta query
+ */
+export function getMetaQueryChunks(): SearchResult[] {
+  const context = getAgentContext()
+  return context?.metaQueryChunks || []
 }
 
 /**

@@ -4,7 +4,7 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { ragAgentFlash, ragAgentPro, runWithAgentContext, getMetaQueryDocuments, getWebSearchResults } from '@/lib/mastra/agent'
+import { ragAgentFlash, ragAgentPro, runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
@@ -35,6 +35,7 @@ export interface ResponseContext {
   sources: Source[]
   webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
   metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
+  metaQueryChunks?: SearchResult[]
   webSearchEnabled: boolean
   articleNumber?: number
   traceContext?: TraceContext | null
@@ -49,6 +50,7 @@ export interface ResponseResult {
 export interface GenerateResponseResult {
   fullResponse: string
   metaQueryDocuments?: Array<{ id: string; filename: string; index: number }>
+  metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti meta query
   webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
 }
 
@@ -142,6 +144,7 @@ export async function generateResponse(
 
   let fullResponse = ''
   let capturedMetaDocuments: Array<{ id: string; filename: string; index: number }> = []
+  let capturedMetaChunks: SearchResult[] = []
   let capturedWebResults: Array<{ index: number; title: string; url: string; content: string }> = []
 
   // Select the appropriate agent based on query type
@@ -156,7 +159,8 @@ export async function generateResponse(
     {
       traceId: context.traceContext?.traceId || null,
       webSearchResults: [],
-      metaQueryDocuments: [],
+      metaQueryDocuments: context.metaQueryDocuments || [],
+      metaQueryChunks: context.metaQueryChunks || [],
     },
     async () => {
       try {
@@ -234,13 +238,15 @@ export async function generateResponse(
         }
       }
       
-      // IMPORTANTE: Recupera i documenti dal context PRIMA di uscire da runWithAgentContext
+      // IMPORTANTE: Recupera i documenti E chunks dal context PRIMA di uscire da runWithAgentContext
       // Se non lo facciamo qui, il context dell'AsyncLocalStorage viene perso
       capturedMetaDocuments = getMetaQueryDocuments()
+      capturedMetaChunks = getMetaQueryChunks()
       capturedWebResults = getWebSearchResults()
       
       console.log('[response-handler] Captured from agent context:', {
         metaDocumentsCount: capturedMetaDocuments.length,
+        metaChunksCount: capturedMetaChunks.length,
         webResultsCount: capturedWebResults.length,
         webResultsSample: capturedWebResults.slice(0, 2).map(r => ({
           index: (r as { index?: number }).index,
@@ -285,6 +291,7 @@ export async function generateResponse(
   return {
     fullResponse,
     metaQueryDocuments: capturedMetaDocuments,
+    metaQueryChunks: capturedMetaChunks as SearchResult[], // Chunks effettivi per contesto RAG
     webSearchResults: capturedWebResults.map((r: unknown) => ({
       index: (r as { index: number }).index,
       title: (r as { title: string }).title || 'Senza titolo',

@@ -200,6 +200,99 @@ export async function listDocumentsMeta(
 }
 
 /**
+ * Find the best matching folder name using fuzzy matching
+ * 
+ * @param queryFolderName - Folder name extracted from user query
+ * @param threshold - Minimum similarity score (0-1, default 0.6)
+ * @returns Best matching folder name or null if no good match
+ * 
+ * @example
+ * // User query: "cartella Codice condotta"
+ * // Database has: "Codice di Condotta Fornitori"
+ * const match = await findBestMatchingFolder("Codice condotta") // Returns "Codice di Condotta Fornitori"
+ */
+export async function findBestMatchingFolder(
+  queryFolderName: string,
+  threshold: number = 0.6
+): Promise<string | null> {
+  try {
+    console.log('[meta-queries] Finding best matching folder for:', queryFolderName)
+    
+    // Get all existing folders
+    const folders = await listFoldersMeta()
+    
+    if (folders.length === 0) {
+      console.log('[meta-queries] No folders found in database')
+      return null
+    }
+    
+    const queryLower = queryFolderName.toLowerCase().trim()
+    
+    // Calculate similarity scores for each folder
+    const scores = folders.map(folder => {
+      const folderLower = folder.name.toLowerCase()
+      
+      // Check for exact match first
+      if (folderLower === queryLower) {
+        return { folder: folder.name, score: 1.0 }
+      }
+      
+      // Check if query is contained in folder name
+      if (folderLower.includes(queryLower)) {
+        return { folder: folder.name, score: 0.9 }
+      }
+      
+      // Check if folder name is contained in query
+      if (queryLower.includes(folderLower)) {
+        return { folder: folder.name, score: 0.85 }
+      }
+      
+      // Calculate word-based similarity (Jaccard similarity)
+      const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2)
+      const folderWords = folderLower.split(/\s+/).filter(w => w.length > 2)
+      
+      if (queryWords.length === 0 || folderWords.length === 0) {
+        return { folder: folder.name, score: 0 }
+      }
+      
+      const intersection = queryWords.filter(w => 
+        folderWords.some(fw => fw.includes(w) || w.includes(fw))
+      ).length
+      
+      const union = new Set([...queryWords, ...folderWords]).size
+      const jaccardScore = intersection / union
+      
+      return { folder: folder.name, score: jaccardScore }
+    })
+    
+    // Sort by score descending
+    scores.sort((a, b) => b.score - a.score)
+    
+    const bestMatch = scores[0]
+    
+    console.log('[meta-queries] Folder matching results:', {
+      query: queryFolderName,
+      bestMatch: bestMatch?.folder,
+      score: bestMatch?.score.toFixed(3),
+      threshold,
+      allScores: scores.slice(0, 3).map(s => ({ folder: s.folder, score: s.score.toFixed(3) })),
+    })
+    
+    // Return best match if above threshold
+    if (bestMatch && bestMatch.score >= threshold) {
+      console.log(`[meta-queries] Folder match found: "${bestMatch.folder}" (score: ${bestMatch.score.toFixed(3)})`)
+      return bestMatch.folder
+    }
+    
+    console.log(`[meta-queries] No good folder match found (best score: ${bestMatch?.score.toFixed(3)})`)
+    return null
+  } catch (error) {
+    console.error('[meta-queries] findBestMatchingFolder failed:', error)
+    return null
+  }
+}
+
+/**
  * List all folders with document counts and statistics
  * 
  * @returns Array of folder metadata
