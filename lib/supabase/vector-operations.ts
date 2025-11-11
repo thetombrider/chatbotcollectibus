@@ -35,6 +35,7 @@ export async function getChunksByDocumentIds(
           id,
           content,
           chunk_index,
+          created_at,
           metadata,
           document:documents (
             id,
@@ -57,7 +58,8 @@ export async function getChunksByDocumentIds(
         id: chunk.id,
         content: chunk.content,
         chunk_index: chunk.chunk_index,
-        metadata: chunk.metadata as Record<string, unknown> | null,
+        created_at: chunk.created_at,
+        metadata: (chunk.metadata as Record<string, unknown> | null) ?? undefined,
         document_id: documentId,
         document_filename: (chunk.document as any)?.filename || 'Unknown',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

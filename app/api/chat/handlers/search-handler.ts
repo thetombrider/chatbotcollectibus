@@ -15,6 +15,10 @@ import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 import { createSpan, endSpan, type TraceContext } from '@/lib/observability/langfuse'
 
+const COMPARATIVE_PER_TERM_LIMIT = 8
+const COMPARATIVE_TARGET_RESULTS = 20
+const COMPARATIVE_FALLBACK_LIMIT = 20
+
 /**
  * Esegue ricerche multiple per query comparative e combina i risultati
  * 
@@ -50,7 +54,14 @@ export async function performMultiQuerySearch(
       )
       
       // Ricerca con threshold più alto per risultati più rilevanti
-      const results = await hybridSearch(targetedEmbedding, targetedQuery, 8, 0.25, 0.7, articleNumber)
+      const results = await hybridSearch(
+        targetedEmbedding,
+        targetedQuery,
+        COMPARATIVE_PER_TERM_LIMIT,
+        0.25,
+        0.7,
+        articleNumber
+      )
       
       console.log(`[search-handler] Results for ${term}:`, results.length, 
         results.length > 0 ? `(best: ${results[0]?.similarity.toFixed(3)})` : '')
@@ -88,15 +99,22 @@ export async function performMultiQuerySearch(
   
   const combined = Array.from(combinedMap.values())
     .sort((a: SearchResult, b: SearchResult) => b.similarity - a.similarity)
-    .slice(0, 15) // Top 15 per avere più diversità
+    .slice(0, COMPARATIVE_TARGET_RESULTS) // Top 20 per avere più diversità
   
   console.log('[search-handler] Combined results:', combined.length, 
     combined.length > 0 ? `(best: ${combined[0]?.similarity.toFixed(3)})` : '')
   
   // Se abbiamo pochi risultati dalla multi-query, aggiungi anche dalla query originale
-  if (combined.length < 10) {
+  if (combined.length < COMPARATIVE_TARGET_RESULTS) {
     console.log('[search-handler] Adding results from original query to boost coverage')
-    const originalResults = await hybridSearch(originalEmbedding, originalQuery, 10, 0.25, 0.7, articleNumber)
+    const originalResults = await hybridSearch(
+      originalEmbedding,
+      originalQuery,
+      COMPARATIVE_FALLBACK_LIMIT,
+      0.25,
+      0.7,
+      articleNumber
+    )
     
     originalResults.forEach((result: SearchResult) => {
       if (!combinedMap.has(result.id)) {
@@ -106,7 +124,7 @@ export async function performMultiQuerySearch(
     
     // Riordina e limita
     combined.sort((a: SearchResult, b: SearchResult) => b.similarity - a.similarity)
-    combined.splice(15)
+    combined.splice(COMPARATIVE_TARGET_RESULTS)
   }
   
   return combined
