@@ -283,7 +283,8 @@ Now expand the query. Respond with ONLY the expanded query text, nothing else.`
  */
 export async function enhanceQueryIfNeeded(
   query: string,
-  analysisResult?: QueryAnalysisResult
+  analysisResult?: QueryAnalysisResult,
+  conversationHistory?: Array<{ role: 'user' | 'assistant', content: string }>
 ): Promise<EnhancementResult> {
   // Feature flag check
   if (!ENABLE_QUERY_ENHANCEMENT) {
@@ -343,11 +344,11 @@ export async function enhanceQueryIfNeeded(
     } else if (analysis.intent === 'comparison' && analysis.comparativeTerms) {
       // Comparison: expand each term separately
       console.log('[query-enhancement] Comparison query detected, expanding terms...')
-      enhancedQuery = await expandQueryByIntent(query, analysis)
+      enhancedQuery = await expandQueryByIntent(query, analysis, conversationHistory)
     } else {
       // Other intents: use intent-based expansion
       console.log(`[query-enhancement] Intent "${analysis.intent}" detected, expanding...`)
-      enhancedQuery = await expandQueryByIntent(query, analysis)
+      enhancedQuery = await expandQueryByIntent(query, analysis, conversationHistory)
     }
     
     // Step 4: Determine if enhancement was applied

@@ -36,6 +36,8 @@ export const PROMPTS = {
 const promptCache = new Map<string, { prompt: PromptClientType; fetchedAt: number }>()
 
 // Cache TTL: 5 minutes (configurable)
+// Set PROMPT_CACHE_DISABLED=true to disable caching entirely (useful for development)
+const CACHE_DISABLED = process.env.PROMPT_CACHE_DISABLED === 'true'
 const CACHE_TTL_MS = parseInt(process.env.PROMPT_CACHE_TTL_MS || '300000', 10)
 
 /**
@@ -70,13 +72,17 @@ export async function getPrompt(
   const { label = 'production', version, skipCache = false } = options
 
   try {
-    // Check cache first (unless skipCache is true)
-    if (!skipCache) {
+    // Check cache first (unless skipCache is true or cache is disabled)
+    if (!skipCache && !CACHE_DISABLED) {
       const cached = promptCache.get(promptName)
       if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
         console.log(`[prompt-manager] Cache hit for prompt: ${promptName}`)
         return cached.prompt
       }
+    }
+    
+    if (CACHE_DISABLED) {
+      console.log(`[prompt-manager] Cache disabled, fetching from Langfuse: ${promptName}`)
     }
 
     // Fetch from Langfuse
@@ -100,11 +106,13 @@ export async function getPrompt(
       return null
     }
 
-    // Update cache
-    promptCache.set(promptName, {
-      prompt,
-      fetchedAt: Date.now(),
-    })
+    // Update cache (unless cache is disabled)
+    if (!CACHE_DISABLED) {
+      promptCache.set(promptName, {
+        prompt,
+        fetchedAt: Date.now(),
+      })
+    }
 
     console.log(`[prompt-manager] Prompt fetched successfully: ${promptName}`, {
       version: prompt.version,

@@ -226,7 +226,7 @@ const QUERY_EXPANSION_PROMPT = {
     type: 'text' as const,
     prompt: `You are a semantic query expander for a consulting knowledge base.
 
-Original query: "{{query}}"
+{{conversationContext}}Original query: "{{query}}"
 Intent: {{intent}}
 {{intentContext}}
 
@@ -243,10 +243,17 @@ Rules:
 - Do NOT add questions or complete sentences
 - Do NOT change the original intent
 - Combine original query + expansions naturally
+- IMPORTANT: If the conversation context mentions specific documents/folders/topics, preserve those references in the expansion
+- If previous messages mention "cartella X" or "documenti Y", include those specific names in the expanded query
 
 Example:
 Original: "GDPR"
 Expanded: "GDPR General Data Protection Regulation protezione dati personali privacy regolamento europeo privacy by design data subject rights"
+
+Example with context:
+Previous: "User: dimmi i documenti nella cartella Codice di condotta fornitori"
+Original: "quali principi vengono definiti"
+Expanded: "quali principi vengono definiti all'interno dei documenti Codice di condotta fornitori principi etici sostenibilità diritti umani"
 
 Now expand the query. Respond with ONLY the expanded query text, nothing else.`,
     config: {

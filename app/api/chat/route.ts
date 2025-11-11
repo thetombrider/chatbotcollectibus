@@ -63,15 +63,22 @@ async function handleChatRequest(
     )
   }
 
-  // STEP 1: Salva messaggio utente
-  if (conversationId) {
-    await saveUserMessage(conversationId, message)
-  }
-
-  // STEP 2: Recupera cronologia conversazione
+  // STEP 1: Recupera cronologia conversazione (PRIMA di salvare il messaggio corrente)
+  // Questo ci dà il contesto dei messaggi PRECEDENTI, non quello corrente
   const conversationHistory = conversationId
     ? await getConversationHistory(conversationId)
     : []
+  
+  console.log('[api/chat] Conversation history retrieved:', {
+    conversationId,
+    historyLength: conversationHistory.length,
+    lastMessages: conversationHistory.slice(-2).map(m => ({ role: m.role, preview: m.content.substring(0, 50) }))
+  })
+
+  // STEP 2: Salva messaggio utente (DOPO aver recuperato la history)
+  if (conversationId) {
+    await saveUserMessage(conversationId, message)
+  }
 
   // STEP 3: Analisi query
   streamController.sendStatus('Analisi della query...')
@@ -84,13 +91,13 @@ async function handleChatRequest(
     articleNumber: analysis.articleNumber,
   })
 
-  // STEP 4: Enhancement query
+  // STEP 4: Enhancement query (with conversation history)
   streamController.sendStatus('Miglioramento query...')
   const enhancementSpan = traceContext ? createSpan(traceContext.trace, 'query-enhancement', { 
     original: message, 
     analysis 
   }) : null
-  const enhancement = await enhanceQueryIfNeeded(message, analysis)
+  const enhancement = await enhanceQueryIfNeeded(message, analysis, conversationHistory)
   const queryToEmbed = enhancement.enhanced
   const articleNumber = analysis.articleNumber || enhancement.articleNumber
   endSpan(enhancementSpan, {

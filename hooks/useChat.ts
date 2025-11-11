@@ -41,6 +41,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     onConversationCreatedRef.current = onConversationCreated
   }, [onConversationCreated])
 
+  // CRITICAL FIX: Sync internal conversationId state when prop changes
+  // Without this, the hook keeps using the old (null) conversationId even after
+  // the parent component sets it, causing new conversations to be created
+  useEffect(() => {
+    if (initialConversationId !== undefined && initialConversationId !== conversationId) {
+      console.log('[useChat] Syncing conversationId from prop:', {
+        from: conversationId,
+        to: initialConversationId,
+      })
+      setConversationId(initialConversationId)
+    }
+  }, [initialConversationId, conversationId])
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
@@ -96,7 +109,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         skipCache,
       }
       
-      console.log('[useChat] Sending request with webSearchEnabled:', webSearchEnabled)
+      console.log('[useChat] Sending request:', {
+        messagePreview: messageContent.substring(0, 50),
+        conversationId: currentConversationId,
+        webSearchEnabled,
+        skipCache,
+      })
       
       const res = await fetch('/api/chat', {
         method: 'POST',

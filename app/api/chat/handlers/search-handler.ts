@@ -155,32 +155,43 @@ export async function performSearch(
     ? vectorResults.reduce((sum, r) => sum + r.similarity, 0) / vectorResults.length
     : 0
   
-  // Strategia 1+2: Cerca sempre per nome file se ci sono termini chiave,
-  // ma con priorità quando similarità vettoriale è bassa (< 0.5)
+  // Filename search è un FALLBACK: viene usata SOLO quando la similarità vettoriale è bassa
+  // NOTA: Per query comparative, disabilita completamente il fallback
+  //       perché già usano retrieval potenziato (15 chunks) e modello Pro
   const possibleFilenames = extractPossibleFilenames(query)
   let filenameResults: SearchResult[] = []
   
-  // Cerca per nome file se:
-  // 1. Ci sono termini chiave estratti dalla query, OPPURE
-  // 2. Similarità vettoriale è bassa (< 0.5) - fallback
-  const shouldSearchByFilename = possibleFilenames.length > 0 || avgSimilarity < 0.5
+  // Usa filename search SOLO come fallback quando:
+  // - Similarità vettoriale è bassa (< 0.5) E
+  // - NON è una query comparativa
+  const shouldSearchByFilename = !isComparative && avgSimilarity < 0.5
   
   if (shouldSearchByFilename) {
+    console.log('[search-handler] Low vector similarity detected (avg:', avgSimilarity.toFixed(3), '), using filename search as fallback')
+    
+    // Estrai termini dalla query per la ricerca filename
+    let searchTerms: string[] = []
+    
+    // Se ci sono possibili filenames espliciti, usali
     if (possibleFilenames.length > 0) {
-      console.log('[search-handler] Possible filenames detected:', possibleFilenames)
+      searchTerms = possibleFilenames
+      console.log('[search-handler] Using detected filenames:', possibleFilenames)
     } else {
-      console.log('[search-handler] Low vector similarity detected (avg:', avgSimilarity.toFixed(3), '), using filename search as fallback')
-      // Se non ci sono termini chiave ma similarità è bassa, estrai termini dalla query originale
+      // Altrimenti, estrai termini dalla query originale
       const queryTerms = query
         .toLowerCase()
         .split(/\s+/)
         .filter(term => term.length >= 3)
         .slice(0, 5) // Prendi i primi 5 termini significativi
-      possibleFilenames.push(...queryTerms)
+      searchTerms = queryTerms
+      console.log('[search-handler] Extracted query terms for filename search:', queryTerms)
     }
     
-    filenameResults = await searchByFilename(possibleFilenames, 10)
+    filenameResults = await searchByFilename(searchTerms, 10)
     console.log('[search-handler] Filename search results:', filenameResults.length)
+  } else if (possibleFilenames.length > 0 && avgSimilarity >= 0.5) {
+    // Log informativo: abbiamo possibili filenames ma non li usiamo perché la similarità è buona
+    console.log('[search-handler] Filenames detected but similarity is good (avg:', avgSimilarity.toFixed(3), '), skipping filename search')
   }
 
   // Combina risultati vettoriali e per nome file

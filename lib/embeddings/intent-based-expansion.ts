@@ -114,7 +114,8 @@ const EXPANSION_STRATEGIES = new Map<QueryIntent, ExpansionStrategy>([
  */
 export async function expandQueryByIntent(
   query: string,
-  analysis: QueryAnalysisResult
+  analysis: QueryAnalysisResult,
+  conversationHistory?: Array<{ role: 'user' | 'assistant', content: string }>
 ): Promise<string> {
   try {
     const strategy = EXPANSION_STRATEGIES.get(analysis.intent)
@@ -140,9 +141,9 @@ export async function expandQueryByIntent(
       return await expandComparativeQuery(query, analysis.comparativeTerms)
     }
 
-    // LLM-guided expansion
+    // LLM-guided expansion (with conversation history)
     if (strategy.expansionMethod === 'llm_guided') {
-      return await expandWithLLM(query, analysis.intent, strategy.expansionTerms)
+      return await expandWithLLM(query, analysis.intent, strategy.expansionTerms, conversationHistory)
     }
 
     // Custom expander
@@ -182,13 +183,37 @@ function addExpansionTerms(query: string, terms: string[]): string {
 async function expandWithLLM(
   query: string,
   intent: QueryIntent,
-  baseTerms: string[]
+  baseTerms: string[],
+  conversationHistory?: Array<{ role: 'user' | 'assistant', content: string }>
 ): Promise<string> {
   try {
     const intentContext = getIntentContext(intent)
     const baseTermsSection = baseTerms.length > 0
       ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}`
       : ''
+
+    // Build conversation context from last 2-3 messages (if available)
+    // Only include the most recent messages to avoid token overflow
+    console.log('[intent-based-expansion] Conversation history received:', {
+      hasHistory: !!conversationHistory,
+      historyLength: conversationHistory?.length || 0,
+      lastMessages: conversationHistory?.slice(-3).map(m => ({ role: m.role, contentPreview: m.content.substring(0, 50) })) || []
+    })
+    
+    const conversationContext = conversationHistory && conversationHistory.length > 0
+      ? conversationHistory
+          .slice(-3) // Last 3 messages max
+          .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 200)}`)
+          .join('\n')
+      : ''
+
+    const conversationSection = conversationContext 
+      ? `Previous conversation context:\n${conversationContext}\n\n` 
+      : ''
+    
+    if (conversationSection) {
+      console.log('[intent-based-expansion] Using conversation context:', conversationContext.substring(0, 150))
+    }
 
     // Fetch prompt from Langfuse with fallback
     const prompt = await compilePrompt(
@@ -198,10 +223,11 @@ async function expandWithLLM(
         intent,
         intentContext: intentContext ? `Context: ${intentContext}` : '',
         baseTermsSection,
+        conversationContext: conversationSection,
       },
       {
         // Fallback to hard-coded prompt if Langfuse fails
-        fallback: buildFallbackExpansionPrompt(query, intent, intentContext, baseTerms),
+        fallback: buildFallbackExpansionPrompt(query, intent, intentContext, baseTerms, conversationContext),
       }
     )
 
@@ -337,11 +363,12 @@ function buildFallbackExpansionPrompt(
   query: string,
   intent: QueryIntent,
   intentContext: string | null,
-  baseTerms: string[]
+  baseTerms: string[],
+  conversationContext?: string
 ): string {
   return `You are a semantic query expander for a consulting knowledge base.
 
-Original query: "${query}"
+${conversationContext ? `${conversationContext}` : ''}Original query: "${query}"
 Intent: ${intent}
 ${intentContext ? `Context: ${intentContext}` : ''}
 
@@ -351,6 +378,7 @@ Expand this query by adding:
 3. Relevant domain context for ${intent} queries
 4. Alternative phrasings
 ${baseTerms.length > 0 ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}` : ''}
+${conversationContext ? '6. Use the conversation context to preserve references to specific documents/folders mentioned earlier' : ''}
 
 Rules:
 - Keep expansion concise (max 30-40 words total)
@@ -358,6 +386,7 @@ Rules:
 - Do NOT add questions or complete sentences
 - Do NOT change the original intent
 - Combine original query + expansions naturally
+${conversationContext ? '- If the conversation mentions specific documents/folders, include those names in the expansion' : ''}
 
 Example:
 Original: "GDPR"

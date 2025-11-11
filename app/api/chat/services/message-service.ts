@@ -14,6 +14,11 @@ export async function saveUserMessage(
   message: string
 ): Promise<void> {
   try {
+    console.log('[message-service] Saving user message:', {
+      conversationId,
+      messagePreview: message.substring(0, 50),
+    })
+    
     // Conta i messaggi esistenti per verificare se è il primo messaggio
     const { count: messageCount } = await supabaseAdmin
       .from('messages')
@@ -22,11 +27,22 @@ export async function saveUserMessage(
     
     const isFirstMessage = (messageCount || 0) === 0
     
-    await supabaseAdmin.from('messages').insert({
+    console.log('[message-service] Message count check:', {
+      messageCount: messageCount || 0,
+      isFirstMessage,
+    })
+    
+    const { error } = await supabaseAdmin.from('messages').insert({
       conversation_id: conversationId,
       role: 'user',
       content: message,
     })
+    
+    if (error) {
+      console.error('[message-service] Failed to insert user message:', error)
+    } else {
+      console.log('[message-service] User message saved successfully')
+    }
     
     // Aggiorna il titolo della conversazione se è il primo messaggio
     if (isFirstMessage) {
@@ -50,12 +66,24 @@ export async function getConversationHistory(
   limit: number = 10
 ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
   try {
-    const { data: historyMessages } = await supabaseAdmin
+    console.log('[message-service] Fetching conversation history:', { conversationId, limit })
+    
+    const { data: historyMessages, error } = await supabaseAdmin
       .from('messages')
       .select('role, content')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
       .limit(limit)
+    
+    if (error) {
+      console.error('[message-service] Database error fetching history:', error)
+      return []
+    }
+    
+    console.log('[message-service] Retrieved messages:', {
+      count: historyMessages?.length || 0,
+      messageRoles: historyMessages?.map(m => m.role) || [],
+    })
     
     return historyMessages || []
   } catch (err) {
@@ -79,6 +107,12 @@ export async function saveAssistantMessage(
   }
 ): Promise<void> {
   try {
+    console.log('[message-service] Saving assistant message:', {
+      conversationId,
+      contentLength: content.length,
+      contentPreview: content.substring(0, 50),
+    })
+    
     const insertData = {
       conversation_id: conversationId,
       role: 'assistant' as const,
@@ -90,6 +124,8 @@ export async function saveAssistantMessage(
     
     if (error) {
       console.error('[message-service] Failed to save assistant message:', error)
+    } else {
+      console.log('[message-service] Assistant message saved successfully')
     }
   } catch (err) {
     console.error('[message-service] Failed to save assistant message:', err)

@@ -385,77 +385,103 @@ export function clearMetaQueryDocuments(): void {
 // NOTA: Il prompt nelle `instructions` viene sovrascritto dinamicamente in app/api/chat/route.ts
 // tramite la funzione buildSystemPrompt() da lib/llm/system-prompt.ts.
 // Questo prompt statico serve solo come fallback generico e non viene utilizzato nella pratica.
-export const ragAgent = new Agent({
-  name: 'rag-consulting-agent',
+
+// Tools configuration (shared between agents)
+const agentTools = {
+  vector_search: {
+    id: 'vector_search',
+    name: 'vector_search',
+    description: 'Cerca informazioni rilevanti nei documenti caricati',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Query di ricerca',
+        },
+      },
+      required: ['query'],
+    },
+    execute: vectorSearchTool,
+  },
+  semantic_cache: {
+    id: 'semantic_cache',
+    name: 'semantic_cache',
+    description: 'Verifica se esiste una risposta cached per questa query',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Query da verificare',
+        },
+      },
+      required: ['query'],
+    },
+    execute: semanticCacheTool,
+  },
+  web_search: {
+    id: 'web_search',
+    name: 'web_search',
+    description: 'Cerca informazioni sul web quando i documenti nella knowledge base non sono sufficienti per rispondere completamente alla domanda. Usa questo tool solo quando le fonti disponibili non coprono completamente la query dell\'utente. IMPORTANTE: Quando citi i risultati della ricerca web nella tua risposta, usa SEMPRE il formato [web:N] dove N è l\'indice numerico del risultato (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, [web:1,2,3] per più risultati. NON usare altri formati o identificatori.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Query di ricerca web',
+        },
+      },
+      required: ['query'],
+    },
+    execute: webSearchTool,
+  },
+  meta_query: {
+    id: 'meta_query',
+    name: 'meta_query',
+    description: 'Ottieni informazioni sul database stesso (statistiche, liste documenti, cartelle, tipi di file) invece che sul contenuto dei documenti. Usa questo tool quando l\'utente chiede "quanti documenti ci sono", "che norme ci sono salvate", "quali cartelle esistono", "quali tipi di file ci sono", ecc.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Query meta sul database (es. "quanti documenti ci sono", "che norme ci sono", "quali cartelle esistono")',
+        },
+      },
+      required: ['query'],
+    },
+    execute: metaQueryTool,
+  },
+}
+
+/**
+ * Agent con Gemini 2.5 Flash - per query normali
+ * Più veloce ed economico, adatto per la maggior parte delle query
+ */
+export const ragAgentFlash = new Agent({
+  name: 'rag-consulting-agent-flash',
   instructions: `Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.`,
   model: `openrouter/google/gemini-2.5-flash`,
-  tools: {
-    vector_search: {
-      id: 'vector_search',
-      name: 'vector_search',
-      description: 'Cerca informazioni rilevanti nei documenti caricati',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Query di ricerca',
-          },
-        },
-        required: ['query'],
-      },
-      execute: vectorSearchTool,
-    },
-    semantic_cache: {
-      id: 'semantic_cache',
-      name: 'semantic_cache',
-      description: 'Verifica se esiste una risposta cached per questa query',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Query da verificare',
-          },
-        },
-        required: ['query'],
-      },
-      execute: semanticCacheTool,
-    },
-    web_search: {
-      id: 'web_search',
-      name: 'web_search',
-      description: 'Cerca informazioni sul web quando i documenti nella knowledge base non sono sufficienti per rispondere completamente alla domanda. Usa questo tool solo quando le fonti disponibili non coprono completamente la query dell\'utente. IMPORTANTE: Quando citi i risultati della ricerca web nella tua risposta, usa SEMPRE il formato [web:N] dove N è l\'indice numerico del risultato (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, [web:1,2,3] per più risultati. NON usare altri formati o identificatori.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Query di ricerca web',
-          },
-        },
-        required: ['query'],
-      },
-      execute: webSearchTool,
-    },
-    meta_query: {
-      id: 'meta_query',
-      name: 'meta_query',
-      description: 'Ottieni informazioni sul database stesso (statistiche, liste documenti, cartelle, tipi di file) invece che sul contenuto dei documenti. Usa questo tool quando l\'utente chiede "quanti documenti ci sono", "che norme ci sono salvate", "quali cartelle esistono", "quali tipi di file ci sono", ecc.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Query meta sul database (es. "quanti documenti ci sono", "che norme ci sono", "quali cartelle esistono")',
-          },
-        },
-        required: ['query'],
-      },
-      execute: metaQueryTool,
-    },
-  },
+  tools: agentTools,
 })
 
-// React agent - per ora usiamo l'agent stesso
-export const reactRagAgent = ragAgent
+/**
+ * Agent con Gemini 2.5 Pro - per query comparative
+ * Più potente e accurato, utilizzato per analisi comparative complesse che richiedono
+ * ragionamento avanzato e sintesi cross-document
+ */
+export const ragAgentPro = new Agent({
+  name: 'rag-consulting-agent-pro',
+  instructions: `Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.`,
+  model: `openrouter/google/gemini-2.5-pro`,
+  tools: agentTools,
+})
+
+/**
+ * Agent predefinito (Flash) - per retrocompatibilità
+ * @deprecated Usa ragAgentFlash o ragAgentPro invece
+ */
+export const ragAgent = ragAgentFlash
+
+// React agent - per ora usiamo l'agent Flash
+export const reactRagAgent = ragAgentFlash

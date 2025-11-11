@@ -4,7 +4,7 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { ragAgent, runWithAgentContext, getMetaQueryDocuments, getWebSearchResults } from '@/lib/mastra/agent'
+import { ragAgentFlash, ragAgentPro, runWithAgentContext, getMetaQueryDocuments, getWebSearchResults } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
@@ -144,6 +144,13 @@ export async function generateResponse(
   let capturedMetaDocuments: Array<{ id: string; filename: string; index: number }> = []
   let capturedWebResults: Array<{ index: number; title: string; url: string; content: string }> = []
 
+  // Select the appropriate agent based on query type
+  // Use Pro model for comparative queries (better reasoning), Flash for everything else (faster/cheaper)
+  const selectedAgent = analysis.isComparative ? ragAgentPro : ragAgentFlash
+  const modelName = analysis.isComparative ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'
+  
+  console.log(`[response-handler] Using ${modelName} for ${analysis.isComparative ? 'comparative' : 'normal'} query`)
+
   // Esegui l'agent con il contesto per passare traceContext e risultati
   await runWithAgentContext(
     {
@@ -154,7 +161,7 @@ export async function generateResponse(
     async () => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await ragAgent.stream(messages as any, streamOptions as any)
+        const result = await selectedAgent.stream(messages as any, streamOptions as any)
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
@@ -193,7 +200,7 @@ export async function generateResponse(
         // Fallback a generate() se stream() non funziona
         try {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const generated = await ragAgent.generate(messages as any)
+          const generated = await selectedAgent.generate(messages as any)
           
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
