@@ -329,7 +329,7 @@ export async function processResponse(
     hasCitations: processed.content.includes('[cit:'),
     citationSample: processed.content.match(/\[cit:\d+\]/g)?.slice(0, 5) || [],
   })
-
+  
   return {
     content: processed.content,
     sources: processed.kbSources,

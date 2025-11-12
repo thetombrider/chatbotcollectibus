@@ -483,6 +483,160 @@ async function fetchEmbedding(text: string, apiKey: string): Promise<number[]> {
   return embedding as number[]
 }
 
+/**
+ * Expands a single comparative term using LLM with conversation history context
+ * Same logic as expandWithLLM in intent-based-expansion.ts, using Langfuse prompt
+ */
+async function expandComparativeTerm(
+  term: string,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+  openrouterKey: string,
+  langfuseBaseURL: string,
+  langfusePublicKey: string,
+  langfuseSecretKey: string
+): Promise<string> {
+  try {
+    // Build conversation context from last 2-3 messages (if available) - same as sync version
+    console.log('[process-async-job] Conversation history received for term expansion:', {
+      hasHistory: !!conversationHistory,
+      historyLength: conversationHistory?.length || 0,
+      lastMessages: conversationHistory?.slice(-3).map(m => ({ role: m.role, contentPreview: m.content.substring(0, 50) })) || []
+    })
+    
+    const conversationContext = conversationHistory && conversationHistory.length > 0
+      ? conversationHistory
+          .slice(-3) // Last 3 messages max
+          .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 200)}`)
+          .join('\n')
+      : ''
+
+    const conversationSection = conversationContext 
+      ? `Previous conversation context:\n${conversationContext}\n\n` 
+      : ''
+    
+    if (conversationSection) {
+      console.log('[process-async-job] Using conversation context for term expansion:', conversationContext.substring(0, 150))
+    }
+
+    // Intent context for comparison (same as sync version)
+    const intentContext = 'This is a comparison query - expand with terms related to differences, similarities, and comparative analysis'
+    const baseTerms = ['confronto', 'differenza', 'simile', 'comparison', 'difference', 'similarity']
+    const baseTermsSection = baseTerms.length > 0
+      ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}`
+      : ''
+
+    // Fetch prompt from Langfuse (same as sync version)
+    const promptResult = await fetchLangfusePrompt(
+      langfuseBaseURL,
+      langfusePublicKey,
+      langfuseSecretKey,
+      'query-expansion', // PROMPTS.QUERY_EXPANSION
+      'production',
+      {
+        query: term,
+        intent: 'comparison',
+        intentContext: intentContext ? `Context: ${intentContext}` : '',
+        baseTermsSection,
+        conversationContext: conversationSection,
+      }
+    )
+
+    // Use fallback if Langfuse prompt not available (same as sync version)
+    const prompt = promptResult?.text || buildFallbackExpansionPrompt(term, 'comparison', intentContext, baseTerms, conversationContext)
+    const model = (promptResult?.config?.model as string) || 'google/gemini-2.5-flash' // EXPANSION_MODEL from sync version
+
+    console.log('[process-async-job] Using prompt for term expansion:', {
+      term,
+      hasLangfusePrompt: !!promptResult,
+      model,
+      promptLength: prompt.length,
+    })
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openrouterKey}`,
+        'HTTP-Referer': 'https://chatbotcollectibus.vercel.app',
+        'X-Title': 'Consulting RAG Chatbot',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 150, // Same as sync version
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.warn('[process-async-job] Term expansion failed, using original term:', {
+        term,
+        status: response.status,
+        error: errorText.substring(0, 200),
+      })
+      return term
+    }
+
+    const body = await response.json()
+    const expanded = body?.choices?.[0]?.message?.content?.trim() || term
+
+    console.log('[process-async-job] Term expanded:', {
+      original: term.substring(0, 50),
+      intent: 'comparison',
+      expanded: expanded.substring(0, 100),
+    })
+
+    return expanded
+  } catch (error) {
+    console.error('[process-async-job] Term expansion error, using original term:', {
+      term,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return term
+  }
+}
+
+/**
+ * Builds fallback expansion prompt (same as sync version)
+ */
+function buildFallbackExpansionPrompt(
+  query: string,
+  intent: string,
+  intentContext: string | null,
+  baseTerms: string[],
+  conversationContext?: string
+): string {
+  return `You are a semantic query expander for a consulting knowledge base.
+
+${conversationContext ? `${conversationContext}` : ''}Original query: "${query}"
+Intent: ${intent}
+${intentContext ? `Context: ${intentContext}` : ''}
+
+Expand this query by adding:
+1. Related terms and synonyms in both Italian and English
+2. Common acronym expansions (e.g., GDPR → General Data Protection Regulation)
+3. Relevant domain context for ${intent} queries
+4. Alternative phrasings
+${baseTerms.length > 0 ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}` : ''}
+${conversationContext ? '6. Use the conversation context to preserve references to specific documents/folders mentioned earlier' : ''}
+
+Rules:
+- Keep expansion concise (max 30-40 words total)
+- Focus on terms that would appear in relevant documents
+- Do NOT add questions or complete sentences
+- Do NOT change the original intent
+- Combine original query + expansions naturally
+${conversationContext ? '- If the conversation mentions specific documents/folders, include those names in the expansion' : ''}
+
+Return ONLY the expanded query.`
+}
+
 async function hybridSearch(
   supabase: SupabaseClient,
   embedding: number[],
@@ -523,7 +677,17 @@ function deduplicateResults(results: SearchResult[], maxItems: number): SearchRe
     .slice(0, maxItems)
 }
 
-function buildContext(results: SearchResult[], comparativeTerms?: string[]): string {
+/**
+ * Filtra i risultati per soglia di rilevanza (same as synchronous version)
+ */
+function filterRelevantResults(
+  searchResults: SearchResult[],
+  threshold: number = 0.4
+): SearchResult[] {
+  return searchResults.filter((r) => r.similarity >= threshold)
+}
+
+function buildContext(results: SearchResult[]): string {
   if (results.length === 0) {
     return ''
   }
@@ -989,39 +1153,70 @@ async function processComparisonJob(context: JobProcessContext) {
   })
 
   if (payload.analysis.isComparative && payload.analysis.comparativeTerms && payload.analysis.comparativeTerms.length >= 2) {
+    const comparativeTerms = payload.analysis.comparativeTerms // Type guard
     console.log('[process-async-job] Processing comparative terms in parallel:', {
-      terms: payload.analysis.comparativeTerms,
-      count: payload.analysis.comparativeTerms.length,
+      terms: comparativeTerms,
+      count: comparativeTerms.length,
+      hasConversationHistory: conversationHistory.length > 0,
     })
     
-    // Parallelizza le chiamate di embedding e search per i termini comparativi
-    const termPromises = payload.analysis.comparativeTerms.map(async (term, index) => {
-      try {
-        console.log('[process-async-job] Processing term', index + 1, 'of', payload.analysis.comparativeTerms.length, ':', term)
-        const termStartTime = Date.now()
-        const termEmbedding = await fetchEmbedding(term, openaiKey)
-        console.log('[process-async-job] Term embedding fetched:', {
+    // Get Langfuse credentials for prompt fetching (same as sync version)
+    const langfusePublicKey = Deno.env.get('LANGFUSE_PUBLIC_KEY')
+    const langfuseSecretKey = Deno.env.get('LANGFUSE_SECRET_KEY')
+    const langfuseBaseURL = Deno.env.get('LANGFUSE_BASE_URL') || 'https://cloud.langfuse.com'
+    
+    // Expand each term using conversation history and Langfuse prompt (same as synchronous version)
+    console.log('[process-async-job] Expanding comparative terms with conversation history and Langfuse prompt...')
+    const expandedTerms = await Promise.all(
+      comparativeTerms.map(async (term) => {
+        const expanded = await expandComparativeTerm(
           term,
+          conversationHistory,
+          openrouterKey,
+          langfuseBaseURL,
+          langfusePublicKey || '',
+          langfuseSecretKey || ''
+        )
+        console.log('[process-async-job] Term expansion:', {
+          original: term,
+          expanded: expanded.substring(0, 80),
+        })
+        return expanded
+      })
+    )
+    
+    // Parallelizza le chiamate di embedding e search per i termini comparativi ESPANSI
+    const termPromises = expandedTerms.map(async (expandedTerm, index) => {
+      try {
+        const originalTerm = comparativeTerms[index]
+        console.log('[process-async-job] Processing term', index + 1, 'of', expandedTerms.length, ':', {
+          original: originalTerm,
+          expanded: expandedTerm.substring(0, 80),
+        })
+        const termStartTime = Date.now()
+        const termEmbedding = await fetchEmbedding(expandedTerm, openaiKey)
+        console.log('[process-async-job] Term embedding fetched:', {
+          original: originalTerm,
           elapsed: Date.now() - termStartTime,
         })
         const termSearch = await hybridSearch(
           supabase,
           termEmbedding,
-          term,
+          expandedTerm, // Use expanded term for search
           12,
           0.25,
           0.7,
           payload.analysis.articleNumber ?? undefined
         )
         console.log('[process-async-job] Term search completed:', {
-          term,
+          original: originalTerm,
           resultsCount: termSearch.length,
           elapsed: Date.now() - termStartTime,
         })
         return termSearch
       } catch (error) {
         console.error('[process-async-job] Comparative term search failed:', {
-          term,
+          term: comparativeTerms[index],
           error,
         })
         return []
@@ -1039,30 +1234,49 @@ async function processComparisonJob(context: JobProcessContext) {
     searchResults = deduplicateResults(searchResults, 15)
   }
 
+  // Filter relevant results (same as synchronous version)
+  // Threshold più basso per includere più risultati (0.35 invece di 0.40)
+  // Questo permette di includere risultati con similarità 0.35-0.40 che potrebbero essere comunque utili
+  const articleNumber = payload.analysis.articleNumber ?? payload.enhancement.articleNumber
+  const RELEVANCE_THRESHOLD = articleNumber ? 0.1 : 0.35
+  const relevantResults = filterRelevantResults(searchResults, RELEVANCE_THRESHOLD)
+  
+  // Log per debugging (same as synchronous version)
+  const avgSimilarity = relevantResults.length > 0
+    ? relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length
+    : 0
+  console.log('[process-async-job] Search results:', {
+    total: searchResults.length,
+    relevant: relevantResults.length,
+    avgSimilarity: avgSimilarity.toFixed(3),
+    threshold: RELEVANCE_THRESHOLD,
+  })
+
   await appendJobEvent(supabase, job.id, 'retrieval_completed', 'Context retrieved', {
-    results: searchResults.length,
+    results: relevantResults.length,
   })
   await updateJob(supabase, job.id, { progress: 35 })
 
-  const contextText = buildContext(searchResults.slice(0, 12), payload.analysis.comparativeTerms)
-  const initialKBSources = createKBSources(searchResults)
+  // Use same relevantResults for both context and sources (perfect alignment with synchronous version)
+  const contextText = buildContext(relevantResults)
+  const initialKBSources = createKBSources(relevantResults)
   
-  // Extract unique document names for comparative queries
+  // Extract unique document names for comparative queries (from relevantResults)
   const uniqueDocumentNames = Array.from(
-    new Set(searchResults.map(r => r.document_filename).filter(Boolean))
+    new Set(relevantResults.map(r => r.document_filename).filter(Boolean))
   ) as string[]
   
   // Build system prompt using Langfuse (same as synchronous version)
   const systemPromptResult = await buildSystemPromptForEdgeFunction({
     hasContext: true,
     context: contextText,
-    documentCount: Math.min(searchResults.length, 12),
+    documentCount: relevantResults.length,
     uniqueDocumentNames,
     comparativeTerms: payload.analysis.comparativeTerms,
     articleNumber: payload.analysis.articleNumber ?? payload.enhancement.articleNumber,
     webSearchEnabled: payload.webSearchEnabled,
     sourcesInsufficient: false, // We have context, so sources are sufficient
-    avgSimilarity: 0,
+    avgSimilarity,
     isMetaQuery: false,
   })
   
@@ -1137,7 +1351,7 @@ async function processComparisonJob(context: JobProcessContext) {
       query_enhanced: payload.enhancement.shouldEnhance,
       original_query: payload.message,
       enhanced_query: payload.enhancement.enhanced,
-      chunks_used: searchResults.slice(0, 10).map((result) => ({
+      chunks_used: relevantResults.slice(0, 10).map((result) => ({
         id: result.id,
         similarity: result.similarity,
         documentId: result.document_id ?? null,
