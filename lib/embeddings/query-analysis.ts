@@ -89,7 +89,7 @@ function detectTemporalTerms(query: string): { hasTemporal: boolean; temporalTer
     /\b(?:latest|recent|new|updated|newest|current|up-to-date)\b/gi,
     /\b(?:quest'anno|anno corrente|del 2024|del 2025|di recente|negli ultimi)\b/gi,
     /\b(?:da poco|di recente|attualmente|oggi|ora|adesso)\b/gi,
-    /\b(?:che novità|ci sono novità|cosa c'è di nuovo|news)\b/gi,
+    /(?:che novità|ci sono novità|cosa c'è di nuovo|news)/gi,
   ]
   
   const foundTerms: string[] = []
