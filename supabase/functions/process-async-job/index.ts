@@ -528,20 +528,14 @@ function buildContext(results: SearchResult[], comparativeTerms?: string[]): str
     return ''
   }
 
-  const header = comparativeTerms && comparativeTerms.length >= 2
-    ? `I seguenti estratti provengono dai documenti più rilevanti per confrontare ${comparativeTerms.join(' e ')}.`
-    : 'Estratti più rilevanti dalla knowledge base:'
-
-  const body = results
+  // Use same format as synchronous version: [Documento N: nome_file] (no header, no similarity)
+  return results
     .map((result, index) => {
-      const title = result.document_filename ?? `Documento ${index + 1}`
-      const similarity = (result.similarity * 100).toFixed(1)
-      return `### ${index + 1}. ${title} (similarità ${similarity}%)
-${result.content}`
+      const docNumber = index + 1
+      const filename = result.document_filename || 'Documento sconosciuto'
+      return `[Documento ${docNumber}: ${filename}]\n${result.content}`
     })
     .join('\n\n')
-
-  return `${header}\n\n${body}`
 }
 
 interface WorkerAnalysisSummary {
@@ -552,6 +546,280 @@ interface WorkerAnalysisSummary {
 
 function combineSources(kbSources: Source[], webSources: Source[]): Source[] {
   return [...kbSources, ...webSources]
+}
+
+// ============================================================================
+// SYSTEM PROMPT BUILDER (inlined from lib/llm/system-prompt.ts)
+// ============================================================================
+
+interface SystemPromptOptions {
+  hasContext: boolean
+  context?: string
+  documentCount?: number
+  uniqueDocumentNames?: string[]
+  comparativeTerms?: string[]
+  articleNumber?: number
+  webSearchEnabled?: boolean
+  sourcesInsufficient?: boolean
+  avgSimilarity?: number
+  isMetaQuery?: boolean
+}
+
+interface SystemPromptResult {
+  text: string
+  config: Record<string, unknown> | null
+}
+
+async function buildSystemPromptForEdgeFunction(
+  options: SystemPromptOptions
+): Promise<SystemPromptResult> {
+  const {
+    hasContext,
+    context,
+    documentCount = 0,
+    uniqueDocumentNames = [],
+    comparativeTerms,
+    articleNumber,
+    webSearchEnabled = false,
+    sourcesInsufficient = false,
+    avgSimilarity = 0,
+    isMetaQuery = false,
+  } = options
+
+  // Build dynamic sections
+  const citationsSection = buildCitationsSection(documentCount)
+  const articleContext = articleNumber
+    ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
+    : ''
+
+  // Variables for prompt compilation
+  const variables = {
+    context: context || '',
+    documentCount,
+    citationsSection,
+    articleContext,
+    comparativeTerms: comparativeTerms?.join(' e ') || '',
+    uniqueDocuments: uniqueDocumentNames.join(', ') || 'vari documenti',
+    avgSimilarity: avgSimilarity.toFixed(2),
+  }
+
+  try {
+    // Try to fetch from Langfuse
+    const langfusePublicKey = Deno.env.get('LANGFUSE_PUBLIC_KEY')
+    const langfuseSecretKey = Deno.env.get('LANGFUSE_SECRET_KEY')
+    const langfuseBaseURL = Deno.env.get('LANGFUSE_BASE_URL') || 'https://cloud.langfuse.com'
+
+    if (langfusePublicKey && langfuseSecretKey && hasContext && context && comparativeTerms && comparativeTerms.length > 0) {
+      // Fetch comparative prompt from Langfuse
+      const promptName = 'system-rag-comparative'
+      const promptResult = await fetchLangfusePrompt(
+        langfuseBaseURL,
+        langfusePublicKey,
+        langfuseSecretKey,
+        promptName,
+        'production',
+        variables
+      )
+
+      if (promptResult) {
+        return {
+          text: promptResult.text,
+          config: promptResult.config || { model: 'google/gemini-2.5-pro' },
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[process-async-job] Failed to fetch prompt from Langfuse, using fallback:', error)
+  }
+
+  // Fallback to hardcoded prompt
+  return buildFallbackComparativePrompt(
+    comparativeTerms || [],
+    uniqueDocumentNames,
+    context || '',
+    citationsSection
+  )
+}
+
+function buildCitationsSection(documentCount: number): string {
+  return `
+CITAZIONI - REGOLE CRITICHE:
+- Il contesto contiene ${documentCount} documenti numerati da 1 a ${documentCount}
+- Ogni documento inizia con "[Documento N: nome_file]" dove N è il numero del documento (1, 2, 3, ..., ${documentCount})
+- Quando citi informazioni da un documento, usa [cit:N] dove N è il numero ESATTO del documento nel contesto
+- Per citazioni multiple da più documenti, usa [cit:N,M] (es. [cit:1,2] per citare documenti 1 e 2)
+- NON inventare numeri di documento che non esistono nel contesto
+- Gli indici delle citazioni DEVONO corrispondere esattamente ai numeri "[Documento N:" presenti nel contesto
+
+REGOLA CRITICA - VERIFICA NOME FILE:
+- PRIMA di citare un documento, VERIFICA che il nome del file nel contesto corrisponda al contenuto che stai citando
+- Se stai parlando di "GRI 402", DEVI citare il documento che contiene "GRI 402" nel nome del file o nel contenuto
+- NON citare documenti con nomi diversi (es. NON citare "GRI 202" se stai parlando di "GRI 402")
+- Controlla SEMPRE il nome del file nel contesto: "[Documento N: nome_file]" per assicurarti di citare il documento corretto
+
+IMPORTANTE: 
+- NON inventare citazioni
+- Usa citazioni SOLO se il contesto fornito contiene informazioni rilevanti
+- Se citi informazioni, usa SEMPRE il numero corretto del documento dal contesto
+- VERIFICA SEMPRE che il nome del file corrisponda al contenuto che stai citando`
+}
+
+async function fetchLangfusePrompt(
+  baseURL: string,
+  publicKey: string,
+  secretKey: string,
+  promptName: string,
+  label: string,
+  variables: Record<string, string | number>
+): Promise<{ text: string; config: Record<string, unknown> | null } | null> {
+  try {
+    // Use Langfuse SDK for prompt fetching
+    const { Langfuse } = await import('https://esm.sh/langfuse@2.0.0')
+    const langfuse = new Langfuse({
+      publicKey,
+      secretKey,
+      baseURL: baseURL !== 'https://cloud.langfuse.com' ? baseURL : undefined,
+    })
+
+    const prompt = await langfuse.prompt.get(promptName, { label })
+    
+    if (!prompt) {
+      return null
+    }
+
+    // Convert variables to string for compilation
+    const stringVariables = Object.entries(variables).reduce((acc, [key, value]) => {
+      acc[key] = String(value)
+      return acc
+    }, {} as Record<string, string>)
+
+    // Compile prompt with variables
+    const compiled = prompt.compile(stringVariables)
+    
+    // Get config from prompt
+    const config = (prompt as { config?: Record<string, unknown> }).config || null
+    
+    // Handle both text and chat prompts
+    let text: string
+    if (typeof compiled === 'string') {
+      text = compiled
+    } else if (Array.isArray(compiled)) {
+      // Chat prompt - join messages
+      text = compiled.map((msg: { content: string }) => msg.content).join('\n')
+    } else {
+      text = String(compiled)
+    }
+    
+    return { text, config }
+  } catch (error) {
+    console.error('[process-async-job] Error fetching Langfuse prompt:', error)
+    return null
+  }
+}
+
+function buildFallbackComparativePrompt(
+  comparativeTerms: string[],
+  uniqueDocumentNames: string[],
+  context: string,
+  citationsSection: string
+): SystemPromptResult {
+  const uniqueDocuments =
+    uniqueDocumentNames.length > 0 ? uniqueDocumentNames.join(', ') : 'vari documenti'
+
+  const text = `Sei un assistente per un team di consulenza. L'utente ha chiesto un confronto tra: ${comparativeTerms.join(' e ')}. 
+
+Ho trovato informazioni nei seguenti documenti: ${uniqueDocuments}.
+
+Usa il seguente contesto dai documenti per rispondere.${citationsSection}
+
+IMPORTANTE: 
+- Confronta esplicitamente i concetti trovati in entrambe le normative
+- Cita SOLO informazioni presenti nel contesto fornito
+- Se trovi concetti simili in documenti diversi, menzionalo esplicitamente
+- Riconosci che termini correlati possono riferirsi alla stessa cosa (es: CSRD e Corporate Sustainability Reporting Directive sono la stessa cosa)
+- Usa le informazioni dal contesto anche se i termini non corrispondono esattamente
+
+Contesto dai documenti:
+${context}`
+
+  return {
+    text,
+    config: { model: 'google/gemini-2.5-pro' },
+  }
+}
+
+// ============================================================================
+// RESPONSE PROCESSOR (inlined from lib/jobs/response-processor.ts)
+// ============================================================================
+
+interface ResponseAnalysisSummary {
+  intent: string
+  isComparative: boolean
+  comparativeTerms?: string[] | null
+  comparisonType?: string | null
+  isMeta: boolean
+  metaType?: string | null
+}
+
+async function processAssistantResponseForEdgeFunction(options: {
+  content: string
+  kbSources: Source[]
+  analysis: ResponseAnalysisSummary
+  webSearchResults?: WebSearchResult[]
+  metaDocuments?: MetaDocument[]
+}): Promise<{ content: string; kbSources: Source[]; webSources: Source[] }> {
+  const {
+    content,
+    kbSources,
+    analysis,
+    webSearchResults = [],
+    metaDocuments = [],
+  } = options
+
+  let processedContent = normalizeWebCitations(content)
+
+  const citedIndices = extractCitedIndices(processedContent)
+  const webCitedIndices = extractWebCitedIndices(processedContent)
+
+  let workingSources = kbSources
+  if (metaDocuments.length > 0) {
+    workingSources = createMetaSources(metaDocuments)
+  }
+
+  let processedKBSources: Source[] = []
+  const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
+  const hasMetaDocs = metaDocuments.length > 0
+
+  if (!isMetaQuery && !hasMetaDocs) {
+    if (citedIndices.length > 0) {
+      const kbResult = processCitations(processedContent, workingSources, 'cit')
+      processedContent = kbResult.content
+      processedKBSources = kbResult.sources
+    } else {
+      processedKBSources = []
+    }
+  } else {
+    if (citedIndices.length > 0) {
+      processedKBSources = filterSourcesByCitations(citedIndices, workingSources)
+      const mapping = createCitationMapping(citedIndices)
+      processedContent = renumberCitations(processedContent, mapping, 'cit')
+    } else {
+      processedKBSources = []
+    }
+  }
+
+  let webSources: Source[] = []
+  if (webCitedIndices.length > 0 && webSearchResults.length > 0) {
+    webSources = createWebSources(webSearchResults, webCitedIndices)
+    const webMapping = createCitationMapping(webCitedIndices)
+    processedContent = renumberCitations(processedContent, webMapping, 'web')
+  }
+
+  return {
+    content: processedContent,
+    kbSources: processedKBSources,
+    webSources,
+  }
 }
 
 function processContentWithCitations(options: {
@@ -602,8 +870,7 @@ function processContentWithCitations(options: {
 }
 
 async function callOpenRouter(
-  systemPrompt: string,
-  userPrompt: string,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   apiKey: string,
   model: string
 ): Promise<string> {
@@ -626,10 +893,7 @@ async function callOpenRouter(
     body: JSON.stringify({
       model,
       temperature: 0.3,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
+      messages,
     }),
   })
 
@@ -782,16 +1046,43 @@ async function processComparisonJob(context: JobProcessContext) {
 
   const contextText = buildContext(searchResults.slice(0, 12), payload.analysis.comparativeTerms)
   const initialKBSources = createKBSources(searchResults)
+  
+  // Extract unique document names for comparative queries
+  const uniqueDocumentNames = Array.from(
+    new Set(searchResults.map(r => r.document_filename).filter(Boolean))
+  ) as string[]
+  
+  // Build system prompt using Langfuse (same as synchronous version)
+  const systemPromptResult = await buildSystemPromptForEdgeFunction({
+    hasContext: true,
+    context: contextText,
+    documentCount: Math.min(searchResults.length, 12),
+    uniqueDocumentNames,
+    comparativeTerms: payload.analysis.comparativeTerms,
+    articleNumber: payload.analysis.articleNumber ?? payload.enhancement.articleNumber,
+    webSearchEnabled: payload.webSearchEnabled,
+    sourcesInsufficient: false, // We have context, so sources are sufficient
+    avgSimilarity: 0,
+    isMetaQuery: false,
+  })
+  
+  const systemPrompt = systemPromptResult.text
 
-  const systemPrompt = `Sei un consulente esperto che fornisce analisi comparative basate solo sui documenti aziendali forniti. Evidenzia similitudini e differenze in modo strutturato, usa tabelle o bullet dove utile, e indica la fonte (es. Documento, pagina) quando possibile. Se le informazioni sono insufficienti, spiegalo chiaramente.`
-
-  const historyText = conversationHistory.length > 0
-    ? `Cronologia conversazione:\n${conversationHistory
-        .map((msg) => `${msg.role === 'user' ? 'Utente' : 'Assistente'}: ${msg.content}`)
-        .join('\n')}\n\n`
-    : ''
-
-  const userPrompt = `${historyText}Domanda originale:\n${payload.message}\n\nQuery potenziata:\n${payload.enhancement.enhanced}\n\nContesto dei documenti:\n${contextText}\n\nProduci un confronto completo, organizzato e facilmente leggibile.`
+  // Build messages array same as synchronous version (system prompt + conversation history + user message)
+  const messages = [
+    {
+      role: 'system' as const,
+      content: systemPrompt,
+    },
+    ...conversationHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+    })),
+    {
+      role: 'user' as const,
+      content: payload.message,
+    },
+  ]
 
   await appendJobEvent(supabase, job.id, 'generation_started', 'LLM generation started', {
     model: 'google/gemini-2.5-pro',
@@ -799,13 +1090,14 @@ async function processComparisonJob(context: JobProcessContext) {
   await updateJob(supabase, job.id, { progress: 55 })
 
   console.log('[process-async-job] Calling OpenRouter...', {
-    promptLength: userPrompt.length,
+    messagesCount: messages.length,
+    systemPromptLength: systemPrompt.length,
+    userMessageLength: payload.message.length,
     elapsed: Date.now() - startTime,
   })
   const llmStartTime = Date.now()
   const llmContent = await callOpenRouter(
-    systemPrompt,
-    userPrompt,
+    messages,
     openrouterKey,
     'google/gemini-2.5-pro'
   )
@@ -820,14 +1112,20 @@ async function processComparisonJob(context: JobProcessContext) {
   })
   await updateJob(supabase, job.id, { progress: 80 })
 
-  const processed = processContentWithCitations({
+  // Process response using same logic as synchronous version (processAssistantResponse)
+  const processed = await processAssistantResponseForEdgeFunction({
     content: llmContent,
     kbSources: initialKBSources,
     analysis: {
+      intent: payload.analysis.intent,
+      isComparative: payload.analysis.isComparative,
+      comparativeTerms: payload.analysis.comparativeTerms ?? null,
+      comparisonType: payload.analysis.comparisonType ?? null,
       isMeta: payload.analysis.isMeta,
       metaType: payload.analysis.metaType ?? null,
-      comparativeTerms: payload.analysis.comparativeTerms ?? null,
     },
+    webSearchResults: [],
+    metaDocuments: [],
   })
 
   const combinedSources = combineSources(processed.kbSources, processed.webSources)
