@@ -19,8 +19,29 @@ function sendProgress(
   progress: number,
   message?: string
 ) {
-  const data = JSON.stringify({ stage, progress, message })
-  controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+  try {
+    const data = JSON.stringify({ stage, progress, message })
+    controller.enqueue(new TextEncoder().encode(`data: ${data}\n\n`))
+  } catch (error) {
+    console.error('[upload] Failed to send progress:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stage,
+      progress,
+      messageLength: message?.length || 0
+    })
+    
+    // Invia un messaggio di errore più semplice
+    try {
+      const errorData = JSON.stringify({ 
+        stage: 'error', 
+        progress, 
+        message: 'Progress update failed' 
+      })
+      controller.enqueue(new TextEncoder().encode(`data: ${errorData}\n\n`))
+    } catch {
+      // Se anche questo fallisce, non fare nulla per evitare loop infiniti
+    }
+  }
 }
 
 export async function POST(req: NextRequest) {

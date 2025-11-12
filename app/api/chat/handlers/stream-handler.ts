@@ -37,7 +37,36 @@ export class StreamController {
       // Controller potrebbe essere chiuso
       if (error instanceof Error && error.message.includes('closed')) {
         this.isClosed = true
+        return
       }
+      
+      // Errore di serializzazione JSON (contenuto troppo grande o caratteri invalidi)
+      if (error instanceof Error && error.message.includes('JSON')) {
+        console.error('[stream-handler] JSON serialization error:', {
+          error: error.message,
+          messageType: message.type,
+          contentLength: typeof message.content === 'string' ? message.content.length : 'N/A'
+        })
+        
+        // Se è un errore di contenuto troppo grande, prova a inviare un messaggio di errore più piccolo
+        if (message.type === 'text_complete' || message.type === 'text') {
+          try {
+            const errorMessage: StreamMessage = {
+              type: 'error',
+              error: 'Response too large to transmit. Please try a different query.'
+            }
+            const errorData = `data: ${JSON.stringify(errorMessage)}\n\n`
+            this.controller.enqueue(new TextEncoder().encode(errorData))
+          } catch {
+            // Se anche questo fallisce, chiudi il controller
+            this.close()
+          }
+        }
+        return
+      }
+      
+      // Altri errori generici
+      console.error('[stream-handler] Enqueue error:', error)
     }
   }
 
@@ -57,9 +86,29 @@ export class StreamController {
 
   /**
    * Invia il testo completo (per sostituire lo stream)
+   * Chunka automaticamente contenuti molto grandi per evitare problemi di serializzazione JSON
    */
   sendTextComplete(content: string): void {
-    this.enqueue({ type: 'text_complete', content })
+    // Se il contenuto è troppo grande (> 4KB), lo chunka per evitare problemi JSON
+    const MAX_CHUNK_SIZE = 4096
+    
+    if (content.length <= MAX_CHUNK_SIZE) {
+      this.enqueue({ type: 'text_complete', content })
+    } else {
+      // Per contenuti molto grandi, usa streaming incrementale
+      console.warn(`[stream-handler] Large content detected (${content.length} chars), using chunked streaming`)
+      
+      // Prima pulisci il contenuto esistente
+      this.enqueue({ type: 'text_complete', content: '' })
+      
+      // Poi invia in chunks sincroni
+      let position = 0
+      while (position < content.length) {
+        const chunk = content.slice(position, position + MAX_CHUNK_SIZE)
+        this.enqueue({ type: 'text', content: chunk })
+        position += MAX_CHUNK_SIZE
+      }
+    }
   }
 
   /**

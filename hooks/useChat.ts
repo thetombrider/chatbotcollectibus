@@ -251,7 +251,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           }
 
           try {
-            const data = JSON.parse(line.slice(6))
+            const jsonString = line.slice(6)
+            
+            // Skip empty lines
+            if (!jsonString.trim()) {
+              continue
+            }
+            
+            const data = JSON.parse(jsonString)
 
             switch (data.type) {
               case 'status':
@@ -286,7 +293,21 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 break
             }
           } catch (parseError) {
-            console.warn('Failed to parse SSE data:', parseError)
+            const jsonString = line.slice(6)
+            console.warn('Failed to parse SSE data:', {
+              error: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+              line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
+              jsonLength: jsonString.length,
+              firstChars: jsonString.substring(0, 50),
+              lastChars: jsonString.length > 50 ? jsonString.substring(jsonString.length - 50) : ''
+            })
+            
+            // Se l'errore è un JSON malformato per contenuto troppo grande,
+            // non interrompere lo streaming - potrebbe essere un chunk parziale
+            if (parseError instanceof SyntaxError && parseError.message.includes('unterminated string')) {
+              // Questo potrebbe essere un chunk parziale - continua
+              continue
+            }
           }
         }
       }

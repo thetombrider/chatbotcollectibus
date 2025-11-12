@@ -355,7 +355,14 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.slice(6))
+                const jsonString = line.slice(6)
+                
+                // Skip empty lines
+                if (!jsonString.trim()) {
+                  continue
+                }
+                
+                const data = JSON.parse(jsonString)
 
                 // Handle duplicate detection
                 if (data.stage === 'duplicate') {
@@ -403,7 +410,21 @@ export function DocumentUploader({ onUploadComplete }: DocumentUploaderProps) {
                   return
                 }
               } catch (parseError) {
-                console.warn('Failed to parse SSE data:', parseError)
+                const jsonString = line.slice(6)
+                console.warn('Failed to parse SSE data:', {
+                  error: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+                  line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
+                  jsonLength: jsonString.length,
+                  file: file.name,
+                  firstChars: jsonString.substring(0, 50),
+                  lastChars: jsonString.length > 50 ? jsonString.substring(jsonString.length - 50) : ''
+                })
+                
+                // Se l'errore è un JSON malformato per contenuto troppo grande,
+                // non interrompere lo streaming
+                if (parseError instanceof SyntaxError && parseError.message.includes('unterminated string')) {
+                  continue
+                }
               }
             }
           }
