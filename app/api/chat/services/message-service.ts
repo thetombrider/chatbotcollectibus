@@ -20,40 +20,74 @@ export async function saveUserMessage(
     })
     
     // Conta i messaggi esistenti per verificare se è il primo messaggio
-    const { count: messageCount } = await supabaseAdmin
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('conversation_id', conversationId)
+    let messageCount = 0
+    try {
+      const { count, error } = await supabaseAdmin
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+      
+      if (error) {
+        console.warn('[message-service] Error counting messages:', error)
+      } else {
+        messageCount = count || 0
+      }
+    } catch (err) {
+      console.warn('[message-service] Exception counting messages:', err)
+      // Continue with messageCount = 0
+    }
     
-    const isFirstMessage = (messageCount || 0) === 0
+    const isFirstMessage = messageCount === 0
     
     console.log('[message-service] Message count check:', {
-      messageCount: messageCount || 0,
+      messageCount,
       isFirstMessage,
     })
     
-    const { error } = await supabaseAdmin.from('messages').insert({
-      conversation_id: conversationId,
-      role: 'user',
-      content: message,
-    })
-    
-    if (error) {
-      console.error('[message-service] Failed to insert user message:', error)
-    } else {
-      console.log('[message-service] User message saved successfully')
+    try {
+      const { error } = await supabaseAdmin.from('messages').insert({
+        conversation_id: conversationId,
+        role: 'user',
+        content: message,
+      })
+      
+      if (error) {
+        console.error('[message-service] Failed to insert user message:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        })
+      } else {
+        console.log('[message-service] User message saved successfully')
+      }
+    } catch (err) {
+      // Cattura errori di rete/timeout che non vengono restituiti come { error }
+      console.error('[message-service] Exception inserting user message:', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      })
     }
     
     // Aggiorna il titolo della conversazione se è il primo messaggio
     if (isFirstMessage) {
-      const title = message.substring(0, 50).trim() || 'Nuova conversazione'
-      await supabaseAdmin
-        .from('conversations')
-        .update({ title, updated_at: new Date().toISOString() })
-        .eq('id', conversationId)
+      try {
+        const title = message.substring(0, 50).trim() || 'Nuova conversazione'
+        await supabaseAdmin
+          .from('conversations')
+          .update({ title, updated_at: new Date().toISOString() })
+          .eq('id', conversationId)
+      } catch (err) {
+        console.warn('[message-service] Failed to update conversation title:', err)
+        // Continue anyway
+      }
     }
   } catch (err) {
-    console.error('[message-service] Failed to save user message:', err)
+    // Catch-all per qualsiasi altro errore non previsto
+    console.error('[message-service] Failed to save user message:', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    })
     // Continue anyway, don't fail the request
   }
 }
