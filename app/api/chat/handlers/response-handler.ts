@@ -10,12 +10,7 @@ import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 import { extractUniqueDocumentNames, calculateAverageSimilarity } from '../services/context-builder'
-import { 
-  normalizeWebCitations, 
-  processCitations, 
-  extractWebCitedIndices,
-  extractCitedIndices 
-} from '@/lib/services/citation-service'
+import { processAssistantResponse } from '../../../../lib/jobs/response-processor'
 import type { Source } from '@/lib/services/citation-service'
 import type { MetaDocument } from '../services/source-service'
 import type { StreamController } from './stream-handler'
@@ -319,129 +314,26 @@ export async function processResponse(
   fullResponse: string,
   context: ResponseContext
 ): Promise<ResponseResult> {
-  const { sources, webSearchResults, metaQueryDocuments, analysis } = context
-
-  console.log('[response-handler] processResponse called with context:', {
-    sourcesCount: sources.length,
-    webSearchResultsCount: webSearchResults?.length || 0,
-    metaQueryDocumentsCount: metaQueryDocuments?.length || 0,
-    isMeta: analysis.isMeta,
-    metaType: analysis.metaType,
+  const processed = await processAssistantResponse({
+    content: fullResponse,
+    kbSources: context.sources,
+    analysis: context.analysis,
+    webSearchResults: context.webSearchResults,
+    metaDocuments: context.metaQueryDocuments,
   })
 
-  // Normalizza citazioni web errate
-  let processedResponse = normalizeWebCitations(fullResponse)
-
-  // Estrai citazioni
-  const citedIndices = extractCitedIndices(processedResponse)
-  const webCitedIndices = extractWebCitedIndices(processedResponse)
-
-  // Gestisci sources per query meta
-  let finalSources = sources
-  if (metaQueryDocuments && metaQueryDocuments.length > 0) {
-    const { createMetaSources } = await import('../services/source-service')
-    finalSources = createMetaSources(metaQueryDocuments)
-    console.log('[response-handler] Created meta sources:', {
-      count: finalSources.length,
-      sample: finalSources.slice(0, 3).map(s => ({
-        index: s.index,
-        filename: s.filename,
-      })),
-    })
-  }
-
-  // Processa citazioni KB
-  let kbSources: Source[] = []
-  const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
-  const hasMetaQueryDocuments = metaQueryDocuments && metaQueryDocuments.length > 0
-
-  if (!isMetaQuery && !hasMetaQueryDocuments) {
-    // Query normale: processa citazioni normalmente
-    if (citedIndices.length > 0) {
-      // Log per debugging: verifica quali documenti vengono citati
-      console.log('[response-handler] Citations found:', citedIndices)
-      console.log('[response-handler] Available sources:', finalSources.map(s => ({
-        index: s.index,
-        filename: s.filename,
-        similarity: s.similarity,
-      })))
-      
-      const kbResult = processCitations(processedResponse, finalSources, 'cit')
-      processedResponse = kbResult.content
-      kbSources = kbResult.sources
-      
-      // Log per debugging: verifica quali sources sono state selezionate
-      console.log('[response-handler] Selected sources after processing:', kbSources.map(s => ({
-        index: s.index,
-        filename: s.filename,
-        similarity: s.similarity,
-      })))
-    } else {
-      kbSources = []
-    }
-  } else {
-    // Query meta: filtra sources basandosi sulle citazioni
-    console.log('[response-handler] Meta query detected, processing citations...')
-    console.log('[response-handler] Citations in response (first 200 chars):', processedResponse.substring(0, 200))
-    
-    if (citedIndices.length > 0) {
-      console.log('[response-handler] Meta query citations found:', {
-        citedIndices: citedIndices.slice(0, 10), // Primi 10 per non loggare troppo
-        totalCited: citedIndices.length,
-        availableSources: finalSources.length,
-      })
-      
-      const { filterSourcesByCitations, createCitationMapping, renumberCitations } = await import('@/lib/services/citation-service')
-      kbSources = filterSourcesByCitations(citedIndices, finalSources)
-      
-      console.log('[response-handler] Filtered sources:', {
-        filteredCount: kbSources.length,
-        sample: kbSources.slice(0, 3).map(s => ({
-          index: s.index,
-          filename: s.filename,
-        })),
-      })
-      
-      const mapping = createCitationMapping(citedIndices)
-      console.log('[response-handler] Citation mapping (first 10):', {
-        mappingSize: mapping.size,
-        sample: Array.from(mapping.entries()).slice(0, 10),
-      })
-      
-      processedResponse = renumberCitations(processedResponse, mapping, 'cit')
-    } else {
-      console.warn('[response-handler] Meta query but no citations found in response!')
-      kbSources = []
-    }
-  }
-
-  // Processa citazioni web
-  let webSources: Source[] = []
-  if (webCitedIndices.length > 0 && webSearchResults && webSearchResults.length > 0) {
-    const { createWebSources } = await import('../services/source-service')
-    webSources = createWebSources(webSearchResults, webCitedIndices)
-    
-    // Rinumerà citazioni web
-    const { createCitationMapping, renumberCitations } = await import('@/lib/services/citation-service')
-    const webMapping = createCitationMapping(webCitedIndices)
-    processedResponse = renumberCitations(processedResponse, webMapping, 'web')
-  }
-
-  const result = {
-    content: processedResponse,
-    sources: kbSources,
-    webSources,
-  }
-  
-  // Log finale per verificare cosa viene ritornato
   console.log('[response-handler] Final result:', {
-    contentLength: result.content.length,
-    sourcesCount: result.sources.length,
-    webSourcesCount: result.webSources.length,
-    hasCitations: result.content.includes('[cit:'),
-    citationSample: result.content.match(/\[cit:\d+\]/g)?.slice(0, 5) || [],
+    contentLength: processed.content.length,
+    sourcesCount: processed.kbSources.length,
+    webSourcesCount: processed.webSources.length,
+    hasCitations: processed.content.includes('[cit:'),
+    citationSample: processed.content.match(/\[cit:\d+\]/g)?.slice(0, 5) || [],
   })
-  
-  return result
+
+  return {
+    content: processed.content,
+    sources: processed.kbSources,
+    webSources: processed.webSources,
+  }
 }
 

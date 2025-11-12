@@ -42,6 +42,11 @@ type ChatAction =
   | { type: 'SET_CONVERSATION_ID'; value: string | null }
   | { type: 'SET_WEB_SEARCH_ENABLED'; value: boolean }
 
+const ASYNC_STATUS_LABELS: Record<string, string> = {
+  queued: 'Richiesta in coda...',
+  in_progress: 'Elaborazione asincrona in corso...',
+}
+
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'SET_INPUT':
@@ -130,6 +135,73 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
   const delay = useCallback((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)), [])
 
+  const streamAsyncResult = useCallback(
+    async (content: string, sources: Source[], metadata: Record<string, unknown>) => {
+      const currentMessages = stateRef.current.messages
+      let assistantMessage = currentMessages[currentMessages.length - 1]
+
+      if (!assistantMessage || assistantMessage.role !== 'assistant') {
+        dispatch({ type: 'SET_STATUS', value: null })
+        dispatch({ type: 'SET_LOADING', value: false })
+        return
+      }
+
+      const tokens = content.length > 0 ? content.split(/(\s+)/) : []
+
+      if (tokens.length === 0) {
+        assistantMessage = {
+          ...assistantMessage,
+          content,
+          sources,
+          metadata: {
+            ...(assistantMessage.metadata ?? {}),
+            ...metadata,
+            jobStatus: 'completed',
+          },
+        }
+        dispatch({ type: 'UPDATE_LAST_MESSAGE', value: assistantMessage })
+        dispatch({ type: 'SET_STATUS', value: null })
+        dispatch({ type: 'SET_LOADING', value: false })
+        return
+      }
+
+      dispatch({ type: 'SET_STATUS', value: 'Generazione risposta...' })
+
+      let assembled = ''
+      for (const token of tokens) {
+        assembled += token
+        assistantMessage = {
+          ...assistantMessage,
+          content: assembled,
+          sources,
+          metadata: {
+            ...(assistantMessage.metadata ?? {}),
+            ...metadata,
+            jobStatus: 'streaming',
+          },
+        }
+        dispatch({ type: 'UPDATE_LAST_MESSAGE', value: assistantMessage })
+        await delay(Math.min(120, Math.max(24, token.length * 6)))
+      }
+
+      assistantMessage = {
+        ...assistantMessage,
+        content,
+        sources,
+        metadata: {
+          ...(assistantMessage.metadata ?? {}),
+          ...metadata,
+          jobStatus: 'completed',
+        },
+      }
+
+      dispatch({ type: 'UPDATE_LAST_MESSAGE', value: assistantMessage })
+      dispatch({ type: 'SET_STATUS', value: null })
+      dispatch({ type: 'SET_LOADING', value: false })
+    },
+    [delay]
+  )
+
   useEffect(() => {
     scrollToBottom()
   }, [state.messages.length, scrollToBottom])
@@ -166,6 +238,13 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           } else {
             const { job } = await response.json()
 
+          const jobStatus: string = job.status
+          const statusLabel =
+            ASYNC_STATUS_LABELS[jobStatus as keyof typeof ASYNC_STATUS_LABELS] ??
+            'Elaborazione asincrona in corso...'
+
+          dispatch({ type: 'SET_STATUS', value: statusLabel })
+
             const messages = stateRef.current.messages
             const lastMessage = messages[messages.length - 1]
 
@@ -174,36 +253,31 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               continue
             }
 
+          const baseMetadata: Record<string, unknown> = {
+            ...(lastMessage.metadata ?? {}),
+            jobId,
+            jobStatus,
+            queue: job.queue_name ?? null,
+            traceId: job.trace_id ?? null,
+            progress: job.progress ?? null,
+            completedAt: job.completed_at ?? null,
+          }
+
             if (job.status === 'completed') {
               const result = (job.result ?? {}) as Record<string, unknown>
-              const content =
-                typeof result.content === 'string'
-                  ? result.content
-                  : 'Risultato disponibile.'
-              const sources = Array.isArray(result.sources) ? (result.sources as Source[]) : []
+            const content =
+              typeof result.content === 'string'
+                ? result.content
+                : 'Risultato disponibile.'
+            const sources = Array.isArray(result.sources) ? (result.sources as Source[]) : []
 
-              const updatedMessage: Message = {
-                ...lastMessage,
-                content,
-                sources,
-                metadata: {
-                  ...(lastMessage.metadata ?? {}),
-                  jobId,
-                  jobStatus: 'completed',
-                  completedAt: job.completed_at,
-                  traceId: job.trace_id ?? null,
-                },
-              }
+            await streamAsyncResult(content, sources, baseMetadata)
 
-              dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
-              dispatch({ type: 'SET_STATUS', value: null })
-              dispatch({ type: 'SET_LOADING', value: false })
+            if (options.wasNewConversation && options.conversationId) {
+              window.history.replaceState(null, '', `/chat/${options.conversationId}`)
+            }
 
-              if (options.wasNewConversation && options.conversationId) {
-                window.history.replaceState(null, '', `/chat/${options.conversationId}`)
-              }
-
-              return
+            return
             }
 
             if (job.status === 'failed') {
@@ -216,9 +290,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 ...lastMessage,
                 content: `❌ Elaborazione fallita: ${errorMessage}`,
                 metadata: {
-                  ...(lastMessage.metadata ?? {}),
-                  jobId,
-                  jobStatus: 'failed',
+                ...baseMetadata,
+                jobStatus: 'failed',
                 },
               }
 
@@ -231,10 +304,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             const updatedMessage: Message = {
               ...lastMessage,
               metadata: {
-                ...(lastMessage.metadata ?? {}),
-                jobId,
-                jobStatus: job.status as string,
-                progress: job.progress ?? null,
+              ...baseMetadata,
               },
             }
             dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
@@ -248,7 +318,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
       throw new Error('Timeout elaborazione job async')
     },
-    [delay]
+    [delay, streamAsyncResult]
   )
 
   const handleSend = useCallback(async (skipCache = false, messageOverride?: string) => {

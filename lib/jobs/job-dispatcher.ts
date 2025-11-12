@@ -78,12 +78,10 @@ async function sendQueueMessage(
   queueName: string,
   message: Record<string, unknown>
 ): Promise<void> {
-  const { error } = await supabaseAdmin
-    .schema('pgmq_public')
-    .rpc('send', {
-      queue_name: queueName,
-      message,
-    })
+  const { error } = await supabaseAdmin.rpc('enqueue_async_job', {
+    queue_name: queueName,
+    payload: message,
+  })
 
   if (error) {
     throw new Error(`[async-jobs] Failed to enqueue message: ${error.message}`)

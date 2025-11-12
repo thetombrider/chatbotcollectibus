@@ -20,6 +20,23 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  normalizeWebCitations,
+  extractCitedIndices,
+  extractWebCitedIndices,
+  processCitations,
+  filterSourcesByCitations,
+  createCitationMapping,
+  renumberCitations,
+  type Source,
+} from '../../lib/services/citation-service.ts'
+import {
+  createKBSources,
+  createMetaSources,
+  createWebSources,
+  type MetaDocument,
+  type WebSearchResult,
+} from '../../lib/jobs/source-utils.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -163,9 +180,9 @@ async function fetchJobById(
 async function popQueueMessage(
   supabase: SupabaseClient
 ): Promise<{ jobId: string } | null> {
-  const { data, error } = await supabase
-    .schema('pgmq_public')
-    .rpc('pop', { queue_name: 'async_jobs' })
+  const { data, error } = await supabase.rpc('dequeue_async_job', {
+    queue_name: 'async_jobs',
+  })
 
   if (error) {
     console.error('[process-async-job] Failed to pop queue message:', error)
@@ -303,13 +320,61 @@ ${result.content}`
   return `${header}\n\n${body}`
 }
 
-function buildSources(results: SearchResult[], limit = 5) {
-  return results.slice(0, limit).map((result, index) => ({
-    index,
-    filename: result.document_filename ?? `Documento ${index + 1}`,
-    documentId: result.document_id ?? null,
-    similarity: result.similarity,
-  }))
+interface WorkerAnalysisSummary {
+  isMeta: boolean
+  metaType?: string | null
+  comparativeTerms?: string[] | null
+}
+
+function combineSources(kbSources: Source[], webSources: Source[]): Source[] {
+  return [...kbSources, ...webSources]
+}
+
+function processContentWithCitations(options: {
+  content: string
+  kbSources: Source[]
+  analysis: WorkerAnalysisSummary
+  metaDocuments?: MetaDocument[]
+  webResults?: WebSearchResult[]
+}): { content: string; kbSources: Source[]; webSources: Source[] } {
+  const { content, kbSources, analysis, metaDocuments = [], webResults = [] } = options
+
+  let processedContent = normalizeWebCitations(content)
+  const citedIndices = extractCitedIndices(processedContent)
+  const webCitedIndices = extractWebCitedIndices(processedContent)
+
+  let workingSources = kbSources
+  if (metaDocuments.length > 0) {
+    workingSources = createMetaSources(metaDocuments)
+  }
+
+  let processedKBSources: Source[] = []
+  const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
+
+  if (!isMetaQuery && metaDocuments.length === 0) {
+    if (citedIndices.length > 0) {
+      const kbResult = processCitations(processedContent, workingSources, 'cit')
+      processedContent = kbResult.content
+      processedKBSources = kbResult.sources
+    }
+  } else if (citedIndices.length > 0) {
+    processedKBSources = filterSourcesByCitations(citedIndices, workingSources)
+    const mapping = createCitationMapping(citedIndices)
+    processedContent = renumberCitations(processedContent, mapping, 'cit')
+  }
+
+  let webSources: Source[] = []
+  if (webCitedIndices.length > 0 && webResults.length > 0) {
+    webSources = createWebSources(webResults, webCitedIndices)
+    const webMapping = createCitationMapping(webCitedIndices)
+    processedContent = renumberCitations(processedContent, webMapping, 'web')
+  }
+
+  return {
+    content: processedContent,
+    kbSources: processedKBSources,
+    webSources,
+  }
 }
 
 async function callOpenRouter(
@@ -446,7 +511,7 @@ async function processComparisonJob(context: JobProcessContext) {
   await updateJob(supabase, job.id, { progress: 35 })
 
   const contextText = buildContext(searchResults.slice(0, 12), payload.analysis.comparativeTerms)
-  const sources = buildSources(searchResults, 6)
+  const initialKBSources = createKBSources(searchResults)
 
   const systemPrompt = `Sei un consulente esperto che fornisce analisi comparative basate solo sui documenti aziendali forniti. Evidenzia similitudini e differenze in modo strutturato, usa tabelle o bullet dove utile, e indica la fonte (es. Documento, pagina) quando possibile. Se le informazioni sono insufficienti, spiegalo chiaramente.`
 
@@ -475,10 +540,22 @@ async function processComparisonJob(context: JobProcessContext) {
   })
   await updateJob(supabase, job.id, { progress: 80 })
 
+  const processed = processContentWithCitations({
+    content: llmContent,
+    kbSources: initialKBSources,
+    analysis: {
+      isMeta: payload.analysis.isMeta,
+      metaType: payload.analysis.metaType ?? null,
+      comparativeTerms: payload.analysis.comparativeTerms ?? null,
+    },
+  })
+
+  const combinedSources = combineSources(processed.kbSources, processed.webSources)
+
   if (payload.conversationId) {
-    await saveAssistantMessage(supabase, payload.conversationId, llmContent, {
+    await saveAssistantMessage(supabase, payload.conversationId, processed.content, {
       job_id: job.id,
-      sources,
+      sources: combinedSources,
       query_enhanced: payload.enhancement.shouldEnhance,
       original_query: payload.message,
       enhanced_query: payload.enhancement.enhanced,
@@ -500,8 +577,8 @@ async function processComparisonJob(context: JobProcessContext) {
     completed_at: new Date().toISOString(),
     progress: 100,
     result: {
-      content: llmContent,
-      sources,
+      content: processed.content,
+      sources: combinedSources,
       searchResultsCount: searchResults.length,
       comparativeTerms: payload.analysis.comparativeTerms ?? [],
     },
@@ -510,7 +587,7 @@ async function processComparisonJob(context: JobProcessContext) {
 
   await updateJob(supabase, job.id, completionPayload as Partial<AsyncJobRecord>)
   await appendJobEvent(supabase, job.id, 'completed', 'Job completed successfully', {
-    sourcesCount: sources.length,
+    sourcesCount: combinedSources.length,
   })
 }
 
