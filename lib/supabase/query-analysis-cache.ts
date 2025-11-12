@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './admin'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
+import { isCacheEnabled } from '@/lib/config/env'
 
 /**
  * Cached query analysis result
@@ -61,6 +62,12 @@ function generateQueryHash(query: string): string {
 export async function findCachedQueryAnalysis(
   query: string
 ): Promise<QueryAnalysisResult | null> {
+  // Check if query analysis cache is disabled
+  if (!isCacheEnabled('query-analysis')) {
+    console.log('[query-analysis-cache] Cache disabled via DISABLE_QUERY_ANALYSIS_CACHE')
+    return null
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     const queryHash = generateQueryHash(normalizedQuery)
@@ -160,6 +167,12 @@ export async function saveCachedQueryAnalysis(
   query: string,
   analysisResult: QueryAnalysisResult
 ): Promise<void> {
+  // Check if query analysis cache is disabled
+  if (!isCacheEnabled('query-analysis')) {
+    console.log('[query-analysis-cache] Cache save disabled via DISABLE_QUERY_ANALYSIS_CACHE')
+    return
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     const queryHash = generateQueryHash(normalizedQuery)

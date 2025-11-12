@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './admin'
+import { isCacheEnabled } from '@/lib/config/env'
 
 /**
  * Cached comparative detection result
@@ -43,6 +44,12 @@ function normalizeCacheKey(query: string): string {
 export async function findCachedComparativeDetection(
   query: string
 ): Promise<CachedComparativeDetection | null> {
+  // Check if query analysis cache is disabled (comparative detection is part of query analysis)
+  if (!isCacheEnabled('query-analysis')) {
+    console.log('[comparative-cache] Cache disabled via DISABLE_QUERY_ANALYSIS_CACHE')
+    return null
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     
@@ -129,6 +136,12 @@ export async function saveCachedComparativeDetection(
   terms: string[] | null,
   comparisonType: 'differences' | 'similarities' | 'general_comparison' | null
 ): Promise<void> {
+  // Check if query analysis cache is disabled (comparative detection is part of query analysis)
+  if (!isCacheEnabled('query-analysis')) {
+    console.log('[comparative-cache] Cache save disabled via DISABLE_QUERY_ANALYSIS_CACHE')
+    return
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     

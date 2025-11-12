@@ -9,6 +9,10 @@ interface EnvConfig {
   supabaseServiceRoleKey: string
   openaiApiKey: string
   openrouterApiKey: string
+  // Cache control flags
+  disableConversationCache: boolean
+  disableQueryAnalysisCache: boolean
+  disableEnhancementCache: boolean
 }
 
 function validateEnv(): EnvConfig {
@@ -42,12 +46,20 @@ function validateEnv(): EnvConfig {
     throw new Error('NEXT_PUBLIC_SUPABASE_URL must be a valid URL')
   }
 
+  // Parse cache control flags (optional, default to false = cache enabled)  
+  const disableConversationCache = process.env.DISABLE_CONVERSATION_CACHE === 'true'
+  const disableQueryAnalysisCache = process.env.DISABLE_QUERY_ANALYSIS_CACHE === 'true'
+  const disableEnhancementCache = process.env.DISABLE_ENHANCEMENT_CACHE === 'true'
+
   return {
     supabaseUrl: requiredEnvVars.supabaseUrl!,
     supabaseAnonKey: requiredEnvVars.supabaseAnonKey!,
     supabaseServiceRoleKey: requiredEnvVars.supabaseServiceRoleKey!,
     openaiApiKey: requiredEnvVars.openaiApiKey!,
     openrouterApiKey: requiredEnvVars.openrouterApiKey!,
+    disableConversationCache,
+    disableQueryAnalysisCache, 
+    disableEnhancementCache,
   }
 }
 
@@ -61,6 +73,40 @@ if (typeof window === 'undefined') {
     if (process.env.NODE_ENV === 'production') {
       throw error
     }
+  }
+}
+
+// Cache control utility functions
+let envConfig: EnvConfig | null = null
+
+function getEnvConfig(): EnvConfig {
+  if (!envConfig) {
+    envConfig = validateEnv()
+  }
+  return envConfig
+}
+
+export function isCacheEnabled(cacheType: 'conversation' | 'query-analysis' | 'enhancement'): boolean {
+  // Only check in server-side environment
+  if (typeof window !== 'undefined') {
+    return true // Default to enabled in browser
+  }
+  
+  // Check cache control flags directly from env vars (independent of other validations)
+  try {
+    switch (cacheType) {
+      case 'conversation':
+        return process.env.DISABLE_CONVERSATION_CACHE !== 'true'
+      case 'query-analysis':
+        return process.env.DISABLE_QUERY_ANALYSIS_CACHE !== 'true'
+      case 'enhancement':
+        return process.env.DISABLE_ENHANCEMENT_CACHE !== 'true'
+      default:
+        return true
+    }
+  } catch (error) {
+    console.warn(`Cache control check failed for ${cacheType}, defaulting to enabled:`, error)
+    return true // Default to enabled on validation failure
   }
 }
 

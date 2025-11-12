@@ -1,4 +1,5 @@
 import { supabaseAdmin } from './admin'
+import { isCacheEnabled } from '@/lib/config/env'
 
 /**
  * Cached enhancement result
@@ -41,6 +42,12 @@ function normalizeCacheKey(query: string): string {
 export async function findCachedEnhancement(
   query: string
 ): Promise<CachedEnhancement | null> {
+  // Check if enhancement cache is disabled
+  if (!isCacheEnabled('enhancement')) {
+    console.log('[enhancement-cache] Cache disabled via DISABLE_ENHANCEMENT_CACHE')
+    return null
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     
@@ -108,6 +115,12 @@ export async function saveCachedEnhancement(
   shouldEnhance: boolean,
   intentType?: string
 ): Promise<void> {
+  // Check if enhancement cache is disabled
+  if (!isCacheEnabled('enhancement')) {
+    console.log('[enhancement-cache] Cache save disabled via DISABLE_ENHANCEMENT_CACHE')
+    return
+  }
+
   try {
     const normalizedQuery = normalizeCacheKey(query)
     

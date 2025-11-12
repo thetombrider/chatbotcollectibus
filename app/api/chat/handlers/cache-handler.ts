@@ -12,6 +12,7 @@ import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-
 import type { Source } from '@/lib/services/citation-service'
 import { processCitations } from '@/lib/services/citation-service'
 import type { TraceContext } from '@/lib/observability/langfuse'
+import { isCacheEnabled } from '@/lib/config/env'
 
 export interface CachedResponse {
   response_text: string
@@ -38,6 +39,12 @@ export async function lookupCache(
 ): Promise<CacheResult> {
   if (skipCache) {
     console.log('[cache-handler] Cache lookup skipped (skipCache=true)')
+    return { cached: false }
+  }
+
+  // Check if conversation cache is disabled
+  if (!isCacheEnabled('conversation')) {
+    console.log('[cache-handler] Cache disabled via DISABLE_CONVERSATION_CACHE')
     return { cached: false }
   }
 
@@ -135,6 +142,12 @@ export async function saveCache(
   response: string,
   sources: Source[]
 ): Promise<void> {
+  // Check if conversation cache is disabled
+  if (!isCacheEnabled('conversation')) {
+    console.log('[cache-handler] Cache save disabled via DISABLE_CONVERSATION_CACHE')
+    return
+  }
+
   try {
     await saveCachedResponse(query, queryEmbedding, response, sources)
   } catch (error) {
