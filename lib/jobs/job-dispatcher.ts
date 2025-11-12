@@ -188,19 +188,10 @@ async function enqueueAsyncJob(
     reason: evaluation.reason,
   })
 
-  console.log('[async-jobs] Queue message sent, invoking Edge Function...')
-  try {
-    await supabaseAdmin.functions.invoke('process-async-job', {
-      body: { jobId: job.id },
-    })
-    console.log('[async-jobs] Edge Function invoked successfully')
-  } catch (error) {
-    console.warn('[async-jobs] Failed to invoke process-async-job function:', {
-      jobId: job.id,
-      error,
-    })
-    // Non blocchiamo se l'invocazione fallisce, il worker può comunque processare dalla coda
-  }
+  // Nota: Non invochiamo la Edge Function direttamente per evitare timeout
+  // Il worker può processare dalla coda senza bisogno di invocazione diretta
+  // Se necessario, possiamo configurare un webhook o un cron job per triggerare il worker
+  console.log('[async-jobs] Job queued - worker will process from queue automatically')
 
   console.log('[async-jobs] Job enqueued successfully:', {
     jobId: job.id,
