@@ -89,6 +89,7 @@ function detectTemporalTerms(query: string): { hasTemporal: boolean; temporalTer
     /\b(?:latest|recent|new|updated|newest|current|up-to-date)\b/gi,
     /\b(?:quest'anno|anno corrente|del 2024|del 2025|di recente|negli ultimi)\b/gi,
     /\b(?:da poco|di recente|attualmente|oggi|ora|adesso)\b/gi,
+    /\b(?:che novità|ci sono novità|cosa c'è di nuovo|news)\b/gi,
   ]
   
   const foundTerms: string[] = []
@@ -114,7 +115,7 @@ function detectTemporalTerms(query: string): { hasTemporal: boolean; temporalTer
  */
 function detectWebSearchCommand(query: string): { hasWebSearchRequest: boolean; webSearchCommand?: string } {
   const webSearchPatterns = [
-    /\b(?:vai su web|cerca su internet|ricerca su internet|cerca online|guarda su internet)\b/gi,
+    /\b(?:vai su web|cerca su internet|ricerca su internet|ricerca online|cerca online|guarda su internet)\b/gi,
     /\b(?:search the web|go online|check online|look online|web search)\b/gi,
     /\b(?:cerca informazioni aggiornate|cerca info recenti|verifica online)\b/gi,
     /\b(?:controlla su internet|vedi se ci sono novità|cerca novità)\b/gi,
