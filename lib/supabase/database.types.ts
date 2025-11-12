@@ -75,3 +75,41 @@ export interface QueryCache {
   }>
 }
 
+export type AsyncJobStatus =
+  | 'queued'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired'
+
+export interface AsyncJob {
+  id: string
+  job_type: string
+  status: AsyncJobStatus
+  queue_name: string
+  payload: Record<string, unknown>
+  result?: Record<string, unknown> | null
+  error?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
+  priority: number
+  progress: number
+  attempt_count: number
+  max_attempts: number
+  trace_id?: string | null
+  created_at: string
+  scheduled_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  updated_at: string
+}
+
+export interface AsyncJobEvent {
+  id: string
+  job_id: string
+  event_type: string
+  message?: string | null
+  metadata?: Record<string, unknown> | null
+  created_at: string
+}
+

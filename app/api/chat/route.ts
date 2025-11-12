@@ -8,8 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateEmbedding } from '@/lib/embeddings/openai'
-import { analyzeQuery } from '@/lib/embeddings/query-analysis'
-import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
+import { analyzeQuery, type QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
+import { enhanceQueryIfNeeded, type EnhancementResult } from '@/lib/embeddings/query-enhancement'
 import { clearWebSearchResults } from '@/lib/mastra/agent'
 import { createStream, StreamController } from './handlers/stream-handler'
 import { lookupCache, saveCache } from './handlers/cache-handler'
@@ -27,62 +27,53 @@ import {
   type TraceContext 
 } from '@/lib/observability/langfuse'
 import { createServerSupabaseClient } from '@/lib/supabase/client'
+import { dispatchOrQueue } from '@/lib/jobs/job-dispatcher'
 
 export const maxDuration = 60 // 60 secondi per Vercel
 
-/**
- * Gestisce una richiesta chat completa
- */
-async function handleChatRequest(
+type ConversationHistory = Awaited<ReturnType<typeof getConversationHistory>>
+
+interface ChatPreparation {
+  conversationHistory: ConversationHistory
+  analysis: QueryAnalysisResult
+  enhancement: EnhancementResult
+}
+
+interface ExecuteChatPipelineOptions {
+  message: string
+  conversationId: string | null
+  webSearchEnabled: boolean
+  skipCache: boolean
+  streamController: StreamController
+  traceContext?: TraceContext | null
+  preparation: ChatPreparation
+}
+
+async function prepareChatRequest(
   message: string,
   conversationId: string | null,
-  webSearchEnabled: boolean,
-  skipCache: boolean,
-  streamController: StreamController,
   traceContext?: TraceContext | null
-): Promise<void> {
-  // Se traceContext non è fornito, crea un nuovo trace
-  // (questo può accadere se viene chiamato direttamente senza trace)
-  if (!traceContext) {
-    // Estrai userId dalla sessione Supabase
-    let userId: string | null = null
-    try {
-      const supabase = await createServerSupabaseClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      userId = user?.id || null
-    } catch (error) {
-      console.warn('[api/chat] Failed to get user from session:', error)
-      // Continua senza userId se non disponibile
-    }
-
-    traceContext = createChatTrace(
-      conversationId || 'anonymous',
-      userId,
-      message,
-      { webSearchEnabled, skipCache }
-    )
-  }
-
-  // STEP 1: Recupera cronologia conversazione (PRIMA di salvare il messaggio corrente)
-  // Questo ci dà il contesto dei messaggi PRECEDENTI, non quello corrente
+): Promise<ChatPreparation> {
   const conversationHistory = conversationId
     ? await getConversationHistory(conversationId)
     : []
-  
+
   console.log('[api/chat] Conversation history retrieved:', {
     conversationId,
     historyLength: conversationHistory.length,
-    lastMessages: conversationHistory.slice(-2).map(m => ({ role: m.role, preview: m.content.substring(0, 50) }))
+    lastMessages: conversationHistory.slice(-2).map((m) => ({
+      role: m.role,
+      preview: m.content.substring(0, 50),
+    })),
   })
 
-  // STEP 2: Salva messaggio utente (DOPO aver recuperato la history)
   if (conversationId) {
     await saveUserMessage(conversationId, message)
   }
 
-  // STEP 3: Analisi query
-  streamController.sendStatus('Analisi della query...')
-  const analysisSpan = traceContext ? createSpan(traceContext.trace, 'query-analysis', { message }) : null
+  const analysisSpan = traceContext
+    ? createSpan(traceContext.trace, 'query-analysis', { message })
+    : null
   const analysis = await analyzeQuery(message)
   endSpan(analysisSpan, {
     intent: analysis.intent,
@@ -91,19 +82,45 @@ async function handleChatRequest(
     articleNumber: analysis.articleNumber,
   })
 
-  // STEP 4: Enhancement query (with conversation history)
-  streamController.sendStatus('Miglioramento query...')
-  const enhancementSpan = traceContext ? createSpan(traceContext.trace, 'query-enhancement', { 
-    original: message, 
-    analysis 
-  }) : null
-  const enhancement = await enhanceQueryIfNeeded(message, analysis, conversationHistory)
-  const queryToEmbed = enhancement.enhanced
-  const articleNumber = analysis.articleNumber || enhancement.articleNumber
+  const enhancementSpan = traceContext
+    ? createSpan(traceContext.trace, 'query-enhancement', {
+        original: message,
+        analysis,
+      })
+    : null
+  const enhancement = await enhanceQueryIfNeeded(
+    message,
+    analysis,
+    conversationHistory
+  )
   endSpan(enhancementSpan, {
-    enhanced: queryToEmbed,
+    enhanced: enhancement.enhanced,
     shouldEnhance: enhancement.shouldEnhance,
   })
+
+  return {
+    conversationHistory,
+    analysis,
+    enhancement,
+  }
+}
+
+async function executeChatPipeline({
+  message,
+  conversationId,
+  webSearchEnabled,
+  skipCache,
+  streamController,
+  traceContext,
+  preparation,
+}: ExecuteChatPipelineOptions): Promise<void> {
+  const { conversationHistory, analysis, enhancement } = preparation
+  const queryToEmbed = enhancement.enhanced
+  const articleNumber =
+    analysis.articleNumber || enhancement.articleNumber || undefined
+
+  streamController.sendStatus('Analisi della query completata')
+  streamController.sendStatus('Miglioramento query completato')
 
   // STEP 5: Check cache
   streamController.sendStatus('Verifica cache...')
@@ -352,7 +369,6 @@ export async function POST(req: NextRequest) {
       // Continua senza userId se non disponibile
     }
 
-    // Crea trace Langfuse per questa richiesta chat
     const traceContext = createChatTrace(
       conversationId || 'anonymous',
       userId,
@@ -360,25 +376,69 @@ export async function POST(req: NextRequest) {
       { webSearchEnabled, skipCache }
     )
 
-    // Crea stream
+    const preparation = await prepareChatRequest(
+      message,
+      conversationId || null,
+      traceContext
+    )
+
+    const decision = await dispatchOrQueue({
+      message,
+      analysis: preparation.analysis,
+      enhancement: preparation.enhancement,
+      conversationHistoryLength: preparation.conversationHistory.length,
+      skipCache,
+      webSearchEnabled,
+      conversationId: conversationId || null,
+      userId,
+      traceContext,
+    })
+
+    if (decision.mode === 'async' && decision.job) {
+      if (traceContext) {
+        updateTrace(
+          traceContext.trace,
+          undefined,
+          {
+            asyncJobId: decision.job.id,
+            asyncDispatchReason: decision.reason,
+            asyncQueue: decision.job.queue_name,
+          }
+        )
+        await flushLangfuse()
+      }
+
+      return NextResponse.json(
+        {
+          status: 'queued',
+          jobId: decision.job.id,
+          queue: decision.job.queue_name,
+          reason: decision.reason,
+          traceId: traceContext?.traceId,
+        },
+        { status: 202 }
+      )
+    }
+
     const stream = createStream(async (streamController) => {
       try {
-        await handleChatRequest(
+        await executeChatPipeline({
           message,
-          conversationId || null,
+          conversationId: conversationId || null,
           webSearchEnabled,
           skipCache,
           streamController,
-          traceContext // Passa traceContext al handler
-        )
+          traceContext,
+          preparation,
+        })
         streamController.close()
       } catch (error) {
         console.error('[api/chat] Error:', error)
-        const errorMessage = error instanceof Error ? error.message : 'Failed to generate response'
+        const errorMessage =
+          error instanceof Error ? error.message : 'Failed to generate response'
         streamController.sendError(errorMessage)
         streamController.close()
 
-        // CRITICAL: Flush Langfuse anche in caso di errore
         if (traceContext) {
           await flushLangfuse()
         }

@@ -128,6 +128,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
+  const delay = useCallback((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)), [])
+
   useEffect(() => {
     scrollToBottom()
   }, [state.messages.length, scrollToBottom])
@@ -150,6 +152,104 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const setWebSearchEnabled = useCallback((enabled: boolean) => {
     dispatch({ type: 'SET_WEB_SEARCH_ENABLED', value: enabled })
   }, [])
+
+  const pollJobStatus = useCallback(
+    async (jobId: string, options: { wasNewConversation: boolean; conversationId: string | null }) => {
+      const MAX_ATTEMPTS = 60
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        try {
+          const response = await fetch(`/api/jobs/${jobId}`)
+
+          if (!response.ok) {
+            console.warn('Failed to fetch job status:', response.status, response.statusText)
+          } else {
+            const { job } = await response.json()
+
+            const messages = stateRef.current.messages
+            const lastMessage = messages[messages.length - 1]
+
+            if (!lastMessage || lastMessage.role !== 'assistant') {
+              await delay(2000)
+              continue
+            }
+
+            if (job.status === 'completed') {
+              const result = (job.result ?? {}) as Record<string, unknown>
+              const content =
+                typeof result.content === 'string'
+                  ? result.content
+                  : 'Risultato disponibile.'
+              const sources = Array.isArray(result.sources) ? (result.sources as Source[]) : []
+
+              const updatedMessage: Message = {
+                ...lastMessage,
+                content,
+                sources,
+                metadata: {
+                  ...(lastMessage.metadata ?? {}),
+                  jobId,
+                  jobStatus: 'completed',
+                  completedAt: job.completed_at,
+                  traceId: job.trace_id ?? null,
+                },
+              }
+
+              dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
+              dispatch({ type: 'SET_STATUS', value: null })
+              dispatch({ type: 'SET_LOADING', value: false })
+
+              if (options.wasNewConversation && options.conversationId) {
+                window.history.replaceState(null, '', `/chat/${options.conversationId}`)
+              }
+
+              return
+            }
+
+            if (job.status === 'failed') {
+              const errorMessage =
+                (job.error && typeof job.error === 'object' && job.error !== null && 'message' in job.error)
+                  ? String(job.error.message)
+                  : 'Elaborazione fallita'
+
+              const updatedMessage: Message = {
+                ...lastMessage,
+                content: `❌ Elaborazione fallita: ${errorMessage}`,
+                metadata: {
+                  ...(lastMessage.metadata ?? {}),
+                  jobId,
+                  jobStatus: 'failed',
+                },
+              }
+
+              dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
+              dispatch({ type: 'SET_STATUS', value: null })
+              dispatch({ type: 'SET_LOADING', value: false })
+              throw new Error(errorMessage)
+            }
+
+            const updatedMessage: Message = {
+              ...lastMessage,
+              metadata: {
+                ...(lastMessage.metadata ?? {}),
+                jobId,
+                jobStatus: job.status as string,
+                progress: job.progress ?? null,
+              },
+            }
+            dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
+          }
+        } catch (error) {
+          console.warn('Polling error:', error)
+        }
+
+        await delay(2000)
+      }
+
+      throw new Error('Timeout elaborazione job async')
+    },
+    [delay]
+  )
 
   const handleSend = useCallback(async (skipCache = false, messageOverride?: string) => {
     const currentState = stateRef.current
@@ -214,6 +314,42 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
       if (!response.ok) {
         throw new Error(`Failed to fetch: ${response.status}`)
+      }
+
+      if (response.status === 202) {
+        const jobInfo = await response.json().catch(() => null)
+        const jobId = jobInfo?.jobId
+
+        if (!jobId || typeof jobId !== 'string') {
+          throw new Error('Risposta asincrona senza jobId')
+        }
+
+        const placeholder: Message = {
+          role: 'assistant',
+          content: '⏳ Sto preparando un confronto approfondito. Riceverai la risposta completa appena pronta.',
+          metadata: {
+            jobId,
+            jobStatus: 'queued',
+            queue: jobInfo?.queue ?? null,
+            reason: jobInfo?.reason ?? null,
+          },
+          sources: [],
+        }
+
+        dispatch({ type: 'PUSH_MESSAGE', value: placeholder })
+        dispatch({ type: 'SET_STATUS', value: 'Analisi in background in corso...' })
+
+        try {
+          await pollJobStatus(jobId, { wasNewConversation, conversationId })
+        } catch (error) {
+          console.error('Async job failed:', error)
+          if (wasNewConversation) {
+            dispatch({ type: 'SET_CONVERSATION_ID', value: conversationId })
+          }
+          throw error
+        }
+
+        return
       }
 
       if (!response.body) {
@@ -293,7 +429,17 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     } catch (error) {
       console.error('Chat error:', error)
       dispatch({ type: 'SET_LOADING', value: false })
-      dispatch({ type: 'POP_MESSAGE' })
+      dispatch({ type: 'SET_STATUS', value: null })
+
+      const currentMessages = stateRef.current.messages
+      const lastMessage = currentMessages[currentMessages.length - 1]
+      const isAsyncPlaceholder =
+        lastMessage?.metadata && typeof lastMessage.metadata === 'object' && 'jobId' in lastMessage.metadata
+
+      if (!isAsyncPlaceholder) {
+        dispatch({ type: 'POP_MESSAGE' })
+      }
+
       throw error
     }
   }, [])
