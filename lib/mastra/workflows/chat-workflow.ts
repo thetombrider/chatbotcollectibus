@@ -7,7 +7,8 @@ import { findCachedResponse, saveCachedResponse } from '@/lib/supabase/semantic-
 import { hybridSearch } from '@/lib/supabase/vector-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
-import { ragAgent } from '@/lib/mastra/agent'
+import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
+import { getRagAgentForModel } from '@/lib/mastra/agent'
 import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
@@ -34,7 +35,7 @@ import type { SearchResult } from '@/lib/supabase/database.types'
  * 3. enhanceQuery - Enhance query based on intent
  * 4. checkCache - Semantic cache lookup
  * 5. vectorSearch - Hybrid vector search with routing
- * 6. generateResponse - LLM generation via ragAgent
+ * 6. generateResponse - LLM generation via dynamic agent selection
  * 7. processCitations - Renumber citations
  * 8. saveToDatabase - Save conversation messages
  * 9. saveToCache - Save to semantic cache
@@ -397,7 +398,7 @@ const vectorRetrievalStep = createStep({
 
 const generateResponseStep = createStep({
   id: 'generate-response',
-  description: 'Generate response using ragAgent',
+  description: 'Generate response using dynamic agent selection',
   inputSchema: retrievalSchema,
   outputSchema: generationSchema,
   execute: async ({ inputData }) => {
@@ -411,7 +412,7 @@ const generateResponseStep = createStep({
       }
     }
     
-    console.log('[workflow/generate-response] Generating response via ragAgent')
+    console.log('[workflow/generate-response] Generating response via dynamic agent selection')
     
     // Calculate relevance metrics
     const avgSimilarity = inputData.relevantResults.length > 0
@@ -425,7 +426,7 @@ const generateResponseStep = createStep({
       ? [...new Set(inputData.relevantResults.map((r: any) => r.document_filename || 'Documento sconosciuto'))]
       : []
     
-    const systemPrompt = await buildSystemPrompt({
+    const { text: systemPromptText, config: systemPromptConfig } = await buildSystemPrompt({
       hasContext: inputData.context !== undefined,
       context: inputData.context,
       documentCount: inputData.relevantResults.length,
@@ -438,7 +439,7 @@ const generateResponseStep = createStep({
     })
     
     const messages = [
-      { role: 'system' as const, content: systemPrompt },
+      { role: 'system' as const, content: systemPromptText },
       { role: 'user' as const, content: inputData.message },
     ]
     
@@ -447,11 +448,27 @@ const generateResponseStep = createStep({
       ? { maxToolRoundtrips: 0 }
       : {}
     
-    // Generate response using ragAgent
+    const promptModel =
+      systemPromptConfig && typeof (systemPromptConfig as { model?: unknown }).model === 'string'
+        ? (systemPromptConfig as { model: string }).model
+        : undefined
+
+    const fallbackModel = inputData.isComparative ? DEFAULT_PRO_MODEL : DEFAULT_FLASH_MODEL
+    const requestedModel = promptModel ?? fallbackModel
+    const selectedAgent = getRagAgentForModel(requestedModel)
+
+    console.log('[workflow/generate-response] Selected LLM model', {
+      requestedModel,
+      normalizedModel: selectedAgent.model,
+      source: promptModel ? 'langfuse-config' : 'fallback',
+      isComparative: inputData.isComparative,
+    })
+
+    // Generate response using the selected agent
     let fullResponse = ''
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const generated = await ragAgent.generate(messages as any, streamOptions as any)
+      const generated = await selectedAgent.generate(messages as any, streamOptions as any)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       fullResponse = (generated as any).text || (generated as any).content || String(generated) || ''
     } catch (err) {

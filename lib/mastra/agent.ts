@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent'
 import { AsyncLocalStorage } from 'async_hooks'
+import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL, normalizeModelId } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
@@ -598,14 +599,19 @@ const agentTools = {
   },
 }
 
+const BASE_AGENT_INSTRUCTIONS =
+  'Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.'
+
+const dynamicAgentCache = new Map<string, Agent>()
+
 /**
  * Agent con Gemini 2.5 Flash - per query normali
  * Più veloce ed economico, adatto per la maggior parte delle query
  */
 export const ragAgentFlash = new Agent({
   name: 'rag-consulting-agent-flash',
-  instructions: `Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.`,
-  model: `openrouter/google/gemini-2.5-flash`,
+  instructions: BASE_AGENT_INSTRUCTIONS,
+  model: DEFAULT_FLASH_MODEL,
   tools: agentTools,
 })
 
@@ -616,8 +622,8 @@ export const ragAgentFlash = new Agent({
  */
 export const ragAgentPro = new Agent({
   name: 'rag-consulting-agent-pro',
-  instructions: `Sei un assistente AI per un team di consulenza. Rispondi alle domande in modo accurato e professionale.`,
-  model: `openrouter/google/gemini-2.5-pro`,
+  instructions: BASE_AGENT_INSTRUCTIONS,
+  model: DEFAULT_PRO_MODEL,
   tools: agentTools,
 })
 
@@ -629,3 +635,44 @@ export const ragAgent = ragAgentFlash
 
 // React agent - per ora usiamo l'agent Flash
 export const reactRagAgent = ragAgentFlash
+
+/**
+ * Restituisce l'agent Mastra corretto in base al modello richiesto.
+ * Implementa una cache per evitare di creare istanze duplicate.
+ *
+ * @param model - Modello richiesto dalla configurazione del prompt
+ * @returns Istanza di Agent configurata per il modello richiesto
+ */
+export function getRagAgentForModel(model?: string | null): Agent {
+  const normalizedModel = normalizeModelId(model)
+
+  if (normalizedModel === ragAgentFlash.model) {
+    return ragAgentFlash
+  }
+
+  if (normalizedModel === ragAgentPro.model) {
+    return ragAgentPro
+  }
+
+  const cached = dynamicAgentCache.get(normalizedModel)
+  if (cached) {
+    return cached
+  }
+
+  const agentNameSuffix = normalizedModel
+    .replace(/^openrouter\//, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'custom'
+
+  const agent = new Agent({
+    name: `rag-consulting-agent-${agentNameSuffix}`,
+    instructions: BASE_AGENT_INSTRUCTIONS,
+    model: normalizedModel,
+    tools: agentTools,
+  })
+
+  dynamicAgentCache.set(normalizedModel, agent)
+
+  return agent
+}

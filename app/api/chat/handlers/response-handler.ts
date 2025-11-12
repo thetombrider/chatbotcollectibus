@@ -4,8 +4,9 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { ragAgentFlash, ragAgentPro, runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults } from '@/lib/mastra/agent'
+import { getRagAgentForModel, runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults } from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
+import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 import { extractUniqueDocumentNames, calculateAverageSimilarity } from '../services/context-builder'
@@ -100,7 +101,7 @@ export async function generateResponse(
     : []
 
   // Costruisci system prompt (now async with Langfuse)
-  const systemPrompt = await buildSystemPrompt({
+  const { text: systemPromptText, config: systemPromptConfig } = await buildSystemPrompt({
     hasContext: contextText !== null,
     context: contextText || undefined,
     documentCount: relevantResults.length,
@@ -116,7 +117,7 @@ export async function generateResponse(
   const messages = [
     {
       role: 'system' as const,
-      content: systemPrompt,
+      content: systemPromptText,
     },
     ...conversationHistory,
     {
@@ -148,12 +149,21 @@ export async function generateResponse(
   let capturedMetaChunks: SearchResult[] = []
   let capturedWebResults: Array<{ index: number; title: string; url: string; content: string }> = []
 
-  // Select the appropriate agent based on query type
-  // Use Pro model for comparative queries (better reasoning), Flash for everything else (faster/cheaper)
-  const selectedAgent = analysis.isComparative ? ragAgentPro : ragAgentFlash
-  const modelName = analysis.isComparative ? 'Gemini 2.5 Pro' : 'Gemini 2.5 Flash'
-  
-  console.log(`[response-handler] Using ${modelName} for ${analysis.isComparative ? 'comparative' : 'normal'} query`)
+  const promptModel =
+    systemPromptConfig && typeof (systemPromptConfig as { model?: unknown }).model === 'string'
+      ? (systemPromptConfig as { model: string }).model
+      : undefined
+
+  const fallbackModel = analysis.isComparative ? DEFAULT_PRO_MODEL : DEFAULT_FLASH_MODEL
+  const requestedModel = promptModel ?? fallbackModel
+  const selectedAgent = getRagAgentForModel(requestedModel)
+
+  console.log('[response-handler] Selected LLM model', {
+    requestedModel,
+    normalizedModel: selectedAgent.model,
+    source: promptModel ? 'langfuse-config' : 'fallback',
+    isComparative: analysis.isComparative,
+  })
 
   // Esegui l'agent con il contesto per passare traceContext e risultati
   await runWithAgentContext(

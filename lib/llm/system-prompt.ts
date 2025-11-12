@@ -10,7 +10,8 @@
  * - Dynamic sections are compiled as variables
  */
 
-import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
+import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
+import { PROMPTS, compilePromptWithConfig } from '@/lib/observability/prompt-manager'
 
 export interface SystemPromptOptions {
   /** Se ci sono documenti rilevanti nella knowledge base */
@@ -35,6 +36,11 @@ export interface SystemPromptOptions {
   isMetaQuery?: boolean
 }
 
+export interface SystemPromptResult {
+  text: string
+  config: Record<string, unknown> | null
+}
+
 /**
  * Costruisce il system prompt appropriato in base ai parametri forniti
  * 
@@ -48,7 +54,7 @@ export interface SystemPromptOptions {
  * @param options - Opzioni per la costruzione del prompt
  * @returns System prompt formattato
  */
-export async function buildSystemPrompt(options: SystemPromptOptions): Promise<string> {
+export async function buildSystemPrompt(options: SystemPromptOptions): Promise<SystemPromptResult> {
   const {
     hasContext,
     context,
@@ -90,51 +96,86 @@ export async function buildSystemPrompt(options: SystemPromptOptions): Promise<s
   try {
     // Case 0: Meta query
     if (isMetaQuery) {
-      return await compilePrompt(PROMPTS.SYSTEM_META_QUERY, variables, {
-        fallback: buildFallbackMetaPrompt(metaQuerySection),
+      const fallbackText = buildFallbackMetaPrompt(metaQuerySection)
+      const fallbackConfig = { model: DEFAULT_FLASH_MODEL }
+      const compiled = await compilePromptWithConfig(PROMPTS.SYSTEM_META_QUERY, variables, {
+        fallback: fallbackText,
+        fallbackConfig,
       })
+      return {
+        text: compiled.text,
+        config: compiled.config ?? fallbackConfig,
+      }
     }
 
     // Case 1: Has context
     if (hasContext && context) {
       // Case 1a: Comparative query
       if (comparativeTerms && comparativeTerms.length > 0) {
-        return await compilePrompt(PROMPTS.SYSTEM_RAG_COMPARATIVE, variables, {
-          fallback: buildFallbackComparativePrompt(
-            comparativeTerms,
-            uniqueDocumentNames,
-            context,
-            metaQuerySection,
-            webSearchInstruction,
-            citationsSection
-          ),
-        })
-      }
-
-      // Case 1b: Normal query with context
-      return await compilePrompt(PROMPTS.SYSTEM_RAG_WITH_CONTEXT, variables, {
-        fallback: buildFallbackWithContextPrompt(
+        const fallbackText = buildFallbackComparativePrompt(
+          comparativeTerms,
+          uniqueDocumentNames,
           context,
-          articleContext,
           metaQuerySection,
           webSearchInstruction,
           citationsSection
-        ),
+        )
+        const fallbackConfig = { model: DEFAULT_PRO_MODEL }
+        const compiled = await compilePromptWithConfig(PROMPTS.SYSTEM_RAG_COMPARATIVE, variables, {
+          fallback: fallbackText,
+          fallbackConfig,
+        })
+        return {
+          text: compiled.text,
+          config: compiled.config ?? fallbackConfig,
+        }
+      }
+
+      // Case 1b: Normal query with context
+      const fallbackText = buildFallbackWithContextPrompt(
+        context,
+        articleContext,
+        metaQuerySection,
+        webSearchInstruction,
+        citationsSection
+      )
+      const fallbackConfig = { model: DEFAULT_FLASH_MODEL }
+      const compiled = await compilePromptWithConfig(PROMPTS.SYSTEM_RAG_WITH_CONTEXT, variables, {
+        fallback: fallbackText,
+        fallbackConfig,
       })
+      return {
+        text: compiled.text,
+        config: compiled.config ?? fallbackConfig,
+      }
     }
 
     // Case 2: No context
     if (webSearchEnabled && sourcesInsufficient) {
       // Case 2a: No context + web search enabled
-      return await compilePrompt(PROMPTS.SYSTEM_RAG_NO_CONTEXT_WEB, variables, {
-        fallback: buildFallbackNoContextWebPrompt(metaQuerySection),
+      const fallbackText = buildFallbackNoContextWebPrompt(metaQuerySection)
+      const fallbackConfig = { model: DEFAULT_FLASH_MODEL }
+      const compiled = await compilePromptWithConfig(PROMPTS.SYSTEM_RAG_NO_CONTEXT_WEB, variables, {
+        fallback: fallbackText,
+        fallbackConfig,
       })
+      return {
+        text: compiled.text,
+        config: compiled.config ?? fallbackConfig,
+      }
     }
 
     // Case 2b: No context + no web search
-    return await compilePrompt(PROMPTS.SYSTEM_RAG_NO_CONTEXT, variables, {
-      fallback: buildFallbackNoContextPrompt(metaQuerySection),
+    const fallbackText = buildFallbackNoContextPrompt(metaQuerySection)
+    const fallbackConfig = { model: DEFAULT_FLASH_MODEL }
+    const compiled = await compilePromptWithConfig(PROMPTS.SYSTEM_RAG_NO_CONTEXT, variables, {
+      fallback: fallbackText,
+      fallbackConfig,
     })
+    return {
+      text: compiled.text,
+      config: compiled.config ?? fallbackConfig,
+    }
   } catch (error) {
     console.error('[system-prompt] Error building prompt from Langfuse:', error)
     
@@ -151,7 +192,7 @@ export async function buildSystemPrompt(options: SystemPromptOptions): Promise<s
  */
 export function buildSystemPromptSync(options: SystemPromptOptions): string {
   console.warn('[system-prompt] Using sync version - Langfuse prompts will not be used')
-  return buildFallbackPrompt(options)
+  return buildFallbackPrompt(options).text
 }
 
 // ============================================================================
@@ -233,7 +274,7 @@ IMPORTANTE:
 // Fallback Prompt Builders (used when Langfuse is unavailable)
 // ============================================================================
 
-function buildFallbackPrompt(options: SystemPromptOptions): string {
+function buildFallbackPrompt(options: SystemPromptOptions): SystemPromptResult {
   const {
     hasContext,
     context,
@@ -256,39 +297,54 @@ function buildFallbackPrompt(options: SystemPromptOptions): string {
   const citationsSection = buildCitationsSection(documentCount)
 
   if (isMetaQuery) {
-    return buildFallbackMetaPrompt(metaQuerySection)
+    return {
+      text: buildFallbackMetaPrompt(metaQuerySection),
+      config: { model: DEFAULT_FLASH_MODEL },
+    }
   }
 
   if (hasContext && context) {
     if (comparativeTerms && comparativeTerms.length > 0) {
-      return buildFallbackComparativePrompt(
-        comparativeTerms,
-        uniqueDocumentNames,
-        context,
-        metaQuerySection,
-        webSearchInstruction,
-        citationsSection
-      )
+      return {
+        text: buildFallbackComparativePrompt(
+          comparativeTerms,
+          uniqueDocumentNames,
+          context,
+          metaQuerySection,
+          webSearchInstruction,
+          citationsSection
+        ),
+        config: { model: DEFAULT_PRO_MODEL },
+      }
     }
 
     const articleContext = articleNumber
       ? `\n\nL'utente ha chiesto informazioni sull'ARTICOLO ${articleNumber}. Il contesto seguente contiene questo articolo specifico. Rispondi con il contenuto dell'articolo ${articleNumber}.`
       : ''
 
-    return buildFallbackWithContextPrompt(
-      context,
-      articleContext,
-      metaQuerySection,
-      webSearchInstruction,
-      citationsSection
-    )
+    return {
+      text: buildFallbackWithContextPrompt(
+        context,
+        articleContext,
+        metaQuerySection,
+        webSearchInstruction,
+        citationsSection
+      ),
+      config: { model: DEFAULT_FLASH_MODEL },
+    }
   }
 
   if (webSearchEnabled && sourcesInsufficient) {
-    return buildFallbackNoContextWebPrompt(metaQuerySection)
+    return {
+      text: buildFallbackNoContextWebPrompt(metaQuerySection),
+      config: { model: DEFAULT_FLASH_MODEL },
+    }
   }
 
-  return buildFallbackNoContextPrompt(metaQuerySection)
+  return {
+    text: buildFallbackNoContextPrompt(metaQuerySection),
+    config: { model: DEFAULT_FLASH_MODEL },
+  }
 }
 
 function buildFallbackMetaPrompt(metaQuerySection: string): string {

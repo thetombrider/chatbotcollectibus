@@ -125,11 +125,13 @@ ${context}
 
 ### Dopo (Langfuse)
 ```typescript
-const systemPrompt = await buildSystemPrompt({
+const { text: systemPromptText, config } = await buildSystemPrompt({
   hasContext: true,
   context: '...',
   // ...
 })
+
+const modelFromPrompt = typeof config?.model === 'string' ? config.model : undefined
 ```
 
 ✅ Modifiche senza deploy  
@@ -168,7 +170,7 @@ Dopo aver configurato tutto, potrai:
 
 1. **Fallback system**: Se Langfuse è offline, l'app usa prompt hard-coded (già configurati)
 2. **Cache**: I prompt sono cachati 5 minuti per performance
-3. **Async**: `buildSystemPrompt` è ora async (già aggiornato ovunque)
+3. **Async & metadata**: `buildSystemPrompt` è async e restituisce `{ text, config }`
 4. **Labels**: Default è `production`, puoi usare altri labels per testing
 
 ## 🐛 Troubleshooting

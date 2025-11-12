@@ -50,8 +50,22 @@ export interface PromptOptions {
   version?: number
   /** Fallback prompt text if fetch fails */
   fallback?: string
+  /** Fallback configuration when Langfuse prompt/config is unavailable */
+  fallbackConfig?: Record<string, unknown>
   /** Skip cache (force fetch from Langfuse) */
   skipCache?: boolean
+}
+
+/**
+ * Result of compiling a prompt with its metadata configuration.
+ */
+export interface CompiledPromptResult<TConfig extends Record<string, unknown> = Record<string, unknown>> {
+  text: string
+  config: TConfig | null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
@@ -146,6 +160,30 @@ export async function compilePrompt(
   variables: Record<string, string | number | boolean>,
   options: PromptOptions = {}
 ): Promise<string> {
+  const result = await compilePromptWithConfig(promptName, variables, options)
+  return result.text
+}
+
+/**
+ * Compiles a prompt and returns both the rendered text and the Langfuse configuration.
+ *
+ * @param promptName - Name of the prompt in Langfuse
+ * @param variables - Variables to compile into the prompt
+ * @param options - Fetch options with optional fallback and fallback config
+ * @returns Compiled prompt text with configuration metadata
+ *
+ * @example
+ * const { text, config } = await compilePromptWithConfig(
+ *   PROMPTS.SYSTEM_RAG_WITH_CONTEXT,
+ *   { context: '...', documentCount: 5 },
+ *   { fallback: 'Default system prompt...', fallbackConfig: { model: 'openrouter/google/gemini-2.5-flash' } }
+ * )
+ */
+export async function compilePromptWithConfig(
+  promptName: string,
+  variables: Record<string, string | number | boolean>,
+  options: PromptOptions = {}
+): Promise<CompiledPromptResult> {
   const { fallback } = options
 
   try {
@@ -154,7 +192,10 @@ export async function compilePrompt(
     if (!prompt) {
       if (fallback) {
         console.warn(`[prompt-manager] Using fallback for prompt: ${promptName}`)
-        return fallback
+        return {
+          text: fallback,
+          config: options.fallbackConfig ? { ...options.fallbackConfig } : null,
+        }
       }
       throw new Error(`Prompt not found and no fallback provided: ${promptName}`)
     }
@@ -166,23 +207,38 @@ export async function compilePrompt(
     }, {} as Record<string, string>)
 
     const compiled = prompt.compile(stringVariables)
+    const config = isRecord((prompt as { config?: unknown }).config)
+      ? (prompt as { config: Record<string, unknown> }).config
+      : null
 
     // Handle both text and chat prompts
     if (typeof compiled === 'string') {
-      return compiled
+      return {
+        text: compiled,
+        config,
+      }
     } else if (Array.isArray(compiled)) {
       // Chat prompt - convert to text (or return as-is depending on usage)
       // For now, we'll just join the messages
-      return compiled.map((msg: { content: string }) => msg.content).join('\n')
+      return {
+        text: compiled.map((msg: { content: string }) => msg.content).join('\n'),
+        config,
+      }
     }
 
-    return String(compiled)
+    return {
+      text: String(compiled),
+      config,
+    }
   } catch (error) {
     console.error(`[prompt-manager] Error compiling prompt: ${promptName}`, error)
 
     if (fallback) {
       console.warn(`[prompt-manager] Using fallback for prompt: ${promptName}`)
-      return fallback
+      return {
+        text: fallback,
+        config: options.fallbackConfig ? { ...options.fallbackConfig } : null,
+      }
     }
 
     throw error
