@@ -78,3 +78,4 @@ COMMENT ON FUNCTION hybrid_search IS 'Hybrid search combining vector similarity 
 
 
 
+
