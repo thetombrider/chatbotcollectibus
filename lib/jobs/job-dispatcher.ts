@@ -188,8 +188,9 @@ async function enqueueAsyncJob(
     reason: evaluation.reason,
   })
 
-  // Invoca la Edge Function in modo non-blocking usando fetch senza await
-  // Questo non blocca la risposta ma triggera il worker immediatamente
+  // Invoca la Edge Function con timeout breve (2 secondi) per "svegliare" il worker
+  // Questo è blocking ma con timeout breve, quindi non causa timeout su Vercel
+  // Se il fetch completa o va in timeout, non è un problema - il job è comunque in coda
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   
@@ -202,47 +203,61 @@ async function enqueueAsyncJob(
   if (supabaseUrl && serviceRoleKey) {
     const functionUrl = `${supabaseUrl}/functions/v1/process-async-job`
     
-    console.log('[async-jobs] Invoking Edge Function:', {
+    console.log('[async-jobs] Invoking Edge Function (with 2s timeout):', {
       functionUrl: functionUrl.replace(serviceRoleKey.substring(0, 20), '***'),
       jobId: job.id,
     })
     
-    // Invoca in modo non-blocking (fire and forget)
-    // Usa void per assicurarsi che non venga awaitato
-    void fetch(functionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceRoleKey}`,
-      },
-      body: JSON.stringify({ jobId: job.id }),
-    })
-      .then((response) => {
-        console.log('[async-jobs] Worker invocation response:', {
+    try {
+      // Crea un AbortController con timeout di 2 secondi
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000)
+      
+      const response = await fetch(functionUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({ jobId: job.id }),
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      
+      console.log('[async-jobs] Worker invocation response:', {
+        jobId: job.id,
+        status: response.status,
+        statusText: response.statusText,
+      })
+      
+      if (!response.ok) {
+        const text = await response.text()
+        console.warn('[async-jobs] Worker invocation failed:', {
           jobId: job.id,
           status: response.status,
-          statusText: response.statusText,
+          body: text.substring(0, 200),
         })
-        if (!response.ok) {
-          return response.text().then((text) => {
-            console.warn('[async-jobs] Worker invocation failed:', {
-              jobId: job.id,
-              status: response.status,
-              body: text.substring(0, 200),
-            })
-          })
-        }
-      })
-      .catch((error) => {
-        // Log ma non bloccare - il worker può comunque processare dalla coda
-        console.warn('[async-jobs] Failed to trigger worker (non-blocking):', {
+      } else {
+        console.log('[async-jobs] Worker successfully triggered:', {
+          jobId: job.id,
+        })
+      }
+    } catch (error) {
+      // Se va in timeout o errore, non è un problema - il job è comunque in coda
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('[async-jobs] Worker invocation timeout (expected):', {
+          jobId: job.id,
+          message: 'Request aborted after 2s timeout - job is queued and will be processed',
+        })
+      } else {
+        console.warn('[async-jobs] Failed to trigger worker:', {
           jobId: job.id,
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
         })
-      })
-    
-    console.log('[async-jobs] Worker trigger initiated (non-blocking)')
+      }
+    }
   } else {
     console.warn('[async-jobs] Missing Supabase config, worker will process from queue', {
       hasSupabaseUrl: !!supabaseUrl,
