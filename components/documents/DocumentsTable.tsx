@@ -9,6 +9,7 @@ import { DocumentPreview } from './DocumentPreview'
 interface DocumentsTableProps {
   refreshTrigger?: number
   selectedFolder?: string | null
+  searchQuery?: string
 }
 
 type SortField = 'filename' | 'file_size' | 'created_at' | 'chunks_count'
@@ -16,11 +17,10 @@ type SortOrder = 'asc' | 'desc'
 
 const ITEMS_PER_PAGE = 10
 
-export function DocumentsTable({ refreshTrigger, selectedFolder }: DocumentsTableProps) {
+export function DocumentsTable({ refreshTrigger, selectedFolder, searchQuery = '' }: DocumentsTableProps) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
   const [sortField, setSortField] = useState<SortField>('created_at')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -377,33 +377,9 @@ export function DocumentsTable({ refreshTrigger, selectedFolder }: DocumentsTabl
         />
       </div>
 
-      {/* Search bar and Folder Filter */}
+      {/* Results count */}
       <div className="flex-shrink-0 mb-3">
-        <div className="flex items-end gap-4">
-          {/* Search bar */}
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Cerca documenti
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                placeholder="Cerca documenti..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent text-sm"
-              />
-            </div>
-          </div>
-        </div>
-        
-        {/* Results count */}
-        <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <p className="text-sm text-gray-600">
             {filteredAndSorted.length} document{filteredAndSorted.length !== 1 ? 'i' : 'o'} trovato
           </p>
@@ -430,7 +406,7 @@ export function DocumentsTable({ refreshTrigger, selectedFolder }: DocumentsTabl
       {/* Table */}
       {filteredAndSorted.length > 0 && (
         <div className="flex flex-col bg-white border border-gray-200 rounded-lg">
-          <div className="overflow-auto">
+          <div className="overflow-auto max-h-[calc(100vh-280px)]">
             <table className="w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
