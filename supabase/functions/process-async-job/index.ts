@@ -448,6 +448,13 @@ async function saveAssistantMessage(
 async function processComparisonJob(context: JobProcessContext) {
   const { supabase, job, payload, openaiKey, openrouterKey } = context
   const now = new Date().toISOString()
+  const startTime = Date.now()
+
+  console.log('[process-async-job] processComparisonJob started:', {
+    jobId: job.id,
+    messageLength: payload.message.length,
+    comparativeTermsCount: payload.analysis.comparativeTerms?.length || 0,
+  })
 
   await updateJob(supabase, job.id, {
     status: 'in_progress',
@@ -458,16 +465,27 @@ async function processComparisonJob(context: JobProcessContext) {
     jobType: payload.kind,
   })
 
+  console.log('[process-async-job] Fetching conversation history...')
   const conversationHistory = payload.conversationId
     ? await fetchConversationHistory(supabase, payload.conversationId)
     : []
+  console.log('[process-async-job] Conversation history fetched:', {
+    historyLength: conversationHistory.length,
+    elapsed: Date.now() - startTime,
+  })
 
   await appendJobEvent(supabase, job.id, 'retrieval_started', 'Fetching knowledge base context', {
     comparativeTerms: payload.analysis.comparativeTerms ?? [],
   })
 
+  console.log('[process-async-job] Fetching base embedding...')
   const baseEmbedding = await fetchEmbedding(payload.enhancement.enhanced, openaiKey)
+  console.log('[process-async-job] Base embedding fetched:', {
+    embeddingLength: baseEmbedding.length,
+    elapsed: Date.now() - startTime,
+  })
 
+  console.log('[process-async-job] Starting hybrid search...')
   let searchResults: SearchResult[] = await hybridSearch(
     supabase,
     baseEmbedding,
@@ -477,12 +495,27 @@ async function processComparisonJob(context: JobProcessContext) {
     0.7,
     payload.analysis.articleNumber ?? payload.enhancement.articleNumber ?? undefined
   )
+  console.log('[process-async-job] Base search completed:', {
+    resultsCount: searchResults.length,
+    elapsed: Date.now() - startTime,
+  })
 
   if (payload.analysis.isComparative && payload.analysis.comparativeTerms && payload.analysis.comparativeTerms.length >= 2) {
-    const termResults: SearchResult[] = []
-    for (const term of payload.analysis.comparativeTerms) {
+    console.log('[process-async-job] Processing comparative terms in parallel:', {
+      terms: payload.analysis.comparativeTerms,
+      count: payload.analysis.comparativeTerms.length,
+    })
+    
+    // Parallelizza le chiamate di embedding e search per i termini comparativi
+    const termPromises = payload.analysis.comparativeTerms.map(async (term, index) => {
       try {
+        console.log('[process-async-job] Processing term', index + 1, 'of', payload.analysis.comparativeTerms.length, ':', term)
+        const termStartTime = Date.now()
         const termEmbedding = await fetchEmbedding(term, openaiKey)
+        console.log('[process-async-job] Term embedding fetched:', {
+          term,
+          elapsed: Date.now() - termStartTime,
+        })
         const termSearch = await hybridSearch(
           supabase,
           termEmbedding,
@@ -492,15 +525,28 @@ async function processComparisonJob(context: JobProcessContext) {
           0.7,
           payload.analysis.articleNumber ?? undefined
         )
-        termResults.push(...termSearch)
+        console.log('[process-async-job] Term search completed:', {
+          term,
+          resultsCount: termSearch.length,
+          elapsed: Date.now() - termStartTime,
+        })
+        return termSearch
       } catch (error) {
         console.error('[process-async-job] Comparative term search failed:', {
           term,
           error,
         })
+        return []
       }
-    }
+    })
+    
+    const termResultsArrays = await Promise.all(termPromises)
+    const termResults = termResultsArrays.flat()
     searchResults = deduplicateResults([...searchResults, ...termResults], 30)
+    console.log('[process-async-job] All comparative searches completed (parallel):', {
+      totalResults: searchResults.length,
+      elapsed: Date.now() - startTime,
+    })
   } else {
     searchResults = deduplicateResults(searchResults, 15)
   }
@@ -528,12 +574,22 @@ async function processComparisonJob(context: JobProcessContext) {
   })
   await updateJob(supabase, job.id, { progress: 55 })
 
+  console.log('[process-async-job] Calling OpenRouter...', {
+    promptLength: userPrompt.length,
+    elapsed: Date.now() - startTime,
+  })
+  const llmStartTime = Date.now()
   const llmContent = await callOpenRouter(
     systemPrompt,
     userPrompt,
     openrouterKey,
     'google/gemini-2.5-pro'
   )
+  console.log('[process-async-job] OpenRouter response received:', {
+    contentLength: llmContent.length,
+    elapsed: Date.now() - llmStartTime,
+    totalElapsed: Date.now() - startTime,
+  })
 
   await appendJobEvent(supabase, job.id, 'generation_completed', 'LLM generation completed', {
     contentLength: llmContent.length,
@@ -585,8 +641,17 @@ async function processComparisonJob(context: JobProcessContext) {
     error: null,
   }
 
+  console.log('[process-async-job] Saving job completion...', {
+    elapsed: Date.now() - startTime,
+  })
   await updateJob(supabase, job.id, completionPayload as Partial<AsyncJobRecord>)
   await appendJobEvent(supabase, job.id, 'completed', 'Job completed successfully', {
+    sourcesCount: combinedSources.length,
+  })
+  console.log('[process-async-job] Job completed successfully:', {
+    jobId: job.id,
+    totalElapsed: Date.now() - startTime,
+    contentLength: processed.content.length,
     sourcesCount: combinedSources.length,
   })
 }
