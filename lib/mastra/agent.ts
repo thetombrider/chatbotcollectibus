@@ -356,6 +356,7 @@ async function metaQueryTool({ query }: { query: string }) {
         console.log('[mastra/agent] Running LLM folder inference', {
           querySnippet: query.slice(0, 80),
           availableFolders: folderNames.length,
+          foldersSample: folderNames.slice(0, 10),
         })
 
         const inference = await inferMetaQueryFolder(query, folderNames)

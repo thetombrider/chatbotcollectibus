@@ -8,6 +8,78 @@ const openrouter = new OpenAI({
 
 const META_FOLDER_MODEL = 'google/gemini-2.5-flash'
 
+const STOPWORDS = new Set([
+  'a',
+  'ad',
+  'ai',
+  'al',
+  'all',
+  'allo',
+  'alla',
+  'alle',
+  'agli',
+  'anche',
+  'che',
+  'chi',
+  'ci',
+  'con',
+  'come',
+  'da',
+  'dal',
+  'dalla',
+  'dalle',
+  'dai',
+  'degli',
+  'dei',
+  'del',
+  'dell',
+  'della',
+  'delle',
+  'di',
+  'e',
+  'ed',
+  'gli',
+  'i',
+  'il',
+  'in',
+  'la',
+  'le',
+  'li',
+  'lo',
+  'ma',
+  'nel',
+  'nella',
+  'nelle',
+  'nei',
+  'non',
+  'o',
+  'per',
+  'quali',
+  'qual',
+  'qualche',
+  'quale',
+  'quello',
+  'questa',
+  'queste',
+  'questi',
+  'sono',
+  'su',
+  'tra',
+  'un',
+  'una',
+  'uno',
+  'verso',
+  'what',
+  'which',
+  'are',
+  'is',
+  'the',
+  'of',
+  'in',
+  'on',
+  'for',
+])
+
 export interface MetaFolderInferenceResult {
   folder: string | null
   confidence: number
@@ -21,18 +93,27 @@ interface LlmResponseShape {
   reasoning?: string
 }
 
+function extractKeywords(query: string, maxKeywords: number = 8): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-zàèéìòù0-9]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !STOPWORDS.has(token))
+    .filter((token, index, array) => array.indexOf(token) === index)
+    .slice(0, maxKeywords)
+}
+
 function buildFallbackPrompt(
   query: string,
   folders: string[],
-  totalFolderCount: number
+  totalFolderCount: number,
+  truncatedLabel: string,
+  keywordsLine: string
 ): string {
   const folderLines = folders
     .map((name, index) => `${index + 1}. ${name}`)
     .join('\n')
-  const truncatedNote =
-    totalFolderCount > folders.length
-      ? `\nATTENZIONE: Sono mostrate solo ${folders.length} cartelle su ${totalFolderCount}. Se nessuna cartella è pertinente, restituisci null.`
-      : ''
+  const truncatedNote = `Elenco troncato: ${truncatedLabel}`
 
   return `Sei un assistente che deve dedurre la cartella più pertinente in cui cercare documenti in un database aziendale.
 
@@ -40,16 +121,23 @@ Query utente (in italiano): "${query}"
 
 Elenco cartelle disponibili (seleziona la più pertinente):
 ${folderLines || '- Nessuna cartella disponibile'}
+${totalFolderCount > folders.length ? `\nSono mostrate ${folders.length} cartelle su ${totalFolderCount}.` : ''}
+
+${keywordsLine}
 ${truncatedNote}
 
-Istruzioni:
-- Rispondi esclusivamente con JSON.
-- Se una cartella è rilevante per la query, imposta "folder" con il nome ESATTO (rispettando maiuscole/minuscole come fornito).
-- Se nessuna cartella è adatta, usa "folder": null.
-- Includi "confidence" (0-1) e una breve "reasoning".
+Regole fondamentali:
+1. Devi scegliere esclusivamente tra le cartelle fornite. Non inventare nuovi nomi. Se nessuna cartella è adatta, imposta "folder": null.
+2. Confronta le parole chiave della query con le parole presenti nelle cartelle (considera singolare/plurale, sinonimi o traduzioni evidenti). Preferisci la cartella che contiene la maggioranza delle parole chiave rilevanti.
+3. Evita di selezionare cartelle con sovrapposizione minima o semantica diversa rispetto alla query.
+4. La motivazione deve spiegare in 1-2 frasi perché la cartella scelta è pertinente (o perché nessuna lo è).
+
+Output:
+- Rispondi esclusivamente con un oggetto JSON contenente "folder", "confidence" (0-1) e "reasoning".
+- Il campo "folder" deve riportare il nome esatto della cartella scelta (mai inventato).
 
 Esempio di risposta valida:
-{"folder": "Codice di Condotta Fornitori", "confidence": 0.88, "reasoning": "La query menziona 'codici di condotta fornitori' che corrispondono a questa cartella"}
+{"folder": "Codice di condotta fornitori", "confidence": 0.88, "reasoning": "La query menziona codici di condotta fornitori, corrispondenti a questa cartella"}
 
 Rispondi ora con il JSON richiesto.`
 }
@@ -109,26 +197,61 @@ export async function inferMetaQueryFolder(
         ? sanitizedFolders.slice(0, maxFolders)
         : sanitizedFolders
 
+    const keywords = extractKeywords(query)
+    const keywordList =
+      keywords.length > 0
+        ? keywords.join(', ')
+        : '(nessuna parola chiave rilevante individuata)'
+    const truncatedLabel =
+      sanitizedFolders.length > limitedFolders.length
+        ? 'SÌ – sono presenti altre cartelle non elencate qui.'
+        : 'NO – l’elenco include tutte le cartelle disponibili.'
+
     const prompt = await compilePrompt(
       PROMPTS.META_FOLDER_INFERENCE,
       {
         query,
         folders: limitedFolders.join('\n'),
         folders_count: sanitizedFolders.length,
+        query_keywords: keywordList,
         max_folders: maxFolders,
-        truncated: sanitizedFolders.length > limitedFolders.length,
+        truncated_label: truncatedLabel,
       },
       {
-        fallback: buildFallbackPrompt(query, limitedFolders, sanitizedFolders.length),
+        fallback: buildFallbackPrompt(
+          query,
+          limitedFolders,
+          sanitizedFolders.length,
+          truncatedLabel,
+          `Parole chiave estratte dalla query: ${keywordList}`
+        ),
       }
     )
+
+    const folderListBlock = limitedFolders.map((name, index) => `- ${index + 1}. ${name}`).join('\n') || '- Nessuna cartella disponibile'
+    const structuredSection = [
+      '',
+      '=== DATI STRUTTURATI ===',
+      `Query originale: ${query}`,
+      `Parole chiave: ${keywordList}`,
+      `Elenco troncato: ${truncatedLabel}`,
+      `Cartelle disponibili (${limitedFolders.length}/${sanitizedFolders.length}):`,
+      folderListBlock,
+      '',
+      '=== ISTRUZIONI FINALI ===',
+      'Analizza la query e seleziona UNA cartella dall\'elenco sopra che sia semanticamente coerente con le parole chiave.',
+      'Se nessuna cartella è adatta, imposta "folder": null.',
+      'Rispondi SOLO con JSON avente esattamente i campi: folder (string|null), confidence (numero tra 0 e 1), reasoning (string).',
+    ].join('\n')
+
+    const finalPrompt = `${prompt.trim()}\n${structuredSection}`
 
     const response = await openrouter.chat.completions.create({
       model: META_FOLDER_MODEL,
       messages: [
         {
           role: 'user',
-          content: prompt,
+          content: finalPrompt,
         },
       ],
       temperature: 0,
