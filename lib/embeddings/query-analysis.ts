@@ -66,9 +66,73 @@ export interface QueryAnalysisResult {
   // Article reference
   articleNumber?: number
   
+  // Temporal query indicators
+  hasTemporal: boolean
+  temporalTerms?: string[]
+  
+  // Web search explicit requests
+  hasWebSearchRequest: boolean
+  webSearchCommand?: string
+  
   // Metadata
   fromCache: boolean
   confidence?: number
+}
+
+/**
+ * Detects temporal terms in query (fast, no LLM needed)
+ * Detects terms that indicate the user is looking for recent/latest/new information
+ */
+function detectTemporalTerms(query: string): { hasTemporal: boolean; temporalTerms: string[] } {
+  const temporalPatterns = [
+    /\b(?:ultime|ultimissime|recenti|recentissime|nuove|aggiornate|aggiornamenti|novità)\b/gi,
+    /\b(?:latest|recent|new|updated|newest|current|up-to-date)\b/gi,
+    /\b(?:quest'anno|anno corrente|del 2024|del 2025|di recente|negli ultimi)\b/gi,
+    /\b(?:da poco|di recente|attualmente|oggi|ora|adesso)\b/gi,
+  ]
+  
+  const foundTerms: string[] = []
+  
+  for (const pattern of temporalPatterns) {
+    const matches = query.matchAll(pattern)
+    for (const match of matches) {
+      if (match[0] && !foundTerms.includes(match[0].toLowerCase())) {
+        foundTerms.push(match[0].toLowerCase())
+      }
+    }
+  }
+  
+  return {
+    hasTemporal: foundTerms.length > 0,
+    temporalTerms: foundTerms,
+  }
+}
+
+/**
+ * Detects explicit web search commands in query (fast, no LLM needed)  
+ * Detects when user explicitly asks to search the web
+ */
+function detectWebSearchCommand(query: string): { hasWebSearchRequest: boolean; webSearchCommand?: string } {
+  const webSearchPatterns = [
+    /\b(?:vai su web|cerca su internet|ricerca su internet|cerca online|guarda su internet)\b/gi,
+    /\b(?:search the web|go online|check online|look online|web search)\b/gi,
+    /\b(?:cerca informazioni aggiornate|cerca info recenti|verifica online)\b/gi,
+    /\b(?:controlla su internet|vedi se ci sono novità|cerca novità)\b/gi,
+  ]
+  
+  for (const pattern of webSearchPatterns) {
+    const match = query.match(pattern)
+    if (match) {
+      return {
+        hasWebSearchRequest: true,
+        webSearchCommand: match[0],
+      }
+    }
+  }
+  
+  return {
+    hasWebSearchRequest: false,
+  }
 }
 
 /**
@@ -131,12 +195,14 @@ export async function analyzeQuery(query: string): Promise<QueryAnalysisResult> 
       }
     }
 
-    // Step 2: Fast regex check for articles (before LLM call)
+    // Step 2: Fast regex checks (before LLM call)
     const articleNumberRegex = detectArticleReferenceRegex(query)
+    const temporalDetection = detectTemporalTerms(query)
+    const webSearchDetection = detectWebSearchCommand(query)
 
     // Step 3: Use LLM to analyze everything at once
     console.log('[query-analysis] Cache miss, using LLM for unified analysis...')
-    const result = await analyzeWithLLM(query, articleNumberRegex)
+    const result = await analyzeWithLLM(query, articleNumberRegex, temporalDetection, webSearchDetection)
 
     // Step 4: Cache the result
     await saveCachedQueryAnalysis(query, result)
@@ -162,11 +228,15 @@ export async function analyzeQuery(query: string): Promise<QueryAnalysisResult> 
  * 
  * @param query - Query to analyze
  * @param articleNumberRegex - Article number detected by regex (if any)
+ * @param temporalDetection - Temporal terms detected by regex
+ * @param webSearchDetection - Web search commands detected by regex
  * @returns Complete analysis result
  */
 async function analyzeWithLLM(
   query: string,
-  articleNumberRegex: number | null
+  articleNumberRegex: number | null,
+  temporalDetection: { hasTemporal: boolean; temporalTerms: string[] },
+  webSearchDetection: { hasWebSearchRequest: boolean; webSearchCommand?: string }
 ): Promise<QueryAnalysisResult> {
   try {
     // Fetch prompt from Langfuse with fallback
@@ -319,6 +389,10 @@ async function analyzeWithLLM(
       isMeta,
       metaType,
       articleNumber: articleNumber || undefined,
+      hasTemporal: temporalDetection.hasTemporal,
+      temporalTerms: temporalDetection.temporalTerms,
+      hasWebSearchRequest: webSearchDetection.hasWebSearchRequest,
+      webSearchCommand: webSearchDetection.webSearchCommand,
       fromCache: false,
       confidence,
     }
@@ -334,10 +408,18 @@ async function analyzeWithLLM(
  * Returns default analysis result (fallback)
  */
 function getDefaultResult(query: string, articleNumber?: number | null): QueryAnalysisResult {
+  // Apply regex detections even in fallback
+  const temporalDetection = detectTemporalTerms(query)
+  const webSearchDetection = detectWebSearchCommand(query)
+  
   return {
     intent: 'general',
     isComparative: false,
     isMeta: false,
+    hasTemporal: temporalDetection.hasTemporal,
+    temporalTerms: temporalDetection.temporalTerms,
+    hasWebSearchRequest: webSearchDetection.hasWebSearchRequest,
+    webSearchCommand: webSearchDetection.webSearchCommand,
     fromCache: false,
     articleNumber: articleNumber || undefined,
   }
