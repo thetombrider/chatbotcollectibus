@@ -58,10 +58,8 @@ export async function GET(_: NextRequest, { params }: RouteParams) {
   }
 
   // Avoid leaking original payload (can contain sensitive info)
-  const { payload: _payload, ...safeJob } = job
-
   return NextResponse.json({
-    job: safeJob,
+    job,
     events: events ?? [],
   })
 }

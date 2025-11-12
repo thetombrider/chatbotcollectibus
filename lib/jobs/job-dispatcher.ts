@@ -129,6 +129,8 @@ async function enqueueAsyncJob(
         traceId: input.traceContext?.traceId,
       }
       break
+    case 'deep-research':
+      throw new Error('[async-jobs] Job type deep-research is not implemented yet')
     default:
       const exhaustiveCheck: never = evaluation.jobType
       throw new Error(`[async-jobs] Unsupported job type: ${exhaustiveCheck}`)

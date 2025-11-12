@@ -20,7 +20,7 @@ export interface DispatchEvaluationResult {
   metadata?: Record<string, unknown>
 }
 
-export interface ComparisonJobPayload {
+export interface ComparisonJobPayload extends Record<string, unknown> {
   kind: 'comparison'
   message: string
   conversationId: string | null
