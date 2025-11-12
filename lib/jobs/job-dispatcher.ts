@@ -188,10 +188,34 @@ async function enqueueAsyncJob(
     reason: evaluation.reason,
   })
 
-  // Nota: Non invochiamo la Edge Function direttamente per evitare timeout
-  // Il worker può processare dalla coda senza bisogno di invocazione diretta
-  // Se necessario, possiamo configurare un webhook o un cron job per triggerare il worker
-  console.log('[async-jobs] Job queued - worker will process from queue automatically')
+  // Invoca la Edge Function in modo non-blocking usando fetch senza await
+  // Questo non blocca la risposta ma triggera il worker immediatamente
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (supabaseUrl && serviceRoleKey) {
+    const functionUrl = `${supabaseUrl}/functions/v1/process-async-job`
+    
+    // Invoca in modo non-blocking (fire and forget)
+    fetch(functionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify({ jobId: job.id }),
+    }).catch((error) => {
+      // Log ma non bloccare - il worker può comunque processare dalla coda
+      console.warn('[async-jobs] Failed to trigger worker (non-blocking):', {
+        jobId: job.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    
+    console.log('[async-jobs] Worker triggered (non-blocking)')
+  } else {
+    console.warn('[async-jobs] Missing Supabase config, worker will process from queue')
+  }
 
   console.log('[async-jobs] Job enqueued successfully:', {
     jobId: job.id,
