@@ -101,6 +101,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [state, dispatch] = useReducer(chatReducer, initialStateRef.current)
   const stateRef = useRef(state)
   const onConversationCreatedRef = useRef(onConversationCreated)
+  const pollingAbortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     stateRef.current = state
@@ -109,6 +110,16 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   useEffect(() => {
     onConversationCreatedRef.current = onConversationCreated
   }, [onConversationCreated])
+
+  // Cleanup: ferma il polling quando il componente viene smontato
+  useEffect(() => {
+    return () => {
+      if (pollingAbortControllerRef.current) {
+        pollingAbortControllerRef.current.abort()
+        pollingAbortControllerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (
@@ -227,11 +238,28 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
   const pollJobStatus = useCallback(
     async (jobId: string, options: { wasNewConversation: boolean; conversationId: string | null }) => {
+      // Ferma eventuali polling precedenti
+      if (pollingAbortControllerRef.current) {
+        pollingAbortControllerRef.current.abort()
+      }
+
+      // Crea un nuovo AbortController per questo polling
+      const abortController = new AbortController()
+      pollingAbortControllerRef.current = abortController
+
       const MAX_ATTEMPTS = 60
 
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        // Controlla se il polling è stato cancellato
+        if (abortController.signal.aborted) {
+          console.log('[useChat] Polling cancelled')
+          return
+        }
+
         try {
-          const response = await fetch(`/api/jobs/${jobId}`)
+          const response = await fetch(`/api/jobs/${jobId}`, {
+            signal: abortController.signal,
+          })
 
           if (!response.ok) {
             console.warn('Failed to fetch job status:', response.status, response.statusText)
@@ -277,10 +305,14 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               window.history.replaceState(null, '', `/chat/${options.conversationId}`)
             }
 
+            // Ferma il polling quando il job è completato
+            pollingAbortControllerRef.current = null
             return
             }
 
             if (job.status === 'failed') {
+              // Ferma il polling quando il job fallisce
+              pollingAbortControllerRef.current = null
               const errorMessage =
                 (job.error && typeof job.error === 'object' && job.error !== null && 'message' in job.error)
                   ? String(job.error.message)
@@ -310,12 +342,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             dispatch({ type: 'UPDATE_LAST_MESSAGE', value: updatedMessage })
           }
         } catch (error) {
+          // Ignora errori se il polling è stato cancellato
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.log('[useChat] Polling aborted')
+            return
+          }
           console.warn('Polling error:', error)
         }
 
         await delay(2000)
       }
 
+      // Ferma il polling quando raggiunge il timeout
+      pollingAbortControllerRef.current = null
       throw new Error('Timeout elaborazione job async')
     },
     [delay, streamAsyncResult]
@@ -340,6 +379,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     }
     dispatch({ type: 'SET_LOADING', value: true })
     dispatch({ type: 'SET_STATUS', value: null })
+
+    // Ferma eventuali polling in corso quando viene inviato un nuovo messaggio
+    if (pollingAbortControllerRef.current) {
+      pollingAbortControllerRef.current.abort()
+      pollingAbortControllerRef.current = null
+    }
 
     let conversationId = currentState.conversationId
     const wasNewConversation = !conversationId
