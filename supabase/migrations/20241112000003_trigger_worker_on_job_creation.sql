@@ -22,54 +22,37 @@ $$;
 CREATE OR REPLACE FUNCTION public.trigger_process_async_job()
 RETURNS TRIGGER AS $$
 DECLARE
-  supabase_url TEXT;
-  service_role_key TEXT;
+  project_url TEXT := 'https://wcbyndvfvgnyusqgorks.supabase.co';
+  anon_key TEXT := 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndjYnluZHZmdmdueXVzcWdvcmtzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwMzcwMjAsImV4cCI6MjA3NzYxMzAyMH0.Cf8HIIYxcRp6kNWOCnaKUkpR52vnQYnSVs7FyhuWeKE';
   function_url TEXT;
   response_id BIGINT;
 BEGIN
-  -- Get Supabase URL from environment (set via Supabase Dashboard or migration)
-  -- For now, we'll construct it from the current database name
-  -- Format: https://<project-ref>.supabase.co/functions/v1/process-async-job
-  
-  -- Try to get from settings table or use a default pattern
-  -- In production, these should be set via Supabase Dashboard > Database > Settings
-  BEGIN
-    supabase_url := current_setting('app.settings.supabase_url', true);
-    service_role_key := current_setting('app.settings.service_role_key', true);
-  EXCEPTION
-    WHEN OTHERS THEN
-      -- If settings are not available, we can't auto-trigger
-      -- The job will need to be processed manually or via webhook
-      RAISE WARNING 'Supabase URL/Service Role Key not configured in database settings. Job % will remain queued until manually triggered.', NEW.id;
-      RETURN NEW;
-  END;
-  
-  -- If we have the URL and key, invoke the function
-  IF supabase_url IS NOT NULL AND service_role_key IS NOT NULL THEN
-    function_url := supabase_url || '/functions/v1/process-async-job';
-    
-    -- Use pg_net to make async HTTP request (non-blocking)
+  RAISE NOTICE '[trigger] Triggered for job % with status %', NEW.id, NEW.status;
+
+  IF project_url IS NOT NULL AND anon_key IS NOT NULL THEN
+    function_url := project_url || '/functions/v1/process-async-job';
+    RAISE NOTICE '[trigger] Attempting to invoke Edge Function: % for job %', function_url, NEW.id;
+
     BEGIN
       SELECT net.http_post(
         url := function_url,
         headers := jsonb_build_object(
           'Content-Type', 'application/json',
-          'Authorization', 'Bearer ' || service_role_key
+          'Authorization', 'Bearer ' || anon_key,
+          'apikey', anon_key
         )::jsonb,
         body := jsonb_build_object('jobId', NEW.id)::jsonb
       ) INTO response_id;
-      
-      RAISE NOTICE 'Triggered worker for job % (request ID: %)', NEW.id, response_id;
+
+      RAISE NOTICE '[trigger] Worker invocation initiated for job % (request ID: %)', NEW.id, response_id;
     EXCEPTION
       WHEN OTHERS THEN
-        -- If pg_net fails, log and continue
-        -- The job will be processed by manual invocation or cron job
-        RAISE WARNING 'Could not auto-trigger worker for job %: %', NEW.id, SQLERRM;
+        RAISE WARNING '[trigger] Could not auto-trigger worker for job %: %', NEW.id, SQLERRM;
     END;
   ELSE
-    RAISE WARNING 'Missing Supabase configuration. Job % will remain queued until manually triggered.', NEW.id;
+    RAISE WARNING '[trigger] Missing Supabase configuration. Job % will remain queued until manually triggered.', NEW.id;
   END IF;
-  
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
