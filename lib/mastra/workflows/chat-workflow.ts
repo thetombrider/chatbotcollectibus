@@ -72,6 +72,11 @@ const analysisResultSchema = z.object({
   comparativeTerms: z.array(z.string()).optional(),
   articleNumber: z.number().optional(),
   fromCache: z.boolean(),
+  // New temporal and web search fields
+  hasTemporal: z.boolean(),
+  temporalTerms: z.array(z.string()).optional(),
+  hasWebSearchRequest: z.boolean(),
+  webSearchCommand: z.string().optional(),
 })
 
 const enhancedQuerySchema = analysisResultSchema.extend({
@@ -198,6 +203,8 @@ const analyzeQueryStep = createStep({
       isMeta: analysisResult.isMeta,
       articleNumber: analysisResult.articleNumber,
       fromCache: analysisResult.fromCache,
+      hasTemporal: analysisResult.hasTemporal,
+      hasWebSearchRequest: analysisResult.hasWebSearchRequest,
     })
 
     return {
@@ -208,6 +215,10 @@ const analyzeQueryStep = createStep({
       comparativeTerms: analysisResult.comparativeTerms,
       articleNumber: analysisResult.articleNumber,
       fromCache: analysisResult.fromCache,
+      hasTemporal: analysisResult.hasTemporal,
+      temporalTerms: analysisResult.temporalTerms,
+      hasWebSearchRequest: analysisResult.hasWebSearchRequest,
+      webSearchCommand: analysisResult.webSearchCommand,
     }
   },
 })
@@ -231,6 +242,10 @@ const enhanceQueryStep = createStep({
       comparativeTerms: inputData.comparativeTerms,
       articleNumber: inputData.articleNumber,
       fromCache: inputData.fromCache,
+      hasTemporal: inputData.hasTemporal,
+      temporalTerms: inputData.temporalTerms,
+      hasWebSearchRequest: inputData.hasWebSearchRequest,
+      webSearchCommand: inputData.webSearchCommand,
     })
     
     const queryToEmbed = enhancementResult.enhanced
