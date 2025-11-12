@@ -385,8 +385,21 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
     const [filePreviews, setFilePreviews] = React.useState<{ [key: string]: string }>({})
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null)
     const [showSearch, setShowSearch] = React.useState(webSearchEnabled)
+    const promptBoxRef = React.useRef<HTMLDivElement | null>(null)
+    const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(null)
 
-    const promptBoxRef = React.useRef<HTMLDivElement>(null)
+    const assignRef = React.useCallback(
+      (node: HTMLDivElement | null) => {
+        promptBoxRef.current = node
+        setContainerEl(node)
+        if (typeof ref === 'function') {
+          ref(node)
+        } else if (ref) {
+          ;(ref as React.MutableRefObject<HTMLDivElement | null>).current = node
+        }
+      },
+      [ref]
+    )
 
     // Sync showSearch with webSearchEnabled prop
     React.useEffect(() => {
@@ -403,11 +416,9 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
 
     const processFile = (file: File) => {
       if (!isImageFile(file)) {
-        console.log('Only image files are allowed')
         return
       }
       if (file.size > 10 * 1024 * 1024) {
-        console.log('File too large (max 10MB)')
         return
       }
       setFiles([file])
@@ -464,9 +475,17 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
     )
 
     React.useEffect(() => {
-      document.addEventListener('paste', handlePaste)
-      return () => document.removeEventListener('paste', handlePaste)
-    }, [handlePaste])
+      if (!containerEl) {
+        return
+      }
+
+      const listener = (event: Event) => {
+        handlePaste(event as ClipboardEvent)
+      }
+
+      containerEl.addEventListener('paste', listener)
+      return () => containerEl.removeEventListener('paste', listener)
+    }, [containerEl, handlePaste])
 
     const handleSubmit = () => {
       if (input.trim() || files.length > 0) {
@@ -497,7 +516,7 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
                 className
               )}
               disabled={isLoading || disabled}
-              ref={ref || promptBoxRef}
+              ref={assignRef}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}

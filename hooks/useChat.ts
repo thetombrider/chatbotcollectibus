@@ -1,15 +1,16 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { Message, Source } from '@/types/chat'
 
 interface UseChatOptions {
   conversationId?: string | null
   onConversationCreated?: (id: string) => void
   webSearchEnabled?: boolean
+  initialMessages?: Message[]
 }
 
 interface UseChatReturn {
   messages: Message[]
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>
+  setMessages: (value: Message[] | ((prev: Message[]) => Message[])) => void
   loading: boolean
   statusMessage: string | null
   input: string
@@ -21,38 +22,107 @@ interface UseChatReturn {
   setWebSearchEnabled: (enabled: boolean) => void
 }
 
+interface ChatState {
+  messages: Message[]
+  input: string
+  loading: boolean
+  statusMessage: string | null
+  conversationId: string | null
+  webSearchEnabled: boolean
+}
+
+type ChatAction =
+  | { type: 'SET_INPUT'; value: string }
+  | { type: 'SET_MESSAGES'; value: Message[] }
+  | { type: 'PUSH_MESSAGE'; value: Message }
+  | { type: 'UPDATE_LAST_MESSAGE'; value: Message }
+  | { type: 'POP_MESSAGE' }
+  | { type: 'SET_LOADING'; value: boolean }
+  | { type: 'SET_STATUS'; value: string | null }
+  | { type: 'SET_CONVERSATION_ID'; value: string | null }
+  | { type: 'SET_WEB_SEARCH_ENABLED'; value: boolean }
+
+function chatReducer(state: ChatState, action: ChatAction): ChatState {
+  switch (action.type) {
+    case 'SET_INPUT':
+      return { ...state, input: action.value }
+    case 'SET_MESSAGES':
+      return { ...state, messages: action.value }
+    case 'PUSH_MESSAGE':
+      return { ...state, messages: [...state.messages, action.value] }
+    case 'UPDATE_LAST_MESSAGE': {
+      if (state.messages.length === 0) {
+        return state
+      }
+      const nextMessages = [...state.messages]
+      nextMessages[nextMessages.length - 1] = action.value
+      return { ...state, messages: nextMessages }
+    }
+    case 'POP_MESSAGE':
+      return { ...state, messages: state.messages.slice(0, -1) }
+    case 'SET_LOADING':
+      return { ...state, loading: action.value }
+    case 'SET_STATUS':
+      return { ...state, statusMessage: action.value }
+    case 'SET_CONVERSATION_ID':
+      return { ...state, conversationId: action.value }
+    case 'SET_WEB_SEARCH_ENABLED':
+      return { ...state, webSearchEnabled: action.value }
+    default:
+      return state
+  }
+}
+
 /**
- * Custom hook for managing chat functionality
- * Handles message streaming, conversation creation, and state management
+ * Custom hook for managing chat functionality with a reducer-based state machine.
  */
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
-  const { conversationId: initialConversationId, onConversationCreated, webSearchEnabled: initialWebSearchEnabled = false } = options
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [conversationId, setConversationId] = useState<string | null>(initialConversationId || null)
-  const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [webSearchEnabled, setWebSearchEnabled] = useState(initialWebSearchEnabled)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  
+  const {
+    conversationId: controlledConversationId,
+    onConversationCreated,
+    webSearchEnabled: initialWebSearchEnabled = false,
+    initialMessages = [],
+  } = options
+
+  const initialStateRef = useRef<ChatState>({
+    messages: initialMessages,
+    input: '',
+    loading: false,
+    statusMessage: null,
+    conversationId: controlledConversationId ?? null,
+    webSearchEnabled: initialWebSearchEnabled,
+  })
+
+  const [state, dispatch] = useReducer(chatReducer, initialStateRef.current)
+  const stateRef = useRef(state)
   const onConversationCreatedRef = useRef(onConversationCreated)
-  
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
   useEffect(() => {
     onConversationCreatedRef.current = onConversationCreated
   }, [onConversationCreated])
 
-  // CRITICAL FIX: Sync internal conversationId state when prop changes
-  // Without this, the hook keeps using the old (null) conversationId even after
-  // the parent component sets it, causing new conversations to be created
   useEffect(() => {
-    if (initialConversationId !== undefined && initialConversationId !== conversationId) {
-      console.log('[useChat] Syncing conversationId from prop:', {
-        from: conversationId,
-        to: initialConversationId,
-      })
-      setConversationId(initialConversationId)
+    if (
+      controlledConversationId !== undefined &&
+      controlledConversationId !== stateRef.current.conversationId
+    ) {
+      dispatch({ type: 'SET_CONVERSATION_ID', value: controlledConversationId })
     }
-  }, [initialConversationId, conversationId])
+  }, [controlledConversationId])
+
+  useEffect(() => {
+    dispatch({ type: 'SET_WEB_SEARCH_ENABLED', value: initialWebSearchEnabled })
+  }, [initialWebSearchEnabled])
+
+  useEffect(() => {
+    dispatch({ type: 'SET_MESSAGES', value: initialMessages })
+  }, [initialMessages])
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -60,85 +130,113 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages.length, scrollToBottom])
+  }, [state.messages.length, scrollToBottom])
 
-  const handleSend = useCallback(async (skipCache: boolean = false, messageOverride?: string) => {
-    const messageContent = (messageOverride || input).trim()
-    if (!messageContent || loading) return
+  const setInput = useCallback((value: string) => {
+    dispatch({ type: 'SET_INPUT', value })
+  }, [])
+
+  const setMessages = useCallback(
+    (value: Message[] | ((prev: Message[]) => Message[])) => {
+      const nextMessages =
+        typeof value === 'function'
+          ? (value as (prev: Message[]) => Message[])(stateRef.current.messages)
+          : value
+      dispatch({ type: 'SET_MESSAGES', value: nextMessages })
+    },
+    []
+  )
+
+  const setWebSearchEnabled = useCallback((enabled: boolean) => {
+    dispatch({ type: 'SET_WEB_SEARCH_ENABLED', value: enabled })
+  }, [])
+
+  const handleSend = useCallback(async (skipCache = false, messageOverride?: string) => {
+    const currentState = stateRef.current
+    const messageContent = (messageOverride ?? currentState.input).trim()
+
+    if (!messageContent || currentState.loading) {
+      return
+    }
+
     const userMessage: Message = {
       role: 'user',
       content: messageContent,
     }
 
-    setMessages((prev) => [...prev, userMessage])
-    // Only clear input if we're using it (not a message override)
+    dispatch({ type: 'PUSH_MESSAGE', value: userMessage })
     if (!messageOverride) {
-      setInput('')
+      dispatch({ type: 'SET_INPUT', value: '' })
     }
-    setLoading(true)
-    setStatusMessage(null)
+    dispatch({ type: 'SET_LOADING', value: true })
+    dispatch({ type: 'SET_STATUS', value: null })
 
-    // Create conversation if it doesn't exist
+    let conversationId = currentState.conversationId
     const wasNewConversation = !conversationId
-    let currentConversationId = conversationId
-    if (!currentConversationId) {
+
+    if (!conversationId) {
       try {
-        const res = await fetch('/api/conversations', {
+        const createResponse = await fetch('/api/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title: messageContent.substring(0, 50) }),
         })
-        const { conversation } = await res.json()
-        currentConversationId = conversation.id
-        setConversationId(conversation.id)
+
+        if (!createResponse.ok) {
+          throw new Error(`Failed to create conversation: ${createResponse.status}`)
+        }
+
+        const { conversation } = await createResponse.json()
+        conversationId = conversation.id
+        dispatch({ type: 'SET_CONVERSATION_ID', value: conversationId })
         onConversationCreatedRef.current?.(conversation.id)
       } catch (error) {
         console.error('Failed to create conversation:', error)
-        setLoading(false)
-        setMessages((prev) => prev.slice(0, -1))
+        dispatch({ type: 'SET_LOADING', value: false })
+        dispatch({ type: 'POP_MESSAGE' })
         throw new Error('Failed to create conversation')
       }
     }
 
-    // Streaming response
     try {
       const requestBody = {
         message: messageContent,
-        conversationId: currentConversationId,
-        webSearchEnabled,
+        conversationId,
+        webSearchEnabled: stateRef.current.webSearchEnabled,
         skipCache,
       }
-      
-      console.log('[useChat] Sending request:', {
-        messagePreview: messageContent.substring(0, 50),
-        conversationId: currentConversationId,
-        webSearchEnabled,
-        skipCache,
-      })
-      
-      const res = await fetch('/api/chat', {
+
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       })
 
-      if (!res.ok) {
-        throw new Error(`Failed to fetch: ${res.status}`)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`)
       }
 
-      if (!res.body) {
+      if (!response.body) {
         throw new Error('No response body')
       }
 
-      const reader = res.body.getReader()
+      const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      const assistantMessage: Message = {
+      let assistantMessage: Message = {
         role: 'assistant',
         content: '',
         sources: [],
       }
 
-      setMessages((prev) => [...prev, assistantMessage])
+      const updateAssistantMessage = (partial: Partial<Message>) => {
+        assistantMessage = {
+          ...assistantMessage,
+          ...partial,
+        }
+        dispatch({ type: 'UPDATE_LAST_MESSAGE', value: assistantMessage })
+      }
+
+      dispatch({ type: 'PUSH_MESSAGE', value: assistantMessage })
 
       while (true) {
         const { done, value } = await reader.read()
@@ -148,74 +246,69 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         const lines = chunk.split('\n')
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
+          if (!line.startsWith('data: ')) {
+            continue
+          }
 
-              if (data.type === 'status') {
-                setStatusMessage(data.message || null)
-              } else if (data.type === 'text') {
-                setStatusMessage(null)
-                assistantMessage.content += data.content
-                setMessages((prev) => {
-                  const newMessages = [...prev]
-                  newMessages[newMessages.length - 1] = { ...assistantMessage }
-                  return newMessages
+          try {
+            const data = JSON.parse(line.slice(6))
+
+            switch (data.type) {
+              case 'status':
+                dispatch({ type: 'SET_STATUS', value: data.message || null })
+                break
+              case 'text':
+                dispatch({ type: 'SET_STATUS', value: null })
+                updateAssistantMessage({
+                  content: `${assistantMessage.content}${data.content}`,
                 })
-              } else if (data.type === 'text_complete') {
-                assistantMessage.content = data.content
-                setMessages((prev) => {
-                  const newMessages = [...prev]
-                  newMessages[newMessages.length - 1] = { ...assistantMessage }
-                  return newMessages
-                })
-              } else if (data.type === 'done') {
-                setStatusMessage(null)
+                break
+              case 'text_complete':
+                updateAssistantMessage({ content: data.content })
+                break
+              case 'done': {
+                dispatch({ type: 'SET_STATUS', value: null })
                 if (data.sources) {
-                  assistantMessage.sources = data.sources as Source[]
-                  setMessages((prev) => {
-                    const newMessages = [...prev]
-                    newMessages[newMessages.length - 1] = { ...assistantMessage }
-                    return newMessages
-                  })
+                  updateAssistantMessage({ sources: data.sources as Source[] })
                 }
-                setLoading(false)
-                // Update URL without reloading if it's a new conversation
-                if (wasNewConversation && currentConversationId) {
-                  window.history.replaceState(null, '', `/chat/${currentConversationId}`)
+                dispatch({ type: 'SET_LOADING', value: false })
+                if (wasNewConversation && conversationId) {
+                  window.history.replaceState(null, '', `/chat/${conversationId}`)
                 }
-              } else if (data.type === 'error') {
-                setStatusMessage(null)
-                console.error('Stream error:', data.error)
-                setLoading(false)
-                setMessages((prev) => prev.slice(0, -1))
-                throw new Error(data.error || 'Stream error')
+                break
               }
-            } catch (parseError) {
-              console.warn('Failed to parse SSE data:', parseError)
+              case 'error':
+                dispatch({ type: 'SET_STATUS', value: null })
+                dispatch({ type: 'SET_LOADING', value: false })
+                dispatch({ type: 'POP_MESSAGE' })
+                throw new Error(data.error || 'Stream error')
+              default:
+                break
             }
+          } catch (parseError) {
+            console.warn('Failed to parse SSE data:', parseError)
           }
         }
       }
     } catch (error) {
       console.error('Chat error:', error)
-      setLoading(false)
-      setMessages((prev) => prev.slice(0, -1))
+      dispatch({ type: 'SET_LOADING', value: false })
+      dispatch({ type: 'POP_MESSAGE' })
       throw error
     }
-  }, [input, loading, conversationId, onConversationCreated, webSearchEnabled])
+  }, [])
 
   return {
-    messages,
+    messages: state.messages,
     setMessages,
-    loading,
-    statusMessage,
-    input,
+    loading: state.loading,
+    statusMessage: state.statusMessage,
+    input: state.input,
     setInput,
     messagesEndRef,
     handleSend,
     scrollToBottom,
-    webSearchEnabled,
+    webSearchEnabled: state.webSearchEnabled,
     setWebSearchEnabled,
   }
 }

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useToast } from '@/components/ui/Toast'
+import { useSettings } from '@/hooks/useSettings'
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -11,27 +12,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
   const { showToast } = useToast()
+  const { logoUrl } = useSettings()
 
   useEffect(() => {
-    // Load company logo
-    const loadLogo = async () => {
-      try {
-        const response = await fetch('/api/settings')
-        if (response.ok) {
-          const data = await response.json()
-          setLogoUrl(data.company_logo?.url || null)
-        }
-      } catch (err) {
-        console.error('Error loading logo:', err)
-        // Fail silently - logo is optional
-      }
-    }
-    loadLogo()
-
     // Check for OAuth errors in URL query params
     const urlParams = new URLSearchParams(window.location.search)
     const errorParam = urlParams.get('error')

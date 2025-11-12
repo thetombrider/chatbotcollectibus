@@ -881,13 +881,6 @@ export function extractCitedIndices(content: string): number[] {
   const result = Array.from(indices).sort((a, b) => a - b)
   
   // Log dettagliato per debug
-  console.log('[extractCitedIndices] ===== Extraction START =====')
-  console.log('[extractCitedIndices] Content length:', content.length)
-  console.log('[extractCitedIndices] All citation matches found:', allMatches)
-  console.log('[extractCitedIndices] Extracted unique indices:', result)
-  console.log('[extractCitedIndices] Total unique indices:', result.length)
-  console.log('[extractCitedIndices] ===== Extraction END =====')
-  
   return result
 }
 

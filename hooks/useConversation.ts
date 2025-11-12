@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { fetchWithCache, invalidateCache } from '@/lib/client-cache'
 import type { ConversationListItem } from '@/types/chat'
 
 /**
@@ -9,11 +10,21 @@ export function useConversation() {
   const [loading, setLoading] = useState(true)
 
   const loadConversations = useCallback(async () => {
+    setLoading(true)
     try {
-      setLoading(true)
-      const res = await fetch('/api/conversations')
-      const data = await res.json()
-      setConversations(data.conversations || [])
+      const data = await fetchWithCache<ConversationListItem[]>(
+        'conversations:list',
+        async () => {
+          const res = await fetch('/api/conversations')
+          if (!res.ok) {
+            throw new Error(`Failed to fetch conversations: ${res.status}`)
+          }
+          const payload = await res.json()
+          return (payload.conversations as ConversationListItem[]) || []
+        },
+        60_000
+      )
+      setConversations(data)
     } catch (error) {
       console.error('Failed to load conversations:', error)
     } finally {
@@ -23,10 +34,12 @@ export function useConversation() {
 
   const deleteConversation = useCallback(async (id: string): Promise<boolean> => {
     try {
-      await fetch(`/api/conversations/${id}`, {
-        method: 'DELETE',
-      })
+      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        throw new Error(`Failed to delete conversation: ${res.status}`)
+      }
       setConversations((prev) => prev.filter((c) => c.id !== id))
+      invalidateCache('conversations:list')
       return true
     } catch (error) {
       console.error('Failed to delete conversation:', error)
@@ -41,8 +54,12 @@ export function useConversation() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'Nuova conversazione' }),
       })
+      if (!res.ok) {
+        throw new Error(`Failed to create conversation: ${res.status}`)
+      }
       const { conversation } = await res.json()
       setConversations((prev) => [conversation, ...prev])
+      invalidateCache('conversations:list')
       return conversation
     } catch (error) {
       console.error('Failed to create conversation:', error)
