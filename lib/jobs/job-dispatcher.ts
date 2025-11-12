@@ -188,36 +188,42 @@ async function enqueueAsyncJob(
     reason: evaluation.reason,
   })
 
-  // Invoca la Edge Function con timeout breve (2 secondi) per "svegliare" il worker
+  // Invoca la Edge Function con timeout di 5 secondi per "svegliare" il worker
   // Questo è blocking ma con timeout breve, quindi non causa timeout su Vercel
   // Se il fetch completa o va in timeout, non è un problema - il job è comunque in coda
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
   console.log('[async-jobs] Attempting to trigger worker:', {
     hasSupabaseUrl: !!supabaseUrl,
     hasServiceRoleKey: !!serviceRoleKey,
+    hasAnonKey: !!anonKey,
     jobId: job.id,
   })
   
-  if (supabaseUrl && serviceRoleKey) {
+  if (supabaseUrl && (serviceRoleKey || anonKey)) {
     const functionUrl = `${supabaseUrl}/functions/v1/process-async-job`
+    // Usa service role key se disponibile, altrimenti anon key
+    const authKey = serviceRoleKey || anonKey!
     
-    console.log('[async-jobs] Invoking Edge Function (with 2s timeout):', {
-      functionUrl: functionUrl.replace(serviceRoleKey.substring(0, 20), '***'),
+    console.log('[async-jobs] Invoking Edge Function (with 5s timeout):', {
+      functionUrl: functionUrl.replace(authKey.substring(0, 20), '***'),
       jobId: job.id,
+      usingServiceRole: !!serviceRoleKey,
     })
     
     try {
-      // Crea un AbortController con timeout di 2 secondi
+      // Crea un AbortController con timeout di 5 secondi
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 2000)
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
       
       const response = await fetch(functionUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceRoleKey}`,
+          'Authorization': `Bearer ${authKey}`,
+          'apikey': authKey, // Aggiungi anche apikey header per compatibilità
         },
         body: JSON.stringify({ jobId: job.id }),
         signal: controller.signal,
@@ -248,7 +254,7 @@ async function enqueueAsyncJob(
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('[async-jobs] Worker invocation timeout (expected):', {
           jobId: job.id,
-          message: 'Request aborted after 2s timeout - job is queued and will be processed',
+          message: 'Request aborted after 5s timeout - job is queued and will be processed',
         })
       } else {
         console.warn('[async-jobs] Failed to trigger worker:', {
@@ -262,6 +268,7 @@ async function enqueueAsyncJob(
     console.warn('[async-jobs] Missing Supabase config, worker will process from queue', {
       hasSupabaseUrl: !!supabaseUrl,
       hasServiceRoleKey: !!serviceRoleKey,
+      hasAnonKey: !!anonKey,
     })
   }
 
