@@ -110,6 +110,11 @@ async function enqueueAsyncJob(
   input: DispatchAsyncJobInput,
   evaluation: DispatchEvaluationResult
 ): Promise<AsyncJob> {
+  console.log('[async-jobs] Starting enqueueAsyncJob:', {
+    jobType: evaluation.jobType,
+    reason: evaluation.reason,
+  })
+
   if (!evaluation.jobType) {
     throw new Error('[async-jobs] enqueueAsyncJob requires a jobType')
   }
@@ -145,6 +150,7 @@ async function enqueueAsyncJob(
       throw new Error(`[async-jobs] Unsupported job type: ${exhaustiveCheck}`)
   }
 
+  console.log('[async-jobs] Creating async job in database...')
   const job = await createAsyncJob({
     jobType: evaluation.jobType,
     payload,
@@ -158,6 +164,13 @@ async function enqueueAsyncJob(
     throw new Error('[async-jobs] Failed to persist async job')
   }
 
+  console.log('[async-jobs] Job created:', {
+    jobId: job.id,
+    status: job.status,
+    queueName: job.queue_name,
+  })
+
+  console.log('[async-jobs] Appending queued event...')
   await appendAsyncJobEvent({
     jobId: job.id,
     eventType: 'queued',
@@ -168,22 +181,31 @@ async function enqueueAsyncJob(
     },
   })
 
+  console.log('[async-jobs] Sending queue message...')
   await sendQueueMessage(job.queue_name, {
     jobId: job.id,
     jobType: job.job_type,
     reason: evaluation.reason,
   })
 
+  console.log('[async-jobs] Queue message sent, invoking Edge Function...')
   try {
     await supabaseAdmin.functions.invoke('process-async-job', {
       body: { jobId: job.id },
     })
+    console.log('[async-jobs] Edge Function invoked successfully')
   } catch (error) {
     console.warn('[async-jobs] Failed to invoke process-async-job function:', {
       jobId: job.id,
       error,
     })
+    // Non blocchiamo se l'invocazione fallisce, il worker può comunque processare dalla coda
   }
+
+  console.log('[async-jobs] Job enqueued successfully:', {
+    jobId: job.id,
+    queue: job.queue_name,
+  })
 
   return job
 }
@@ -218,7 +240,10 @@ export async function dispatchOrQueue(
     : null
 
   try {
+    console.log('[job-dispatcher] Calling enqueueAsyncJob...')
     const job = await enqueueAsyncJob(input, evaluation)
+
+    console.log('[job-dispatcher] Job enqueued successfully, returning async decision')
 
     endSpan(span, {
       jobId: job.id,
@@ -232,6 +257,11 @@ export async function dispatchOrQueue(
       reason: evaluation.reason,
     }
   } catch (error) {
+    console.error('[job-dispatcher] Failed to enqueue async job:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      jobType: evaluation.jobType,
+    })
     endSpan(span, {
       error: error instanceof Error ? error.message : String(error),
       jobType: evaluation.jobType,

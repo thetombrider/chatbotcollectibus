@@ -392,23 +392,33 @@ export async function POST(req: NextRequest) {
       conversationHistoryLength: preparation.conversationHistory.length,
     })
 
-    const decision = await dispatchOrQueue({
-      message,
-      analysis: preparation.analysis,
-      enhancement: preparation.enhancement,
-      conversationHistoryLength: preparation.conversationHistory.length,
-      skipCache,
-      webSearchEnabled,
-      conversationId: conversationId || null,
-      userId,
-      traceContext,
-    })
-
-    console.log('[api/chat] Dispatch decision result:', {
-      mode: decision.mode,
-      jobId: decision.job?.id,
-      reason: decision.reason,
-    })
+    let decision
+    try {
+      decision = await dispatchOrQueue({
+        message,
+        analysis: preparation.analysis,
+        enhancement: preparation.enhancement,
+        conversationHistoryLength: preparation.conversationHistory.length,
+        skipCache,
+        webSearchEnabled,
+        conversationId: conversationId || null,
+        userId,
+        traceContext,
+      })
+      console.log('[api/chat] Dispatch decision result:', {
+        mode: decision.mode,
+        jobId: decision.job?.id,
+        reason: decision.reason,
+      })
+    } catch (error) {
+      console.error('[api/chat] Error in dispatchOrQueue:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+      // Se il dispatch fallisce, continua con esecuzione sincrona come fallback
+      decision = { mode: 'sync' as const }
+      console.log('[api/chat] Falling back to sync execution due to dispatch error')
+    }
 
     if (decision.mode === 'async' && decision.job) {
       console.log('[api/chat] Returning 202 Accepted for async job:', {
