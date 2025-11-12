@@ -102,3 +102,4 @@ COMMENT ON FUNCTION hybrid_search IS 'Hybrid search with article number and docu
 
 
 
+
