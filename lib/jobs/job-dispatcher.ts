@@ -193,28 +193,61 @@ async function enqueueAsyncJob(
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   
+  console.log('[async-jobs] Attempting to trigger worker:', {
+    hasSupabaseUrl: !!supabaseUrl,
+    hasServiceRoleKey: !!serviceRoleKey,
+    jobId: job.id,
+  })
+  
   if (supabaseUrl && serviceRoleKey) {
     const functionUrl = `${supabaseUrl}/functions/v1/process-async-job`
     
+    console.log('[async-jobs] Invoking Edge Function:', {
+      functionUrl: functionUrl.replace(serviceRoleKey.substring(0, 20), '***'),
+      jobId: job.id,
+    })
+    
     // Invoca in modo non-blocking (fire and forget)
-    fetch(functionUrl, {
+    // Usa void per assicurarsi che non venga awaitato
+    void fetch(functionUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${serviceRoleKey}`,
       },
       body: JSON.stringify({ jobId: job.id }),
-    }).catch((error) => {
-      // Log ma non bloccare - il worker può comunque processare dalla coda
-      console.warn('[async-jobs] Failed to trigger worker (non-blocking):', {
-        jobId: job.id,
-        error: error instanceof Error ? error.message : String(error),
-      })
     })
+      .then((response) => {
+        console.log('[async-jobs] Worker invocation response:', {
+          jobId: job.id,
+          status: response.status,
+          statusText: response.statusText,
+        })
+        if (!response.ok) {
+          return response.text().then((text) => {
+            console.warn('[async-jobs] Worker invocation failed:', {
+              jobId: job.id,
+              status: response.status,
+              body: text.substring(0, 200),
+            })
+          })
+        }
+      })
+      .catch((error) => {
+        // Log ma non bloccare - il worker può comunque processare dalla coda
+        console.warn('[async-jobs] Failed to trigger worker (non-blocking):', {
+          jobId: job.id,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        })
+      })
     
-    console.log('[async-jobs] Worker triggered (non-blocking)')
+    console.log('[async-jobs] Worker trigger initiated (non-blocking)')
   } else {
-    console.warn('[async-jobs] Missing Supabase config, worker will process from queue')
+    console.warn('[async-jobs] Missing Supabase config, worker will process from queue', {
+      hasSupabaseUrl: !!supabaseUrl,
+      hasServiceRoleKey: !!serviceRoleKey,
+    })
   }
 
   console.log('[async-jobs] Job enqueued successfully:', {

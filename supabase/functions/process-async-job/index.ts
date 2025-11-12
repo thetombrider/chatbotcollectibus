@@ -636,6 +636,12 @@ async function processJob(job: AsyncJobRecord, openaiKey: string, openrouterKey:
 }
 
 serve(async (req) => {
+  console.log('[process-async-job] Request received:', {
+    method: req.method,
+    url: req.url,
+    hasBody: !!req.body,
+  })
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -648,6 +654,7 @@ serve(async (req) => {
   const openrouterKey = Deno.env.get('OPENROUTER_API_KEY')
 
   if (!openaiKey || !openrouterKey) {
+    console.error('[process-async-job] Missing API keys')
     return new Response(
       JSON.stringify({ error: 'Missing OPENAI_API_KEY or OPENROUTER_API_KEY' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -657,10 +664,15 @@ serve(async (req) => {
   let jobId: string | null = null
   try {
     const body = await req.json().catch(() => ({}))
+    console.log('[process-async-job] Request body:', {
+      hasJobId: !!(body && typeof body.jobId === 'string'),
+      jobId: body?.jobId,
+    })
     if (body && typeof body.jobId === 'string') {
       jobId = body.jobId
     }
-  } catch {
+  } catch (error) {
+    console.warn('[process-async-job] Failed to parse body:', error)
     jobId = null
   }
 
@@ -670,24 +682,35 @@ serve(async (req) => {
     let jobRecord: AsyncJobRecord | null = null
 
     if (jobId) {
+      console.log('[process-async-job] Processing specific job:', { jobId })
       jobRecord = await fetchJobById(supabase, jobId)
       if (!jobRecord) {
+        console.error('[process-async-job] Job not found:', { jobId })
         return new Response(
           JSON.stringify({ error: 'Job not found', jobId }),
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
+      console.log('[process-async-job] Job found:', {
+        jobId: jobRecord.id,
+        status: jobRecord.status,
+        jobType: jobRecord.job_type,
+      })
     } else {
+      console.log('[process-async-job] No jobId provided, popping from queue...')
       const message = await popQueueMessage(supabase)
       if (!message) {
+        console.log('[process-async-job] No jobs in queue')
         return new Response(
           JSON.stringify({ message: 'No jobs to process' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
       jobId = message.jobId
+      console.log('[process-async-job] Popped job from queue:', { jobId })
       jobRecord = await fetchJobById(supabase, message.jobId)
       if (!jobRecord) {
+        console.error('[process-async-job] Job not found after dequeue:', { jobId })
         return new Response(
           JSON.stringify({ error: 'Job not found after dequeue', jobId }),
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -695,14 +718,26 @@ serve(async (req) => {
       }
     }
 
+    console.log('[process-async-job] Starting job processing:', {
+      jobId: jobRecord.id,
+      jobType: jobRecord.job_type,
+      status: jobRecord.status,
+    })
+
     await processJob(jobRecord, openaiKey, openrouterKey)
+
+    console.log('[process-async-job] Job processed successfully:', { jobId })
 
     return new Response(
       JSON.stringify({ jobId, status: 'processed' }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
-    console.error('[process-async-job] Fatal error:', error)
+    console.error('[process-async-job] Fatal error:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      jobId,
+    })
     return new Response(
       JSON.stringify({
         error: error instanceof Error ? error.message : 'Unknown error',
