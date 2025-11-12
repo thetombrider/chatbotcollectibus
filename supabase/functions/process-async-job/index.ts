@@ -20,23 +20,258 @@
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import {
-  normalizeWebCitations,
-  extractCitedIndices,
-  extractWebCitedIndices,
-  processCitations,
-  filterSourcesByCitations,
-  createCitationMapping,
-  renumberCitations,
-  type Source,
-} from '../../lib/services/citation-service.ts'
-import {
-  createKBSources,
-  createMetaSources,
-  createWebSources,
-  type MetaDocument,
-  type WebSearchResult,
-} from '../../lib/jobs/source-utils.ts'
+
+// ============================================================================
+// CITATION SERVICE (inlined from lib/services/citation-service.ts)
+// ============================================================================
+
+export interface Source {
+  index: number
+  documentId: string
+  filename: string
+  similarity: number
+  content: string
+  chunkIndex: number
+  type?: 'kb' | 'web'
+  title?: string
+  url?: string
+}
+
+export function extractCitedIndices(content: string): number[] {
+  const indices = new Set<number>()
+  const regex = /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+  const matches = content.matchAll(regex)
+  
+  for (const match of matches) {
+    const indicesStr = match[1]
+    const nums = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    
+    nums.forEach(n => {
+      if (!isNaN(n) && n > 0) {
+        indices.add(n)
+      }
+    })
+  }
+  
+  return Array.from(indices).sort((a, b) => a - b)
+}
+
+export function extractWebCitedIndices(content: string): number[] {
+  const indices = new Set<number>()
+  const regex = /\[web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)\]/g
+  const matches = content.matchAll(regex)
+  
+  for (const match of matches) {
+    const indicesStr = match[1]
+    const allNumbers = indicesStr.match(/\d+/g) || []
+    const nums = allNumbers.map((n: string) => parseInt(n, 10))
+    
+    nums.forEach(n => {
+      if (!isNaN(n) && n > 0) {
+        indices.add(n)
+      }
+    })
+  }
+  
+  return Array.from(indices).sort((a, b) => a - b)
+}
+
+export function normalizeWebCitations(content: string): string {
+  let normalized = content
+  normalized = normalized.replace(/\[web_search_\d+_[^\]]+\]/g, '')
+  normalized = normalized.replace(/\[web_[^\]]+\]/g, '')
+  return normalized
+}
+
+export function filterSourcesByCitations(
+  citedIndices: number[],
+  sources: Source[]
+): Source[] {
+  if (citedIndices.length === 0) {
+    return []
+  }
+
+  const sourceMap = new Map<number, Source>()
+  sources.forEach(s => {
+    if (citedIndices.includes(s.index)) {
+      const existing = sourceMap.get(s.index)
+      if (!existing || s.similarity > existing.similarity) {
+        sourceMap.set(s.index, s)
+      }
+    }
+  })
+
+  const sortedCitedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+  const filteredSources = sortedCitedIndices
+    .map(index => sourceMap.get(index))
+    .filter((s): s is Source => s !== undefined)
+    .map((s, idx) => ({
+      ...s,
+      index: idx + 1,
+    }))
+
+  return filteredSources
+}
+
+export function createCitationMapping(citedIndices: number[]): Map<number, number> {
+  const mapping = new Map<number, number>()
+  const sortedIndices = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+  
+  sortedIndices.forEach((originalIndex, idx) => {
+    mapping.set(originalIndex, idx + 1)
+  })
+  
+  return mapping
+}
+
+export function renumberCitations(
+  content: string,
+  mapping: Map<number, number>,
+  citationType: 'cit' | 'web' = 'cit'
+): string {
+  const pattern = citationType === 'cit' 
+    ? /\[cit[\s:]+(\d+(?:\s*,\s*\d+)*)\]/g
+    : /\[web[\s:]+(\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)\]/g
+
+  return content.replace(pattern, (match, indicesStr) => {
+    const indices = indicesStr.replace(/\s+/g, '').split(',').map((n: string) => parseInt(n, 10))
+    const newIndices = indices
+      .map((oldIdx: number) => mapping.get(oldIdx))
+      .filter((newIdx: number | undefined): newIdx is number => newIdx !== undefined)
+      .sort((a: number, b: number) => a - b)
+    
+    if (newIndices.length === 0) {
+      return ''
+    }
+    
+    return `[${citationType}:${newIndices.join(',')}]`
+  })
+}
+
+export function processCitations(
+  content: string,
+  sources: Source[],
+  citationType: 'cit' | 'web' = 'cit'
+): { content: string; sources: Source[]; citationMapping: Map<number, number> } {
+  const citedIndices = citationType === 'cit' 
+    ? extractCitedIndices(content)
+    : extractWebCitedIndices(content)
+
+  if (citedIndices.length === 0) {
+    return {
+      content,
+      sources: [],
+      citationMapping: new Map(),
+    }
+  }
+
+  const filteredSources = filterSourcesByCitations(citedIndices, sources)
+  const mapping = createCitationMapping(citedIndices)
+  const renumberedContent = renumberCitations(content, mapping, citationType)
+
+  return {
+    content: renumberedContent,
+    sources: filteredSources,
+    citationMapping: mapping,
+  }
+}
+
+// ============================================================================
+// SOURCE UTILS (inlined from lib/jobs/source-utils.ts)
+// ============================================================================
+
+export interface WebSearchResult {
+  index: number
+  title: string
+  url: string
+  content: string
+}
+
+export interface MetaDocument {
+  id: string
+  filename: string
+  index: number
+  folder?: string | null
+  chunkCount?: number
+  contentPreview?: string
+  chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+  fileType?: string
+  createdAt?: string
+  updatedAt?: string
+  processingStatus?: string | null
+}
+
+export function createKBSources(searchResults: SearchResult[]): Source[] {
+  return searchResults.map((result, index) => ({
+    index: index + 1,
+    documentId: result.document_id || '',
+    filename: result.document_filename || 'Documento sconosciuto',
+    similarity: result.similarity,
+    content:
+      result.content.substring(0, 1000) + (result.content.length > 1000 ? '...' : ''),
+    chunkIndex: 0,
+    type: 'kb' as const,
+  }))
+}
+
+export function createWebSources(
+  webResults: WebSearchResult[] = [],
+  citedIndices: number[] = []
+): Source[] {
+  const sortedCited = Array.from(new Set(citedIndices)).sort((a, b) => a - b)
+  const sources: Source[] = []
+
+  sortedCited.forEach((citedIndex, idx) => {
+    const result = webResults[citedIndex - 1]
+    if (!result) {
+      return
+    }
+
+    sources.push({
+      index: idx + 1,
+      documentId: '',
+      filename: result.title || 'Senza titolo',
+      similarity: 1,
+      content: result.content || '',
+      chunkIndex: 0,
+      type: 'web',
+      title: result.title || 'Senza titolo',
+      url: result.url || '',
+    })
+  })
+
+  return sources
+}
+
+export function createMetaSources(metaDocuments: MetaDocument[] = []): Source[] {
+  return metaDocuments
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((doc) => ({
+      index: doc.index,
+      documentId: doc.id,
+      filename: doc.filename,
+      type: 'kb' as const,
+      similarity: 1,
+      content: '',
+      chunkIndex: 0,
+    }))
+}
+
+// ============================================================================
+// TYPES AND INTERFACES
+// ============================================================================
+
+interface SearchResult {
+  id: string
+  document_id?: string
+  content: string
+  similarity: number
+  vector_score?: number
+  text_score?: number
+  document_filename?: string
+  metadata?: Record<string, unknown> | null
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -87,17 +322,6 @@ interface ComparisonJobPayload {
   heuristics?: Record<string, unknown>
   userId?: string | null
   traceId?: string | null
-}
-
-interface SearchResult {
-  id: string
-  document_id?: string
-  content: string
-  similarity: number
-  vector_score?: number
-  text_score?: number
-  document_filename?: string
-  metadata?: Record<string, unknown> | null
 }
 
 interface JobProcessContext {
