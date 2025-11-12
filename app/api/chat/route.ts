@@ -382,6 +382,16 @@ export async function POST(req: NextRequest) {
       traceContext
     )
 
+    console.log('[api/chat] Calling dispatchOrQueue with:', {
+      message: message.substring(0, 100),
+      analysisIntent: preparation.analysis.intent,
+      isComparative: preparation.analysis.isComparative,
+      comparativeTerms: preparation.analysis.comparativeTerms,
+      comparativeTermsCount: preparation.analysis.comparativeTerms?.length || 0,
+      enhancementIntent: preparation.enhancement.intent,
+      conversationHistoryLength: preparation.conversationHistory.length,
+    })
+
     const decision = await dispatchOrQueue({
       message,
       analysis: preparation.analysis,
@@ -394,7 +404,19 @@ export async function POST(req: NextRequest) {
       traceContext,
     })
 
+    console.log('[api/chat] Dispatch decision result:', {
+      mode: decision.mode,
+      jobId: decision.job?.id,
+      reason: decision.reason,
+    })
+
     if (decision.mode === 'async' && decision.job) {
+      console.log('[api/chat] Returning 202 Accepted for async job:', {
+        jobId: decision.job.id,
+        queue: decision.job.queue_name,
+        reason: decision.reason,
+      })
+
       if (traceContext) {
         updateTrace(
           traceContext.trace,
@@ -419,6 +441,8 @@ export async function POST(req: NextRequest) {
         { status: 202 }
       )
     }
+
+    console.log('[api/chat] Executing synchronously (not async)')
 
     const stream = createStream(async (streamController) => {
       try {

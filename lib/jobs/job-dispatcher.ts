@@ -39,6 +39,17 @@ export function evaluateDispatch(
 
   const messageWordCount = input.message.trim().split(/\s+/).length
 
+  console.log('[job-dispatcher] Evaluating dispatch:', {
+    message: input.message.substring(0, 100),
+    intent: input.analysis.intent,
+    isComparative: input.analysis.isComparative,
+    comparativeTerms,
+    comparativeTermsCount: comparativeTerms.length,
+    isComparisonIntent,
+    enhancementIntent: input.enhancement.intent,
+    messageWordCount,
+  })
+
   if (isComparisonIntent && comparativeTerms.length >= 2) {
     const metadata: Record<string, unknown> = {
       comparativeTerms,
@@ -188,7 +199,14 @@ export async function dispatchOrQueue(
 ): Promise<DispatchDecision> {
   const evaluation = evaluateDispatch(input)
 
+  console.log('[job-dispatcher] Dispatch decision:', {
+    shouldEnqueue: evaluation.shouldEnqueue,
+    reason: evaluation.reason,
+    jobType: evaluation.jobType,
+  })
+
   if (!evaluation.shouldEnqueue) {
+    console.log('[job-dispatcher] Executing synchronously (not enqueued)')
     return { mode: 'sync' }
   }
 
