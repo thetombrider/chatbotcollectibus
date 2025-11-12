@@ -27,6 +27,9 @@ export const PROMPTS = {
   
   // Query expansion
   QUERY_EXPANSION: 'query-expansion',
+
+  // Meta folder inference
+  META_FOLDER_INFERENCE: 'meta-folder-inference',
 } as const
 
 /**

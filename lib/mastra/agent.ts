@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent'
 import { AsyncLocalStorage } from 'async_hooks'
 import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL, normalizeModelId } from '@/lib/llm/models'
+import { inferMetaQueryFolder } from '@/lib/embeddings/meta-folder-inference'
 import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
@@ -326,6 +327,8 @@ async function metaQueryTool({ query }: { query: string }) {
       
       console.log('[mastra/agent] Extracted folder query:', folderQuery)
       
+      let folderNeedsInference = false
+
       // If we found a folder query, use fuzzy matching to find the best match
       if (folderQuery) {
         const matchedFolder = await findBestMatchingFolder(folderQuery, 0.6)
@@ -333,9 +336,44 @@ async function metaQueryTool({ query }: { query: string }) {
           folder = matchedFolder
           console.log('[mastra/agent] Using matched folder:', folder)
         } else {
+          folderNeedsInference = true
           // No good match found, try using the raw query as-is (might be exact)
           folder = folderQuery
           console.log('[mastra/agent] No fuzzy match found, using raw folder query:', folder)
+        }
+      } else {
+        folderNeedsInference = true
+      }
+      
+      if (folder && folder.trim().length > 0 && folder.trim().length <= 2) {
+        folderNeedsInference = true
+        console.log('[mastra/agent] Folder candidate too short, triggering LLM inference', { folder })
+      }
+
+      if (folderNeedsInference) {
+        const folderMetaList = await listFoldersMeta()
+        const folderNames = folderMetaList.map((meta) => meta.name)
+        console.log('[mastra/agent] Running LLM folder inference', {
+          querySnippet: query.slice(0, 80),
+          availableFolders: folderNames.length,
+        })
+
+        const inference = await inferMetaQueryFolder(query, folderNames)
+
+        if (inference.folder) {
+          folder = inference.folder
+          console.log('[mastra/agent] LLM inferred folder:', {
+            folder,
+            confidence: inference.confidence.toFixed(2),
+            reasoning: inference.reasoning,
+            raw: inference.rawFolder,
+          })
+        } else {
+          console.log('[mastra/agent] LLM folder inference returned no match', {
+            reasoning: inference.reasoning,
+            raw: inference.rawFolder,
+          })
+          folder = undefined
         }
       }
       
