@@ -5,10 +5,10 @@ import type { Document } from '@/lib/supabase/database.types'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
 import { BatchActionsToolbar } from './BatchActionsToolbar'
 import { DocumentPreview } from './DocumentPreview'
-import { FolderSelector } from './FolderSelector'
 
 interface DocumentsTableProps {
   refreshTrigger?: number
+  selectedFolder?: string | null
 }
 
 type SortField = 'filename' | 'file_size' | 'created_at' | 'chunks_count'
@@ -16,7 +16,7 @@ type SortOrder = 'asc' | 'desc'
 
 const ITEMS_PER_PAGE = 10
 
-export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
+export function DocumentsTable({ refreshTrigger, selectedFolder }: DocumentsTableProps) {
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -29,7 +29,6 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
     document: Document | null
   }>({ isOpen: false, document: null })
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set())
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [previewDocument, setPreviewDocument] = useState<Document | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
 
@@ -48,7 +47,7 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
     setLoading(true)
     setError(null)
     try {
-      const url = selectedFolder !== null
+      const url = selectedFolder
         ? `/api/documents?folder=${encodeURIComponent(selectedFolder)}`
         : '/api/documents'
       const response = await fetch(url)
@@ -401,40 +400,13 @@ export function DocumentsTable({ refreshTrigger }: DocumentsTableProps) {
               />
             </div>
           </div>
-          
-          {/* Folder Filter */}
-          <div className="w-64">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Filtra per cartella
-            </label>
-            <FolderSelector
-              value={selectedFolder}
-              onChange={(folder) => {
-                setSelectedFolder(folder)
-                setSelectedDocuments(new Set()) // Clear selection when folder changes
-              }}
-              allowCreate={false}
-            />
-          </div>
         </div>
         
-        {/* Results count and breadcrumb */}
+        {/* Results count */}
         <div className="mt-3 flex items-center justify-between">
           <p className="text-sm text-gray-600">
             {filteredAndSorted.length} document{filteredAndSorted.length !== 1 ? 'i' : 'o'} trovato
           </p>
-          {selectedFolder && (
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <button
-                onClick={() => setSelectedFolder(null)}
-                className="text-gray-500 hover:text-gray-700 underline"
-              >
-                Tutte le cartelle
-              </button>
-              <span>/</span>
-              <span className="font-medium">{selectedFolder}</span>
-            </div>
-          )}
         </div>
       </div>
 
