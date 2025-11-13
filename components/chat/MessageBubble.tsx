@@ -118,6 +118,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, onOpen
               <CopyIcon className="size-4" />
             </Action>
           </Actions>
+          {message.model && (
+            <span className="text-xs text-gray-400 mt-1.5">
+              {message.model.replace('openrouter/', '')}
+            </span>
+          )}
         </div>
       )}
     </div>

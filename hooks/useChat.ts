@@ -293,14 +293,25 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               }
               case 'done': {
                 dispatch({ type: 'SET_STATUS', value: null })
+                const updateData: Partial<Message> = {}
+                
                 if (data.sources) {
                   // Se ci sono sources nel messaggio done, accumulale o sostituiscile
                   const currentSources = assistantMessage.sources || []
                   const finalSources = currentSources.length > 0 
                     ? [...currentSources, ...(data.sources as Source[])]
                     : (data.sources as Source[])
-                  updateAssistantMessage({ sources: finalSources })
+                  updateData.sources = finalSources
                 }
+                
+                if (data.model) {
+                  updateData.model = data.model
+                }
+                
+                if (Object.keys(updateData).length > 0) {
+                  updateAssistantMessage(updateData)
+                }
+                
                 dispatch({ type: 'SET_LOADING', value: false })
                 if (wasNewConversation && conversationId) {
                   window.history.replaceState(null, '', `/chat/${conversationId}`)

@@ -271,11 +271,12 @@ async function handleChatRequest(
     webResultsCount: webSearchResults.length,
     metaDocumentsCount: responseContext.metaQueryDocuments?.length || 0,
   }) : null
-  const processed = await processResponse(generateResult.fullResponse, responseContext)
+  const processed = await processResponse(generateResult.fullResponse, responseContext, generateResult.model)
   endSpan(processingSpan, {
     processedLength: processed.content?.length || 0,
     sourcesCount: processed.sources?.length || 0,
     webSourcesCount: processed.webSources?.length || 0,
+    model: processed.model,
   })
 
   // STEP 10: Combina sources
@@ -292,12 +293,13 @@ async function handleChatRequest(
       query_enhanced: enhancement.shouldEnhance,
       original_query: message,
       enhanced_query: enhancement.shouldEnhance ? queryToEmbed : undefined,
+      model: processed.model, // Salva il modello usato
     })
   }
 
   // STEP 12: Invia risposta finale
   streamController.sendTextComplete(processed.content)
-  streamController.sendDone(allSources)
+  streamController.sendDone(allSources, processed.model)
 
   // STEP 13: Salva in cache
   await saveCache(queryToEmbed, queryEmbedding, processed.content, processed.sources)

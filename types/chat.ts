@@ -25,6 +25,7 @@ export interface Message {
   content: string
   metadata?: Record<string, unknown>
   sources?: Source[]
+  model?: string // Nome del modello LLM usato per generare la risposta
 }
 
 export interface Conversation {

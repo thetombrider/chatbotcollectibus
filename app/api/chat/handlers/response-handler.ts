@@ -47,10 +47,12 @@ export interface ResponseResult {
   content: string
   sources: Source[]
   webSources: Source[]
+  model: string // Nome del modello usato
 }
 
 export interface GenerateResponseResult {
   fullResponse: string
+  model: string // Nome del modello usato
   metaQueryDocuments?: MetaDocument[]
   metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti meta query
   webSearchResults?: Array<{ index: number; title: string; url: string; content: string }>
@@ -324,6 +326,7 @@ export async function generateResponse(
 
   return {
     fullResponse,
+    model: requestedModel, // Restituisci il modello usato
     metaQueryDocuments: capturedMetaDocuments,
     metaQueryChunks: capturedMetaChunks as SearchResult[], // Chunks effettivi per contesto RAG
     webSearchResults: capturedWebResults.map((r: unknown) => ({
@@ -340,7 +343,8 @@ export async function generateResponse(
  */
 export async function processResponse(
   fullResponse: string,
-  context: ResponseContext
+  context: ResponseContext,
+  model: string
 ): Promise<ResponseResult> {
   const { sources, webSearchResults, metaQueryDocuments, analysis } = context
 
@@ -454,6 +458,7 @@ export async function processResponse(
     content: processedResponse,
     sources: kbSources,
     webSources,
+    model, // Includi il modello nel risultato
   }
   
   // Log finale per verificare cosa viene ritornato
@@ -461,6 +466,7 @@ export async function processResponse(
     contentLength: result.content.length,
     sourcesCount: result.sources.length,
     webSourcesCount: result.webSources.length,
+    model: result.model,
     hasCitations: result.content.includes('[cit:'),
     citationSample: result.content.match(/\[cit:\d+\]/g)?.slice(0, 5) || [],
   })

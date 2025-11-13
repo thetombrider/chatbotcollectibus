@@ -104,6 +104,7 @@ export async function saveAssistantMessage(
     query_enhanced?: boolean
     original_query?: string
     enhanced_query?: string
+    model?: string // Nome del modello LLM usato
   }
 ): Promise<void> {
   try {

@@ -9,6 +9,7 @@ export interface StreamMessage {
   message?: string | null
   content?: string
   sources?: unknown[]
+  model?: string // Nome del modello usato
   error?: string
 }
 
@@ -119,17 +120,17 @@ export class StreamController {
   }
 
   /**
-   * Invia le sources finali
+   * Invia le sources finali con il modello usato
    * Chunka automaticamente se ci sono molte sources per evitare payload JSON troppo grandi
    */
-  sendDone(sources: unknown[]): void {
+  sendDone(sources: unknown[], model?: string): void {
     // Calcola dimensione approssimativa del JSON
-    const jsonSize = JSON.stringify({ type: 'done', sources }).length
+    const jsonSize = JSON.stringify({ type: 'done', sources, model }).length
     const MAX_JSON_SIZE = 16384 // 16KB - limite sicuro per chunk SSE
     
     if (jsonSize <= MAX_JSON_SIZE || sources.length <= 5) {
       // Payload piccolo - invia tutto insieme
-      this.enqueue({ type: 'done', sources })
+      this.enqueue({ type: 'done', sources, model })
     } else {
       // Payload grande - invia in chunks
       console.log(`[stream-handler] Large sources payload (${jsonSize} bytes), chunking ${sources.length} sources`)
@@ -141,7 +142,8 @@ export class StreamController {
         
         this.enqueue({ 
           type: isLast ? 'done' : 'sources_chunk',
-          sources: chunk 
+          sources: chunk,
+          model: isLast ? model : undefined, // Invia il modello solo nell'ultimo chunk
         })
       }
     }

@@ -72,11 +72,23 @@ export async function getConversationDetail(
   const messages = (messageRows ?? []).map<Message>((row: MessageRow) => {
     const metadata = row.metadata ?? undefined
     let sources: Source[] | undefined
+    let model: string | undefined
 
-    if (metadata && typeof metadata === 'object' && 'sources' in metadata) {
-      const extracted = (metadata as Record<string, unknown>).sources
-      if (Array.isArray(extracted)) {
-        sources = extracted as Source[]
+    if (metadata && typeof metadata === 'object') {
+      // Estrai sources
+      if ('sources' in metadata) {
+        const extracted = (metadata as Record<string, unknown>).sources
+        if (Array.isArray(extracted)) {
+          sources = extracted as Source[]
+        }
+      }
+      
+      // Estrai model
+      if ('model' in metadata) {
+        const extractedModel = (metadata as Record<string, unknown>).model
+        if (typeof extractedModel === 'string') {
+          model = extractedModel
+        }
       }
     }
 
@@ -86,6 +98,7 @@ export async function getConversationDetail(
       content: row.content,
       metadata,
       sources: sources && sources.length > 0 ? sources : undefined,
+      model, // Includi il modello se presente
     }
   })
 
