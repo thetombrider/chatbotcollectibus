@@ -77,14 +77,7 @@ if (typeof window === 'undefined') {
 }
 
 // Cache control utility functions
-let envConfig: EnvConfig | null = null
 
-function getEnvConfig(): EnvConfig {
-  if (!envConfig) {
-    envConfig = validateEnv()
-  }
-  return envConfig
-}
 
 export function isCacheEnabled(cacheType: 'conversation' | 'query-analysis' | 'enhancement'): boolean {
   // Only check in server-side environment
