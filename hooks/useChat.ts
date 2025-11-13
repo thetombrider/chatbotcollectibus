@@ -238,12 +238,20 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
 
       dispatch({ type: 'PUSH_MESSAGE', value: assistantMessage })
 
+      // Buffer per accumulare chunk parziali
+      let buffer = ''
+      
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        buffer += chunk
+        
+        // Processa le linee complete nel buffer
+        const lines = buffer.split('\n')
+        // L'ultima linea potrebbe essere incompleta, la salviamo nel buffer
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) {
@@ -273,10 +281,25 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
               case 'text_complete':
                 updateAssistantMessage({ content: data.content })
                 break
+              case 'sources_chunk': {
+                // Accumula sources da chunk multipli
+                if (data.sources) {
+                  const currentSources = assistantMessage.sources || []
+                  updateAssistantMessage({ 
+                    sources: [...currentSources, ...(data.sources as Source[])] 
+                  })
+                }
+                break
+              }
               case 'done': {
                 dispatch({ type: 'SET_STATUS', value: null })
                 if (data.sources) {
-                  updateAssistantMessage({ sources: data.sources as Source[] })
+                  // Se ci sono sources nel messaggio done, accumulale o sostituiscile
+                  const currentSources = assistantMessage.sources || []
+                  const finalSources = currentSources.length > 0 
+                    ? [...currentSources, ...(data.sources as Source[])]
+                    : (data.sources as Source[])
+                  updateAssistantMessage({ sources: finalSources })
                 }
                 dispatch({ type: 'SET_LOADING', value: false })
                 if (wasNewConversation && conversationId) {
@@ -294,21 +317,34 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
             }
           } catch (parseError) {
             const jsonString = line.slice(6)
-            console.warn('Failed to parse SSE data:', {
+            console.error('Failed to parse SSE data:', {
               error: parseError instanceof Error ? parseError.message : 'Unknown parse error',
               line: line.substring(0, 100) + (line.length > 100 ? '...' : ''),
               jsonLength: jsonString.length,
               firstChars: jsonString.substring(0, 50),
               lastChars: jsonString.length > 50 ? jsonString.substring(jsonString.length - 50) : ''
             })
-            
-            // Se l'errore è un JSON malformato per contenuto troppo grande,
-            // non interrompere lo streaming - potrebbe essere un chunk parziale
-            if (parseError instanceof SyntaxError && parseError.message.includes('unterminated string')) {
-              // Questo potrebbe essere un chunk parziale - continua
-              continue
+            // Il buffering dovrebbe prevenire chunk parziali, ma se il parsing fallisce
+            // continua comunque lo streaming
+            continue
+          }
+        }
+      }
+      
+      // Processa eventuali dati rimanenti nel buffer
+      if (buffer.trim() && buffer.startsWith('data: ')) {
+        try {
+          const jsonString = buffer.slice(6)
+          if (jsonString.trim()) {
+            const data = JSON.parse(jsonString)
+            // Gestisci l'ultimo messaggio (solitamente 'done' con sources)
+            if (data.type === 'done' && data.sources) {
+              updateAssistantMessage({ sources: data.sources as Source[] })
+              dispatch({ type: 'SET_LOADING', value: false })
             }
           }
+        } catch (parseError) {
+          console.error('Failed to parse final buffer:', parseError)
         }
       }
     } catch (error) {

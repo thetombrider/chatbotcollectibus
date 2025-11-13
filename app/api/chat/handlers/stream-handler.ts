@@ -5,7 +5,7 @@
  */
 
 export interface StreamMessage {
-  type: 'status' | 'text' | 'text_complete' | 'done' | 'error'
+  type: 'status' | 'text' | 'text_complete' | 'done' | 'sources_chunk' | 'error'
   message?: string | null
   content?: string
   sources?: unknown[]
@@ -120,9 +120,31 @@ export class StreamController {
 
   /**
    * Invia le sources finali
+   * Chunka automaticamente se ci sono molte sources per evitare payload JSON troppo grandi
    */
   sendDone(sources: unknown[]): void {
-    this.enqueue({ type: 'done', sources })
+    // Calcola dimensione approssimativa del JSON
+    const jsonSize = JSON.stringify({ type: 'done', sources }).length
+    const MAX_JSON_SIZE = 16384 // 16KB - limite sicuro per chunk SSE
+    
+    if (jsonSize <= MAX_JSON_SIZE || sources.length <= 5) {
+      // Payload piccolo - invia tutto insieme
+      this.enqueue({ type: 'done', sources })
+    } else {
+      // Payload grande - invia in chunks
+      console.log(`[stream-handler] Large sources payload (${jsonSize} bytes), chunking ${sources.length} sources`)
+      
+      const CHUNK_SIZE = 3 // Invia 3 sources per volta
+      for (let i = 0; i < sources.length; i += CHUNK_SIZE) {
+        const chunk = sources.slice(i, i + CHUNK_SIZE)
+        const isLast = i + CHUNK_SIZE >= sources.length
+        
+        this.enqueue({ 
+          type: isLast ? 'done' : 'sources_chunk',
+          sources: chunk 
+        })
+      }
+    }
   }
 
   /**
