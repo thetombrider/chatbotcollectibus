@@ -6,6 +6,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowUp, Square, X, Globe } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { useCredits } from '@/hooks/useCredits'
 
 // Textarea Component
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -382,9 +383,10 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
     ref
   ) => {
     const [files, setFiles] = React.useState<File[]>([])
-    const [filePreviews, setFilePreviews] = React.useState<{ [key: string]: string }>({})
+    const [filePreviews, setFilePreviews] = React.useState<Record<string, string>>({})
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null)
     const [showSearch, setShowSearch] = React.useState(webSearchEnabled)
+    const { credits, loading: creditsLoading } = useCredits()
     const promptBoxRef = React.useRef<HTMLDivElement | null>(null)
     const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(null)
 
@@ -506,6 +508,15 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
       <>
         <div className="relative z-10 backdrop-blur-sm bg-white/80 border-t border-gray-100">
           <div className="max-w-3xl mx-auto px-4 py-3 pb-safe">
+            {/* Credits Label */}
+            {!creditsLoading && credits && (
+              <div className="mb-2 text-xs text-gray-500 flex items-center justify-end gap-1">
+                <span>Crediti rimanenti:</span>
+                <span className="font-semibold text-gray-700">
+                  ${credits.remaining.toFixed(2)}
+                </span>
+              </div>
+            )}
             <PromptInput
               value={input}
               onValueChange={setInput}
