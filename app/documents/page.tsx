@@ -5,22 +5,28 @@ import { DocumentUploader } from '@/components/documents/DocumentUploader'
 import { DocumentsTable } from '@/components/documents/DocumentsTable'
 import { FolderSidebar } from '@/components/documents/FolderSidebar'
 
-type TabType = 'upload' | 'manage'
+type ViewType = 'documents' | 'upload'
 
 export default function DocumentsPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('manage')
+  const [currentView, setCurrentView] = useState<ViewType>('documents')
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
   const handleUploadComplete = (documentId: string, filename: string) => {
     console.log(`Upload completed: ${filename} (${documentId})`)
-    // Trigger refresh della tabella
+    // Trigger refresh della tabella e torna alla vista documenti
     setRefreshTrigger((prev) => prev + 1)
+    setCurrentView('documents')
   }
 
   const handleFolderSelect = (folder: string | null) => {
     setSelectedFolder(folder)
+    setCurrentView('documents')
+  }
+
+  const handleUploadSelect = () => {
+    setCurrentView('upload')
   }
 
   const handleFolderCreated = () => {
@@ -29,62 +35,38 @@ export default function DocumentsPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-56px)] bg-gray-50 overflow-hidden">
-      {/* Mode Toggle - Normal flow */}
-      <div className="h-12 bg-white border-b border-gray-200 flex items-center px-6 flex-shrink-0">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-          <button
-            onClick={() => setActiveTab('upload')}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'upload'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Carica
-          </button>
-          <button
-            onClick={() => setActiveTab('manage')}
-            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-              activeTab === 'manage'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            Gestisci
-          </button>
-        </div>
+    <div className="flex h-[calc(100vh-56px)] bg-gray-50 overflow-hidden">
+      {/* Folder Sidebar - Sempre visibile */}
+      <div className="w-64 flex-shrink-0">
+        <FolderSidebar
+          selectedFolder={selectedFolder}
+          currentView={currentView}
+          onFolderSelect={handleFolderSelect}
+          onUploadSelect={handleUploadSelect}
+          onFolderCreated={handleFolderCreated}
+        />
       </div>
 
-      {activeTab === 'upload' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-8 py-8">
-            <div className="mb-8">
-              <h1 className="text-3xl font-semibold text-gray-900 mb-2">
-                Carica Documenti
-              </h1>
-              <p className="text-gray-600">
-                Carica PDF, DOCX o file di testo per aggiungerli alla knowledge base.
-                I documenti verranno automaticamente elaborati ed indicizzati.
-              </p>
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {currentView === 'upload' && (
+          <div className="flex-1 overflow-y-auto bg-white">
+            <div className="max-w-7xl mx-auto px-8 py-8">
+              <div className="mb-8">
+                <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+                  Carica Documenti
+                </h1>
+                <p className="text-gray-600">
+                  Carica PDF, DOCX o file di testo per aggiungerli alla knowledge base.
+                  I documenti verranno automaticamente elaborati ed indicizzati.
+                </p>
+              </div>
+              <DocumentUploader onUploadComplete={handleUploadComplete} />
             </div>
-            <DocumentUploader onUploadComplete={handleUploadComplete} />
           </div>
-        </div>
-      )}
+        )}
 
-      {activeTab === 'manage' && (
-        <div className="flex flex-1 overflow-hidden min-h-0">
-          {/* Folder Sidebar */}
-          <div className="w-64 flex-shrink-0">
-            <FolderSidebar
-              selectedFolder={selectedFolder}
-              onFolderSelect={handleFolderSelect}
-              onFolderCreated={handleFolderCreated}
-            />
-          </div>
-
-          {/* Documents Table */}
+        {currentView === 'documents' && (
           <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-white">
             <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-4">
@@ -129,8 +111,8 @@ export default function DocumentsPage() {
               />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

@@ -9,13 +9,17 @@ interface Folder {
 
 interface FolderSidebarProps {
   selectedFolder: string | null
+  currentView: 'documents' | 'upload'
   onFolderSelect: (folder: string | null) => void
+  onUploadSelect: () => void
   onFolderCreated?: () => void
 }
 
 export function FolderSidebar({ 
   selectedFolder, 
+  currentView,
   onFolderSelect, 
+  onUploadSelect,
   onFolderCreated 
 }: FolderSidebarProps) {
   const [folders, setFolders] = useState<Folder[]>([])
@@ -184,46 +188,64 @@ export function FolderSidebar({
 
         {/* Folders list */}
         <div className="flex-1 overflow-y-auto">
-          {/* All Documents */}
-          <div
-            className={`px-4 py-2 cursor-pointer flex items-center gap-2 hover:bg-gray-100 ${
-              selectedFolder === null ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-            }`}
-            onClick={() => onFolderSelect(null)}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            <span className="text-sm">Tutti i documenti</span>
-          </div>
-
-          {/* Folder list */}
-          {folders.map((folder) => (
+          <div className="space-y-1">
+            {/* Upload Section */}
             <div
-              key={folder.name}
-              className={`px-4 py-2 cursor-pointer flex items-center justify-between gap-2 hover:bg-gray-100 ${
-                selectedFolder === folder.name ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+              className={`px-4 py-2 cursor-pointer flex items-center gap-2 hover:bg-gray-100 ${
+                currentView === 'upload' ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
               }`}
-              onClick={() => onFolderSelect(folder.name)}
-              onContextMenu={(e) => handleRightClick(e, folder.name)}
+              onClick={onUploadSelect}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-                <span className="text-sm truncate">{folder.name}</span>
-              </div>
-              <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full">
-                {folder.count}
-              </span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <span className="text-sm font-medium">Carica</span>
             </div>
-          ))}
 
-          {folders.length === 0 && (
-            <div className="p-4 text-center text-gray-500 text-sm">
-              Nessuna cartella presente
+            {/* Separator */}
+            <div className="mx-4 my-2 border-t border-gray-200"></div>
+
+            {/* All Documents */}
+            <div
+              className={`px-4 py-2 cursor-pointer flex items-center gap-2 hover:bg-gray-100 ${
+                currentView === 'documents' && selectedFolder === null ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+              }`}
+              onClick={() => onFolderSelect(null)}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span className="text-sm">Tutti i documenti</span>
             </div>
-          )}
+
+            {/* Folder list */}
+            {folders.map((folder) => (
+              <div
+                key={folder.name}
+                className={`px-4 py-2 cursor-pointer flex items-center justify-between gap-2 hover:bg-gray-100 ${
+                  currentView === 'documents' && selectedFolder === folder.name ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                }`}
+                onClick={() => onFolderSelect(folder.name)}
+                onContextMenu={(e) => handleRightClick(e, folder.name)}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span className="text-sm truncate">{folder.name}</span>
+                </div>
+                <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-full">
+                  {folder.count}
+                </span>
+              </div>
+            ))}
+
+            {folders.length === 0 && (
+              <div className="p-4 text-center text-gray-500 text-sm">
+                Nessuna cartella presente
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
