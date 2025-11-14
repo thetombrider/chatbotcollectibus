@@ -1,17 +1,17 @@
 
 📋 Checklist Implementazione
 Fase 1 (Week 1)
- Step 1.1: Unified cache table migration SQL
- Step 1.1: Create lib/supabase/unified-query-cache.ts
- Step 1.1: Refactor query-analysis.ts to use unified cache
- Step 1.1: Refactor query-enhancement.ts to use unified cache
- Step 1.1: Drop old cache tables
- Step 1.1: Integration tests
- Step 1.2: Remove AsyncLocalStorage from agent.ts
- Step 1.2: Update response-handler to extract tool results
- Step 1.2: E2E tests for web search flow
- Step 1.3: Remove vectorSearchTool and semanticCacheTool
- Step 1.3: Regression tests
+ ✅ Step 1.1.1: Unified cache table migration SQL (commit: 76b900f)
+ ✅ Step 1.1.2: Create lib/supabase/unified-query-cache.ts (commit: a3af1d2)
+ ✅ Step 1.1.3: Refactor query-analysis.ts to use unified cache (commit: 3c42d49)
+ ✅ Step 1.1.4: Refactor query-enhancement.ts to use unified cache (commit: ae0b136)
+ ✅ Step 1.1.5: Drop old cache tables migration (commit: a328474)
+ ✅ Step 1.1.6: Integration tests for unified cache (commit: 99a8f73)
+ 🔄 Step 1.2.1: Remove AsyncLocalStorage from agent.ts (IN PROGRESS - commit: 79ecf65)
+ ⏳ Step 1.2.2: Update response-handler to extract tool results
+ ⏳ Step 1.2.3: E2E tests for web search flow
+ ⏳ Step 1.3.1: Remove vectorSearchTool and semanticCacheTool
+ ⏳ Step 1.3.2: Regression tests
 Fase 2 (Week 2)
  Step 2.1: Create lib/decisions/web-search-strategy.ts
  Step 2.1: Refactor response-handler decision logic
