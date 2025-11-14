@@ -3,6 +3,7 @@
 import React, { useMemo, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { CopyIcon, RefreshCcwIcon } from 'lucide-react'
 import { MessageWithCitations } from '@/components/chat/Citation'
 import { markdownComponents } from '@/components/chat/MarkdownComponents'
@@ -88,6 +89,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, onOpen
             <div className="prose prose-sm max-w-none">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw]}
                 components={markdownComponents}
               >
                 {message.content}

@@ -66,12 +66,18 @@ export const markdownComponents: Components = {
     <thead className="bg-gray-100">{children}</thead>
   ),
   th: ({ children }) => (
-    <th className="border border-gray-300 px-4 py-2 text-left font-semibold">
-      {children}
+    <th className="border border-gray-300 px-4 py-2 text-left font-semibold align-top">
+      <div className="[&_br]:block [&_br]:content-[''] [&_br]:my-1">
+        {children}
+      </div>
     </th>
   ),
   td: ({ children }) => (
-    <td className="border border-gray-300 px-4 py-2">{children}</td>
+    <td className="border border-gray-300 px-4 py-2 align-top">
+      <div className="[&_br]:block [&_br]:content-[''] [&_br]:my-1">
+        {children}
+      </div>
+    </td>
   ),
   strong: ({ children }) => (
     <strong className="font-semibold">{children}</strong>
