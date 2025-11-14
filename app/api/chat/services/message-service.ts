@@ -133,3 +133,54 @@ export async function saveAssistantMessage(
   }
 }
 
+/**
+ * Elimina gli ultimi N messaggi di una conversazione
+ * Utilizzato per il retry quando si vuole rimuovere il messaggio fallito e la sua risposta
+ */
+export async function deleteLastMessages(
+  conversationId: string,
+  count: number = 2
+): Promise<void> {
+  try {
+    console.log('[message-service] Deleting last messages:', {
+      conversationId,
+      count,
+    })
+    
+    // Recupera gli ultimi N messaggi
+    const { data: messagesToDelete, error: fetchError } = await supabaseAdmin
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(count)
+    
+    if (fetchError) {
+      console.error('[message-service] Failed to fetch messages to delete:', fetchError)
+      return
+    }
+    
+    if (!messagesToDelete || messagesToDelete.length === 0) {
+      console.log('[message-service] No messages to delete')
+      return
+    }
+    
+    // Elimina i messaggi
+    const messageIds = messagesToDelete.map(m => m.id)
+    const { error: deleteError } = await supabaseAdmin
+      .from('messages')
+      .delete()
+      .in('id', messageIds)
+    
+    if (deleteError) {
+      console.error('[message-service] Failed to delete messages:', deleteError)
+    } else {
+      console.log('[message-service] Messages deleted successfully:', {
+        deletedCount: messagesToDelete.length,
+      })
+    }
+  } catch (err) {
+    console.error('[message-service] Failed to delete last messages:', err)
+  }
+}
+

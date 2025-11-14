@@ -90,10 +90,26 @@ export function ChatView({
       const userMessage = messages[userMessageIndex]
       if (!userMessage) return
 
-      setMessages((prev) => prev.slice(0, messageIndex))
+      // Prima elimina i messaggi dal database (user + assistant fallito)
+      if (conversationId) {
+        try {
+          await fetch('/api/messages/delete-last', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ conversationId, count: 2 }),
+          })
+        } catch (error) {
+          console.error('Failed to delete messages from database:', error)
+          showToast('Errore durante il retry. Riprova.', 'error')
+          return
+        }
+      }
+
+      // Poi rimuovi i messaggi dall'UI e ri-invia
+      setMessages((prev) => prev.slice(0, userMessageIndex))
       await handleSend(true, userMessage.content)
     },
-    [handleSend, messages, setMessages]
+    [conversationId, handleSend, messages, setMessages, showToast]
   )
 
   const keyboardShortcuts = useMemo(

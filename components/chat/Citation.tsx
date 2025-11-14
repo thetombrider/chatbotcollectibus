@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import type { Components } from 'react-markdown'
 
 import type { Source, SourceDetail, MessageWithCitationsProps, SourceDetailPanelProps } from '@/types/chat'
@@ -1410,6 +1411,8 @@ export function MessageWithCitations({ content, sources = [], onOpenSources }: M
     <div className="prose prose-sm max-w-none" style={{ overflow: 'visible' }}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeRaw]}
+        remarkRehypeOptions={{ allowDangerousHtml: true }}
         components={markdownComponents}
       >
         {processedContent}

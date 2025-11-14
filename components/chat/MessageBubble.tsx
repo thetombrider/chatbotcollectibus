@@ -90,6 +90,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, onOpen
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw]}
+                remarkRehypeOptions={{ allowDangerousHtml: true }}
                 components={markdownComponents}
               >
                 {message.content}
