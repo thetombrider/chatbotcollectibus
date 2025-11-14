@@ -106,6 +106,25 @@ export function normalizeWebCitations(content: string): string {
 }
 
 /**
+ * Normalizza citazioni con caratteri Unicode (【】) nel formato standard []
+ * Gestisce formati come 【cit:1】 o 【web:1】 e li converte in [cit:1] e [web:1]
+ * 
+ * @param content - Contenuto del messaggio con possibili citazioni Unicode
+ * @returns Contenuto con citazioni normalizzate usando parentesi quadre standard
+ */
+export function normalizeUnicodeCitations(content: string): string {
+  let normalized = content
+  
+  // Converti 【cit:N】 o 【cit:N,M】 in [cit:N] o [cit:N,M]
+  normalized = normalized.replace(/【(cit[\s:]+\d+(?:\s*,\s*\d+)*)】/g, '[$1]')
+  
+  // Converti 【web:N】 o 【web:N,M】 in [web:N] o [web:N,M]
+  normalized = normalized.replace(/【(web[\s:]+\d+(?:\s*,\s*(?:web[\s:]+)?\d+)*)】/g, '[$1]')
+  
+  return normalized
+}
+
+/**
  * Filtra le sources per includere solo quelle citate
  * 
  * @param citedIndices - Indici citati nel testo

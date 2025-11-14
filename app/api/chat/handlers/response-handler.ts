@@ -11,7 +11,8 @@ import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 import { extractUniqueDocumentNames, calculateAverageSimilarity } from '../services/context-builder'
 import { 
-  normalizeWebCitations, 
+  normalizeWebCitations,
+  normalizeUnicodeCitations, 
   processCitations, 
   extractWebCitedIndices,
   extractCitedIndices 
@@ -356,8 +357,11 @@ export async function processResponse(
     metaType: analysis.metaType,
   })
 
+  // Normalizza citazioni Unicode (【cit:1】 -> [cit:1])
+  let processedResponse = normalizeUnicodeCitations(fullResponse)
+  
   // Normalizza citazioni web errate
-  let processedResponse = normalizeWebCitations(fullResponse)
+  processedResponse = normalizeWebCitations(processedResponse)
 
   // Estrai citazioni
   const citedIndices = extractCitedIndices(processedResponse)
