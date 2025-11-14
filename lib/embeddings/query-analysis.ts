@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { findCachedQueryAnalysis, saveCachedQueryAnalysis } from '@/lib/supabase/query-analysis-cache'
+import { findUnifiedCache, saveUnifiedCache } from '@/lib/supabase/unified-query-cache'
 import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
 // TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
 // import { logLLMCall } from '@/lib/observability/langfuse'
@@ -186,12 +186,12 @@ export async function analyzeQuery(query: string): Promise<QueryAnalysisResult> 
   }
 
   try {
-    // Step 1: Check cache
-    const cached = await findCachedQueryAnalysis(query)
+    // Step 1: Check unified cache
+    const cached = await findUnifiedCache(query)
     if (cached) {
-      console.log('[query-analysis] Using cached analysis')
+      console.log('[query-analysis] Using cached analysis from unified cache')
       return {
-        ...cached,
+        ...cached.analysis,
         fromCache: true,
       }
     }
@@ -205,8 +205,8 @@ export async function analyzeQuery(query: string): Promise<QueryAnalysisResult> 
     console.log('[query-analysis] Cache miss, using LLM for unified analysis...')
     const result = await analyzeWithLLM(query, articleNumberRegex, temporalDetection, webSearchDetection)
 
-    // Step 4: Cache the result
-    await saveCachedQueryAnalysis(query, result)
+    // Step 4: Result will be cached together with enhancement in query-enhancement.ts
+    // No need to cache here separately anymore
 
     console.log('[query-analysis] Analysis result:', {
       query: query.substring(0, 50),
