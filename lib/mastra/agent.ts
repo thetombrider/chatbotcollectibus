@@ -1,5 +1,4 @@
 import { Agent } from '@mastra/core/agent'
-import { AsyncLocalStorage } from 'async_hooks'
 import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL, normalizeModelId } from '@/lib/llm/models'
 import { inferMetaQueryFolder } from '@/lib/embeddings/meta-folder-inference'
 import type { SearchResult } from '@/lib/supabase/database.types'
@@ -7,6 +6,8 @@ import type { SearchResult } from '@/lib/supabase/database.types'
 /**
  * Mastra Agent configuration per RAG
  * Versione 0.23.3
+ * 
+ * REFACTORED: Removed AsyncLocalStorage in favor of explicit return values from tools
  */
 
 // Validazione OpenRouter API key
@@ -37,44 +38,43 @@ function normalizeFolderQuery(name: string): string {
 }
 
 /**
- * Context per passare traceId e risultati senza race conditions
- * Usa AsyncLocalStorage per mantenere il contesto per ogni richiesta
+ * Type definitions for tool results
+ * These are returned by tools and extracted by response-handler
  */
-interface AgentContext {
-  traceId: string | null
-  webSearchResults: any[]
-  metaQueryDocuments: Array<{
-    id: string
-    filename: string
+export interface WebSearchToolResult {
+  results: Array<{
     index: number
-    folder?: string | null
-    chunkCount?: number
-    chunkPreviews?: Array<{ chunkIndex: number; content: string }>
-    contentPreview?: string
+    title: string
+    url: string
+    content: string
   }>
-  metaQueryChunks?: SearchResult[] // Chunks effettivi dei documenti recuperati da meta query
+  query: string
+  citationFormat: string
 }
 
-const agentContextStore = new AsyncLocalStorage<AgentContext>()
-
-/**
- * Esegue una funzione con un contesto agent
- */
-export async function runWithAgentContext<T>(
-  context: AgentContext,
-  fn: () => Promise<T>
-): Promise<T> {
-  return agentContextStore.run(context, fn)
+export interface MetaQueryToolResult {
+  isMeta: boolean
+  metaType?: string
+  data?: {
+    documents?: Array<{
+      id: string
+      filename: string
+      index: number
+      folder?: string | null
+      chunkCount?: number
+      chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+      contentPreview?: string
+    }>
+    chunks?: SearchResult[]
+    allFolders?: any[]
+    specificFolder?: any
+    documentTypes?: any
+  }
+  message?: string
 }
 
-/**
- * Ottiene il contesto agent corrente
- */
-function getAgentContext(): AgentContext | undefined {
-  return agentContextStore.getStore()
-}
-
-// Tool per vector search
+// Tool per vector search - DEPRECATED: Vector search is done in search-handler.ts
+// This tool is redundant and will be removed
 async function vectorSearchTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
