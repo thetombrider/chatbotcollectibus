@@ -1,4 +1,4 @@
-import { createServerClient, type EmailOtpType } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 /**
@@ -11,7 +11,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestUrl = new URL(request.url)
   const token_hash = requestUrl.searchParams.get('token_hash')
-  const type = requestUrl.searchParams.get('type') as EmailOtpType | null
+  const type = requestUrl.searchParams.get('type')
   const next = requestUrl.searchParams.get('next') ?? '/'
   const code = requestUrl.searchParams.get('code')
   const error = requestUrl.searchParams.get('error')
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.log(`[auth/callback] Verifying OTP for type: ${type}`)
     
     const { error: verifyError } = await supabase.auth.verifyOtp({
-      type,
+      type: type as 'signup' | 'invite' | 'magiclink' | 'recovery' | 'email_change',
       token_hash,
     })
 
@@ -98,18 +98,3 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   console.error('[auth/callback] No valid authentication parameters received')
   return NextResponse.redirect(new URL('/login', request.url))
 }
-
-  // Exchange code for session
-  const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
-
-  if (exchangeError || !data.session) {
-    console.error('[auth/callback] Failed to exchange code for session:', exchangeError)
-    const errorUrl = new URL('/login', request.url)
-    errorUrl.searchParams.set('error', 'Errore durante la creazione della sessione')
-    return NextResponse.redirect(errorUrl)
-  }
-
-  // Success - redirect to chat with session cookies
-  return response
-}
-
