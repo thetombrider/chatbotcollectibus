@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { findCachedEnhancement, saveCachedEnhancement } from '@/lib/supabase/enhancement-cache'
+import { findUnifiedCache, saveUnifiedCache, type EnhancementData } from '@/lib/supabase/unified-query-cache'
 import { analyzeQuery, type QueryAnalysisResult } from './query-analysis'
 import { expandQueryByIntent } from './intent-based-expansion'
 
@@ -297,7 +297,22 @@ export async function enhanceQueryIfNeeded(
   }
   
   try {
-    // Step 0: Analyze query (if not provided)
+    // Step 0: Check unified cache first (contains both analysis and enhancement)
+    const cached = await findUnifiedCache(query)
+    
+    if (cached) {
+      console.log('[query-enhancement] Using cached enhancement from unified cache')
+      return {
+        enhanced: cached.enhancement.enhanced,
+        shouldEnhance: cached.enhancement.shouldEnhance,
+        fromCache: true,
+        articleNumber: cached.enhancement.articleNumber || cached.analysis.articleNumber,
+        intent: cached.enhancement.intent || cached.analysis.intent,
+        analysis: cached.analysis,
+      }
+    }
+    
+    // Step 1: Analyze query (if not provided)
     let analysis: QueryAnalysisResult
     if (analysisResult) {
       analysis = analysisResult
@@ -307,24 +322,19 @@ export async function enhanceQueryIfNeeded(
       analysis = await analyzeQuery(query)
     }
     
-    // Step 1: Check cache (using original query)
-    const cached = await findCachedEnhancement(query)
-    
-    if (cached) {
-      console.log('[query-enhancement] Using cached enhancement')
-      return {
-        enhanced: cached.enhanced_query,
-        shouldEnhance: cached.should_enhance,
-        fromCache: true,
-        articleNumber: analysis.articleNumber,
-        intent: analysis.intent,
-        analysis,
-      }
-    }
-    
     // Step 2: Skip expansion for meta queries (they don't need enhancement)
     if (analysis.isMeta) {
       console.log('[query-enhancement] Meta query detected, skipping expansion')
+      
+      const enhancementData: EnhancementData = {
+        enhanced: query,
+        shouldEnhance: false,
+        intent: analysis.intent,
+      }
+      
+      // Save to unified cache
+      await saveUnifiedCache(query, analysis, enhancementData)
+      
       return {
         enhanced: query,
         shouldEnhance: false,
@@ -354,8 +364,15 @@ export async function enhanceQueryIfNeeded(
     // Step 4: Determine if enhancement was applied
     const shouldEnhance = enhancedQuery !== query || analysis.articleNumber !== undefined
     
-    // Step 5: Cache the result
-    await saveCachedEnhancement(query, enhancedQuery, shouldEnhance, analysis.intent)
+    // Step 5: Save to unified cache (both analysis and enhancement together)
+    const enhancementData: EnhancementData = {
+      enhanced: enhancedQuery,
+      shouldEnhance,
+      articleNumber: analysis.articleNumber,
+      intent: analysis.intent,
+    }
+    
+    await saveUnifiedCache(query, analysis, enhancementData)
     
     // Step 6: Return result
     return {
