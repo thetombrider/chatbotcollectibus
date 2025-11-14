@@ -386,7 +386,7 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
     const [filePreviews, setFilePreviews] = React.useState<Record<string, string>>({})
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null)
     const [showSearch, setShowSearch] = React.useState(webSearchEnabled)
-    const { credits, loading: creditsLoading } = useCredits()
+    const { credits, loading: creditsLoading, refetch: refetchCredits } = useCredits()
     const promptBoxRef = React.useRef<HTMLDivElement | null>(null)
     const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(null)
 
@@ -498,6 +498,9 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
         // Clear state after sending
         setFiles([])
         setFilePreviews({})
+        
+        // Aggiorna i crediti dopo l'invio del messaggio
+        refetchCredits()
       }
     }
 

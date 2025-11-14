@@ -34,10 +34,8 @@ export function useCredits() {
   useEffect(() => {
     fetchCredits()
     
-    // Refresh credits every 5 minutes
-    const interval = setInterval(fetchCredits, 5 * 60 * 1000)
-    
-    return () => clearInterval(interval)
+    // Nota: Non usiamo più l'auto-refresh ogni 5 minuti
+    // I crediti vengono aggiornati manualmente dopo ogni messaggio inviato
   }, [])
 
   return { credits, loading, error, refetch: fetchCredits }
