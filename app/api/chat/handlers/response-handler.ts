@@ -152,12 +152,11 @@ export async function generateResponse(
     },
   ]
 
-  // Disabilita tools solo se abbiamo context E le fonti sono sufficienti
-  // IMPORTANTE: Se le fonti sono insufficienti, permette sempre i tool (anche se c'è un context piccolo)
-  // Questo garantisce che web_search venga chiamato quando necessario
+  // Disabilita tutti i tools solo se abbiamo context E le fonti sono sufficienti
+  // Se webSearchEnabled è false, l'agent verrà creato senza il tool web_search (vedi getRagAgentForModel)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const shouldDisableTools = contextText && !SOURCES_INSUFFICIENT
-  const streamOptions = shouldDisableTools
+  const shouldDisableAllTools = contextText && !SOURCES_INSUFFICIENT
+  const streamOptions = shouldDisableAllTools
     ? { maxToolRoundtrips: 0 }
     : {}
   
@@ -166,7 +165,7 @@ export async function generateResponse(
     contextLength: contextText?.length || 0,
     webSearchEnabled,
     sourcesInsufficient: SOURCES_INSUFFICIENT,
-    shouldDisableTools,
+    shouldDisableAllTools,
     maxToolRoundtrips: streamOptions.maxToolRoundtrips || 'unlimited',
   })
 
@@ -182,13 +181,14 @@ export async function generateResponse(
 
   const fallbackModel = analysis.isComparative ? DEFAULT_PRO_MODEL : DEFAULT_FLASH_MODEL
   const requestedModel = promptModel ?? fallbackModel
-  const selectedAgent = getRagAgentForModel(requestedModel)
+  const selectedAgent = getRagAgentForModel(requestedModel, webSearchEnabled)
 
   console.log('[response-handler] Selected LLM model', {
     requestedModel,
     normalizedModel: selectedAgent.model,
     source: promptModel ? 'langfuse-config' : 'fallback',
     isComparative: analysis.isComparative,
+    webSearchEnabled,
   })
 
   // Esegui l'agent con il contesto per passare traceContext e risultati

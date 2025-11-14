@@ -644,6 +644,20 @@ const BASE_AGENT_INSTRUCTIONS =
 const dynamicAgentCache = new Map<string, Agent>()
 
 /**
+ * Restituisce i tools filtrati in base alle preferenze utente
+ * @param webSearchEnabled - Se false, rimuove il tool web_search
+ */
+export function getFilteredTools(webSearchEnabled: boolean) {
+  if (webSearchEnabled) {
+    return agentTools
+  }
+  // Rimuovi solo web_search, mantieni semantic_cache e meta_query
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { web_search, ...toolsWithoutWebSearch } = agentTools
+  return toolsWithoutWebSearch
+}
+
+/**
  * Agent con Gemini 2.5 Flash - per query normali
  * Più veloce ed economico, adatto per la maggior parte delle query
  */
@@ -680,20 +694,42 @@ export const reactRagAgent = ragAgentFlash
  * Implementa una cache per evitare di creare istanze duplicate.
  *
  * @param model - Modello richiesto dalla configurazione del prompt
+ * @param webSearchEnabled - Se false, rimuove il tool web_search dall'agent
  * @returns Istanza di Agent configurata per il modello richiesto
  */
-export function getRagAgentForModel(model?: string | null): Agent {
+export function getRagAgentForModel(model?: string | null, webSearchEnabled = true): Agent {
   const normalizedModel = normalizeModelId(model)
+  const filteredTools = getFilteredTools(webSearchEnabled)
+  const cacheKey = `${normalizedModel}-ws${webSearchEnabled}`
 
+  // Gli agent predefiniti usano sempre tutti i tools, quindi controlla webSearchEnabled
   if (normalizedModel === ragAgentFlash.model) {
+    if (!webSearchEnabled) {
+      // Crea un agent temporaneo senza web_search
+      return new Agent({
+        name: 'rag-consulting-agent-flash-no-web',
+        instructions: BASE_AGENT_INSTRUCTIONS,
+        model: normalizedModel,
+        tools: filteredTools,
+      })
+    }
     return ragAgentFlash
   }
 
   if (normalizedModel === ragAgentPro.model) {
+    if (!webSearchEnabled) {
+      // Crea un agent temporaneo senza web_search
+      return new Agent({
+        name: 'rag-consulting-agent-pro-no-web',
+        instructions: BASE_AGENT_INSTRUCTIONS,
+        model: normalizedModel,
+        tools: filteredTools,
+      })
+    }
     return ragAgentPro
   }
 
-  const cached = dynamicAgentCache.get(normalizedModel)
+  const cached = dynamicAgentCache.get(cacheKey)
   if (cached) {
     return cached
   }
@@ -708,10 +744,10 @@ export function getRagAgentForModel(model?: string | null): Agent {
     name: `rag-consulting-agent-${agentNameSuffix}`,
     instructions: BASE_AGENT_INSTRUCTIONS,
     model: normalizedModel,
-    tools: agentTools,
+    tools: filteredTools,
   })
 
-  dynamicAgentCache.set(normalizedModel, agent)
+  dynamicAgentCache.set(cacheKey, agent)
 
   return agent
 }
