@@ -257,6 +257,8 @@ function isThematicMetaQuery(query: string): boolean {
 }
 
 async function metaQueryTool({ query }: { query: string }) {
+  console.log('[mastra/agent] metaQueryTool called with query:', query.substring(0, 100))
+  
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
   }
@@ -815,13 +817,13 @@ const agentTools = {
   meta_query: {
     id: 'meta_query',
     name: 'meta_query',
-    description: 'Ottieni informazioni sul database stesso (statistiche, liste documenti, cartelle, tipi di file) invece che sul contenuto dei documenti. Usa questo tool quando l\'utente chiede "quanti documenti ci sono", "che norme ci sono salvate", "quali cartelle esistono", "quali tipi di file ci sono", ecc.',
+    description: 'Ottieni informazioni sul database stesso (statistiche, liste documenti, cartelle, tipi di file) invece che sul contenuto dei documenti. USA QUESTO TOOL per query come: "quanti documenti ci sono", "elenca i documenti", "documenti nella cartella X", "che norme ci sono salvate", "quali cartelle esistono", "quali tipi di file ci sono". IMPORTANTE: Questo tool PUÒ elencare documenti specifici in una cartella.',
     parameters: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: 'Query meta sul database (es. "quanti documenti ci sono", "che norme ci sono", "quali cartelle esistono")',
+          description: 'Query meta sul database (es. "quanti documenti ci sono", "elenca documenti nella cartella GRI", "che norme ci sono", "quali cartelle esistono")',
         },
       },
       required: ['query'],
@@ -894,10 +896,22 @@ export function getRagAgentForModel(model?: string | null, webSearchEnabled = tr
   const filteredTools = getFilteredTools(webSearchEnabled)
   const cacheKey = `${normalizedModel}-ws${webSearchEnabled}`
 
+  console.log('[mastra/agent] getRagAgentForModel called:', {
+    requestedModel: model,
+    normalizedModel,
+    webSearchEnabled,
+    ragAgentFlashModel: ragAgentFlash.model,
+    ragAgentProModel: ragAgentPro.model,
+    willMatch: normalizedModel === ragAgentFlash.model,
+    filteredToolsCount: Object.keys(filteredTools).length,
+    hasMetaQueryTool: 'meta_query' in filteredTools,
+  })
+
   // Gli agent predefiniti usano sempre tutti i tools, quindi controlla webSearchEnabled
   if (normalizedModel === ragAgentFlash.model) {
     if (!webSearchEnabled) {
       // Crea un agent temporaneo senza web_search
+      console.log('[mastra/agent] Using Flash agent WITHOUT web_search')
       return new Agent({
         name: 'rag-consulting-agent-flash-no-web',
         instructions: BASE_AGENT_INSTRUCTIONS,
@@ -905,12 +919,14 @@ export function getRagAgentForModel(model?: string | null, webSearchEnabled = tr
         tools: filteredTools,
       })
     }
+    console.log('[mastra/agent] Using ragAgentFlash (all tools)')
     return ragAgentFlash
   }
 
   if (normalizedModel === ragAgentPro.model) {
     if (!webSearchEnabled) {
       // Crea un agent temporaneo senza web_search
+      console.log('[mastra/agent] Using Pro agent WITHOUT web_search')
       return new Agent({
         name: 'rag-consulting-agent-pro-no-web',
         instructions: BASE_AGENT_INSTRUCTIONS,
@@ -918,9 +934,11 @@ export function getRagAgentForModel(model?: string | null, webSearchEnabled = tr
         tools: filteredTools,
       })
     }
+    console.log('[mastra/agent] Using ragAgentPro (all tools)')
     return ragAgentPro
   }
 
+  console.log('[mastra/agent] Using DYNAMIC agent with filtered tools')
   const cached = dynamicAgentCache.get(cacheKey)
   if (cached) {
     return cached

@@ -76,7 +76,9 @@ export async function generateResponse(
     articleNumber,
   } = context
 
-  const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
+  // CRITICAL: isMetaQuery deve includere TUTTI i tipi di meta query, non solo "list"
+  // Meta query types: 'list', 'folders', 'stats', 'structure'
+  const isMetaQuery = analysis.isMeta
   const avgSimilarity = calculateAverageSimilarity(relevantResults)
   
   // Logica migliorata per determinare se le fonti sono sufficienti:
@@ -181,7 +183,13 @@ export async function generateResponse(
 
   const fallbackModel = analysis.isComparative ? DEFAULT_PRO_MODEL : DEFAULT_FLASH_MODEL
   const requestedModel = promptModel ?? fallbackModel
-  const selectedAgent = getRagAgentForModel(requestedModel, webSearchEnabled)
+  
+  // CRITICAL: Per meta query, forza webSearchEnabled=true per usare agent predefinito
+  // Gli agent creati dinamicamente senza web_search hanno problemi con i tool calls
+  // Le meta query non useranno mai web_search comunque, quindi è sicuro
+  const effectiveWebSearchEnabled = isMetaQuery ? true : webSearchEnabled
+  
+  const selectedAgent = getRagAgentForModel(requestedModel, effectiveWebSearchEnabled)
 
   console.log('[response-handler] Selected LLM model', {
     requestedModel,
@@ -189,6 +197,8 @@ export async function generateResponse(
     source: promptModel ? 'langfuse-config' : 'fallback',
     isComparative: analysis.isComparative,
     webSearchEnabled,
+    effectiveWebSearchEnabled,
+    isMetaQuery,
   })
 
   // Esegui l'agent con il contesto per passare traceContext e risultati
