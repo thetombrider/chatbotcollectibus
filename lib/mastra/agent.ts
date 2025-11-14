@@ -73,6 +73,71 @@ export interface MetaQueryToolResult {
   message?: string
 }
 
+/**
+ * Module-level cache for tool results
+ * Replaces AsyncLocalStorage with a simpler approach
+ * Since JavaScript is single-threaded and agent calls are sequential,
+ * this is safe for accumulating tool results during a single agent execution
+ */
+interface ToolResultsCache {
+  webSearchResults: Array<{ index: number; title: string; url: string; content: string }>
+  metaQueryDocuments: Array<{
+    id: string
+    filename: string
+    index: number
+    folder?: string | null
+    chunkCount?: number
+    chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+    contentPreview?: string
+  }>
+  metaQueryChunks: SearchResult[]
+}
+
+const toolResultsCache: ToolResultsCache = {
+  webSearchResults: [],
+  metaQueryDocuments: [],
+  metaQueryChunks: [],
+}
+
+/**
+ * Clear all cached tool results
+ * Call this before starting a new agent execution
+ */
+export function clearToolResults(): void {
+  toolResultsCache.webSearchResults = []
+  toolResultsCache.metaQueryDocuments = []
+  toolResultsCache.metaQueryChunks = []
+}
+
+/**
+ * Get cached web search results
+ */
+export function getWebSearchResults(): Array<{ index: number; title: string; url: string; content: string }> {
+  return [...toolResultsCache.webSearchResults]
+}
+
+/**
+ * Get cached meta query documents
+ */
+export function getMetaQueryDocuments(): Array<{
+  id: string
+  filename: string
+  index: number
+  folder?: string | null
+  chunkCount?: number
+  chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+  contentPreview?: string
+}> {
+  return [...toolResultsCache.metaQueryDocuments]
+}
+
+/**
+ * Get cached meta query chunks
+ */
+export function getMetaQueryChunks(): SearchResult[] {
+  return [...toolResultsCache.metaQueryChunks]
+}
+
 // Tool per vector search - DEPRECATED: Vector search is done in search-handler.ts
 // This tool is redundant and will be removed
 async function vectorSearchTool({ query }: { query: string }) {
@@ -120,19 +185,9 @@ async function webSearchTool({ query }: { query: string }) {
     throw new Error('Query cannot be empty')
   }
 
-  const context = getAgentContext()
-  // const traceId = context?.traceId || null
-
-  // Log per debugging: verifica se il context è disponibile
   console.log('[mastra/agent] Web search tool called:', {
-    hasContext: !!context,
-    contextWebResultsLength: context?.webSearchResults?.length || 0,
     query: query.substring(0, 50),
   })
-
-  // TODO: Re-implement with new Langfuse patterns (createSpan, etc.)
-  // const { createToolSpan, finalizeSpan } = await import('@/lib/observability/langfuse')
-  // const toolSpanId = createToolSpan(traceId, 'web_search', { query })
 
   try {
     // Usa Tavily per la ricerca web
@@ -149,20 +204,13 @@ async function webSearchTool({ query }: { query: string }) {
       content: result.content || '',
     }))
     
-    // Salva i risultati FORMATTATI nel contesto locale (senza race conditions)
-    // IMPORTANTE: Salva i risultati formattati con gli indici, non i risultati RAW
-    if (context) {
-      context.webSearchResults = formattedResults
-      console.log('[mastra/agent] Web search results saved to context:', {
-        resultsCount: formattedResults.length,
-        sampleIndex: formattedResults[0]?.index,
-        contextHasResults: context.webSearchResults.length > 0,
-      })
-    } else {
-      console.error('[mastra/agent] WARNING: Context not available when saving web search results!', {
-        resultsCount: formattedResults.length,
-      })
-    }
+    // Salva i risultati nel cache a livello modulo
+    toolResultsCache.webSearchResults = formattedResults
+    
+    console.log('[mastra/agent] Web search results saved to cache:', {
+      resultsCount: formattedResults.length,
+      sampleIndex: formattedResults[0]?.index,
+    })
 
     const toolOutput = {
       results: formattedResults,
@@ -170,24 +218,9 @@ async function webSearchTool({ query }: { query: string }) {
       citationFormat: 'IMPORTANTE: Cita questi risultati usando il formato [web:N] dove N è l\'indice numerico (1, 2, 3, ecc.). Esempio: [web:1] per il primo risultato, [web:2] per il secondo, ecc. NON usare il contextKey o altri identificatori.',
     }
 
-    // TODO: Re-implement span finalization
-    // finalizeSpan(toolSpanId, {
-    //   resultsCount: formattedResults.length,
-    //   query: results.query,
-    // }, {
-    //   toolName: 'web_search',
-    // })
-
     return toolOutput
   } catch (error) {
     console.error('[mastra/agent] Web search failed:', error)
-    
-    // TODO: Re-implement span finalization
-    // finalizeSpan(toolSpanId, undefined, {
-    //   toolName: 'web_search',
-    //   error: error instanceof Error ? error.message : 'Unknown error',
-    // })
-    
     throw new Error(`Web search failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
@@ -458,12 +491,9 @@ async function metaQueryTool({ query }: { query: string }) {
             }
           })
           
-          // Save to context for citations
-          const context = getAgentContext()
-          if (context) {
-            context.metaQueryDocuments = documentsDetailed
-            context.metaQueryChunks = documentChunks
-          }
+          // Save to cache for citations
+          toolResultsCache.metaQueryDocuments = documentsDetailed
+          toolResultsCache.metaQueryChunks = documentChunks
           
           console.log('[mastra/agent] Thematic meta query completed:', {
             documentsFound: documentsDetailed.length,
@@ -641,16 +671,11 @@ async function metaQueryTool({ query }: { query: string }) {
           }
         })
         
-        // Salva i documenti E i chunks nel contesto locale (senza race conditions)
-        const context = getAgentContext()
+        // Salva i documenti E i chunks nel cache
+        toolResultsCache.metaQueryDocuments = documentsDetailed
+        toolResultsCache.metaQueryChunks = documentChunks
         
-        if (context) {
-          context.metaQueryDocuments = documentsDetailed
-          // CRITICAL: Salva anche i chunks per passarli come contesto RAG
-          context.metaQueryChunks = documentChunks
-        }
-        
-        console.log('[mastra/agent] Meta query documents saved to context:', {
+        console.log('[mastra/agent] Meta query documents saved to cache:', {
           documentsCount: documentsDetailed.length,
           chunksCount: documentChunks.length,
         })
@@ -698,61 +723,6 @@ async function metaQueryTool({ query }: { query: string }) {
     // })
     
     throw new Error(`Meta query failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
-  }
-}
-
-/**
- * Recupera i risultati della ricerca web dal contesto corrente
- * @returns Array di risultati della ricerca web
- */
-export function getWebSearchResults(): any[] {
-  const context = getAgentContext()
-  return context?.webSearchResults || []
-}
-
-/**
- * Pulisce i risultati della ricerca web dal contesto corrente
- */
-export function clearWebSearchResults(): void {
-  const context = getAgentContext()
-  if (context) {
-    context.webSearchResults = []
-  }
-}
-
-/**
- * Recupera i documenti dalle query meta dal contesto corrente
- * @returns Array di documenti con id, filename e index
- */
-export function getMetaQueryDocuments(): Array<{
-  id: string
-  filename: string
-  index: number
-  folder?: string | null
-  chunkCount?: number
-  chunkPreviews?: Array<{ chunkIndex: number; content: string }>
-  contentPreview?: string
-}> {
-  const context = getAgentContext()
-  return context?.metaQueryDocuments || []
-}
-
-/**
- * Recupera i chunks dei documenti dalle query meta dal contesto corrente
- * @returns Array di SearchResult con i chunks dei documenti meta query
- */
-export function getMetaQueryChunks(): SearchResult[] {
-  const context = getAgentContext()
-  return context?.metaQueryChunks || []
-}
-
-/**
- * Pulisce i documenti dalle query meta dal contesto corrente
- */
-export function clearMetaQueryDocuments(): void {
-  const context = getAgentContext()
-  if (context) {
-    context.metaQueryDocuments = []
   }
 }
 

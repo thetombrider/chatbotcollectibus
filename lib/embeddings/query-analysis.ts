@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import { findUnifiedCache, saveUnifiedCache } from '@/lib/supabase/unified-query-cache'
+import { findUnifiedCache } from '@/lib/supabase/unified-query-cache'
 import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
 // TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
 // import { logLLMCall } from '@/lib/observability/langfuse'

@@ -78,14 +78,15 @@ export async function findUnifiedCache(
       .from('unified_query_cache')
       .update({ hit_count: data.hit_count + 1 })
       .eq('id', data.id)
-      .then(() => {
-        console.log('[unified-cache] Cache hit:', { 
-          queryHash: queryHash.substring(0, 12),
-          hitCount: data.hit_count + 1 
-        })
-      })
-      .catch((err: Error) => {
-        console.warn('[unified-cache] Failed to update hit count:', err)
+      .then((result) => {
+        if (result.error) {
+          console.warn('[unified-cache] Failed to update hit count:', result.error)
+        } else {
+          console.log('[unified-cache] Cache hit:', { 
+            queryHash: queryHash.substring(0, 12),
+            hitCount: data.hit_count + 1 
+          })
+        }
       })
     
     return data as UnifiedQueryCache

@@ -7,8 +7,8 @@ Fase 1 (Week 1)
  ✅ Step 1.1.4: Refactor query-enhancement.ts to use unified cache (commit: ae0b136)
  ✅ Step 1.1.5: Drop old cache tables migration (commit: a328474)
  ✅ Step 1.1.6: Integration tests for unified cache (commit: 99a8f73)
- 🔄 Step 1.2.1: Remove AsyncLocalStorage from agent.ts (IN PROGRESS - commit: 79ecf65)
- ⏳ Step 1.2.2: Update response-handler to extract tool results
+ ✅ Step 1.2.1: Remove AsyncLocalStorage from agent.ts (commit: 79ecf65)
+ ✅ Step 1.2.2: Remove AsyncLocalStorage completely - replaced with module-level cache
  ⏳ Step 1.2.3: E2E tests for web search flow
  ⏳ Step 1.3.1: Remove vectorSearchTool and semanticCacheTool
  ⏳ Step 1.3.2: Regression tests
@@ -38,3 +38,9 @@ Fase 4 (Week 3-4)
  Step 4.3: Create tests/integration/ directory
  Step 4.3: Write integration test suite
  Step 4.3: Setup test environment
+
+
+
+Applicare le migrations a Supabase per testare unified cache in azione
+Completare refactoring agent.ts in una sessione dedicata
+Oppure procedere con Fase 2 (Decision Logic) che è indipendente

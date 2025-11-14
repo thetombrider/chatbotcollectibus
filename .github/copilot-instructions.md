@@ -46,15 +46,20 @@ if (decision.mode === 'async') {
 }
 ```
 
-### Mastra Agent Context
-Uses AsyncLocalStorage to pass traceId and search results without race conditions:
+### Mastra Agent Tool Results
+Tool results are stored in a module-level cache (no race conditions):
 ```typescript
-export async function runWithAgentContext<T>(
-  context: AgentContext,
-  fn: () => Promise<T>
-): Promise<T> {
-  return agentContextStore.run(context, fn)
-}
+import { clearToolResults, getWebSearchResults, getMetaQueryDocuments } from '@/lib/mastra/agent'
+
+// Clear cache before agent execution
+clearToolResults()
+
+// Execute agent
+await agent.stream(messages)
+
+// Retrieve results after execution
+const webResults = getWebSearchResults()
+const metaDocs = getMetaQueryDocuments()
 ```
 
 ## Development Workflows

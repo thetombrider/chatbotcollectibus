@@ -87,9 +87,20 @@ export function isCacheEnabled(cacheType: 'conversation' | 'query-analysis' | 'e
   
   // Check cache control flags directly from env vars (independent of other validations)
   try {
+    let result: boolean
+    let envValue: string | undefined
+    
     switch (cacheType) {
       case 'conversation':
-        return process.env.DISABLE_CONVERSATION_CACHE !== 'true'
+        envValue = process.env.DISABLE_CONVERSATION_CACHE
+        result = envValue !== 'true'
+        console.log('[env] isCacheEnabled check:', { 
+          cacheType, 
+          envValue, 
+          result,
+          allEnvKeys: Object.keys(process.env).filter(k => k.includes('CACHE')).length
+        })
+        return result
       case 'query-analysis':
         return process.env.DISABLE_QUERY_ANALYSIS_CACHE !== 'true'
       case 'enhancement':

@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateEmbedding } from '@/lib/embeddings/openai'
 import { analyzeQuery } from '@/lib/embeddings/query-analysis'
 import { enhanceQueryIfNeeded } from '@/lib/embeddings/query-enhancement'
-import { clearWebSearchResults } from '@/lib/mastra/agent'
+import { clearToolResults } from '@/lib/mastra/agent'
 import { createStream, StreamController } from './handlers/stream-handler'
 import { lookupCache, saveCache } from './handlers/cache-handler'
 import { performSearch } from './handlers/search-handler'
@@ -325,8 +325,8 @@ async function handleChatRequest(
   // STEP 13: Salva in cache
   await saveCache(queryToEmbed, queryEmbedding, processed.content, processed.sources)
 
-  // Pulisci context globale (temporaneo)
-  clearWebSearchResults()
+  // Pulisci cache tool results per la prossima request
+  clearToolResults()
 
   // Finalize Langfuse trace con la risposta completa
   if (traceContext) {

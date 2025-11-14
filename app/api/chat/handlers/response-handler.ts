@@ -4,9 +4,13 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { getRagAgentForModel } from '@/lib/mastra/agent'
-// TODO: runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults
-// will be removed in Step 1.2.2 (complete AsyncLocalStorage refactoring)
+import { 
+  getRagAgentForModel,
+  clearToolResults,
+  getWebSearchResults,
+  getMetaQueryDocuments,
+  getMetaQueryChunks
+} from '@/lib/mastra/agent'
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'
@@ -203,108 +207,100 @@ export async function generateResponse(
     isMetaQuery,
   })
 
-  // Esegui l'agent con il contesto per passare traceContext e risultati
-  await runWithAgentContext(
-    {
-      traceId: context.traceContext?.traceId || null,
-      webSearchResults: [],
-      metaQueryDocuments: context.metaQueryDocuments || [],
-      metaQueryChunks: context.metaQueryChunks || [],
-    },
-    async () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await selectedAgent.stream(messages as any, streamOptions as any)
+  // Clear previous tool results before starting new agent execution
+  clearToolResults()
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
+  // Execute agent stream directly (no AsyncLocalStorage wrapper needed)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await selectedAgent.stream(messages as any, streamOptions as any)
 
-        if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
-          let firstChunk = true
-          for await (const chunk of streamSource) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
-            if (content) {
-              if (firstChunk) {
-                try {
-                  streamController.hideStatus()
-                } catch (error) {
-                  // Controller potrebbe essere chiuso, continua comunque
-                  console.warn('[response-handler] Failed to hide status:', error)
-                }
-                firstChunk = false
-              }
-              
-              fullResponse += content
-              try {
-                streamController.sendText(content)
-              } catch (error) {
-                // Controller potrebbe essere chiuso, continua comunque
-                console.warn('[response-handler] Failed to send text chunk:', error)
-              }
-            }
-          }
-        } else {
-          throw new Error('No valid stream source found')
-        }
-      } catch (streamError) {
-        console.error('[response-handler] Stream failed, trying generate():', streamError)
-        
-        // Fallback a generate() se stream() non funziona
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const generated = await selectedAgent.generate(messages as any)
-          
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
-          fullResponse = generatedText
-          
-          if (fullResponse) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const streamSource = (result as any).textStream || (result as any).stream || ((result as any)[Symbol.asyncIterator] ? result : null)
+
+    if (streamSource && typeof streamSource[Symbol.asyncIterator] === 'function') {
+      let firstChunk = true
+      for await (const chunk of streamSource) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const content = typeof chunk === 'string' ? chunk : (chunk as any)?.text || (chunk as any)?.content || ''
+        if (content) {
+          if (firstChunk) {
             try {
               streamController.hideStatus()
-              
-              // Stream la risposta completa in chunks per simulare lo streaming
-              const words = fullResponse.split(/\s+/)
-              for (const word of words) {
-                const chunk = word + ' '
-                try {
-                  streamController.sendText(chunk)
-                } catch (error) {
-                  // Controller chiuso, interrompi lo streaming
-                  console.warn('[response-handler] Stream controller closed during fallback streaming')
-                  break
-                }
-                await new Promise(resolve => setTimeout(resolve, 10))
-              }
             } catch (error) {
-              // Controller chiuso, continua comunque per salvare la risposta
-              console.warn('[response-handler] Stream controller closed during fallback:', error)
+              // Controller potrebbe essere chiuso, continua comunque
+              console.warn('[response-handler] Failed to hide status:', error)
             }
+            firstChunk = false
           }
-        } catch (generateError) {
-          console.error('[response-handler] Generate fallback also failed:', generateError)
-          // Continua comunque per recuperare i risultati dal context
+          
+          fullResponse += content
+          try {
+            streamController.sendText(content)
+          } catch (error) {
+            // Controller potrebbe essere chiuso, continua comunque
+            console.warn('[response-handler] Failed to send text chunk:', error)
+          }
         }
       }
-      
-      // IMPORTANTE: Recupera i documenti E chunks dal context PRIMA di uscire da runWithAgentContext
-      // Se non lo facciamo qui, il context dell'AsyncLocalStorage viene perso
-      capturedMetaDocuments = getMetaQueryDocuments()
-      capturedMetaChunks = getMetaQueryChunks()
-      capturedWebResults = getWebSearchResults()
-      
-      console.log('[response-handler] Captured from agent context:', {
-        metaDocumentsCount: capturedMetaDocuments.length,
-        metaChunksCount: capturedMetaChunks.length,
-        webResultsCount: capturedWebResults.length,
-        webResultsSample: capturedWebResults.slice(0, 2).map(r => ({
-          index: (r as { index?: number }).index,
-          hasTitle: !!(r as { title?: string }).title,
-          hasUrl: !!(r as { url?: string }).url,
-        })),
-      })
+    } else {
+      throw new Error('No valid stream source found')
     }
-  )
+  } catch (streamError) {
+    console.error('[response-handler] Stream failed, trying generate():', streamError)
+    
+    // Fallback a generate() se stream() non funziona
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const generated = await selectedAgent.generate(messages as any)
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const generatedText = (generated as any).text || (generated as any).content || String(generated) || ''
+      fullResponse = generatedText
+      
+      if (fullResponse) {
+        try {
+          streamController.hideStatus()
+          
+          // Stream la risposta completa in chunks per simulare lo streaming
+          const words = fullResponse.split(/\s+/)
+          for (const word of words) {
+            const chunk = word + ' '
+            try {
+              streamController.sendText(chunk)
+            } catch (error) {
+              // Controller chiuso, interrompi lo streaming
+              console.warn('[response-handler] Stream controller closed during fallback streaming')
+              break
+            }
+            await new Promise(resolve => setTimeout(resolve, 10))
+          }
+        } catch (error) {
+          // Controller chiuso, continua comunque per salvare la risposta
+          console.warn('[response-handler] Stream controller closed during fallback:', error)
+        }
+      }
+    } catch (generateError) {
+      console.error('[response-handler] Generate fallback also failed:', generateError)
+      // Continua comunque per recuperare i risultati dal cache
+    }
+  }
+  
+  // Recupera i documenti E chunks dal cache dopo l'esecuzione dell'agent
+  capturedMetaDocuments = getMetaQueryDocuments()
+  capturedMetaChunks = getMetaQueryChunks()
+  capturedWebResults = getWebSearchResults()
+  
+  console.log('[response-handler] Captured from agent cache:', {
+    metaDocumentsCount: capturedMetaDocuments.length,
+    metaChunksCount: capturedMetaChunks.length,
+    webResultsCount: capturedWebResults.length,
+    webResultsSample: capturedWebResults.slice(0, 2).map(r => ({
+      index: (r as { index?: number }).index,
+      hasTitle: !!(r as { title?: string }).title,
+      hasUrl: !!(r as { url?: string }).url,
+    })),
+  })
 
   // Log main LLM call to Langfuse (after streaming completes)
   // NOTA: Mastra agent non espone token usage direttamente, quindi loghiamo senza usage
