@@ -193,6 +193,69 @@ async function webSearchTool({ query }: { query: string }) {
 }
 
 // Tool per query meta sul database
+/**
+ * Determines if a meta query is thematic (searches by content) vs structural (searches by DB metadata)
+ * 
+ * Thematic queries look for documents based on their semantic content:
+ * - "documenti su salute e sicurezza"
+ * - "norme che trattano di GDPR"
+ * - "file che parlano di sostenibilità"
+ * 
+ * Structural queries ask about database structure/metadata:
+ * - "quanti documenti ci sono"
+ * - "quali cartelle esistono"
+ * - "documenti nella cartella X" (structural: filters by folder name)
+ * - "tipi di file presenti"
+ */
+function isThematicMetaQuery(query: string): boolean {
+  const queryLower = query.toLowerCase()
+  
+  // Structural indicators (ask about DB structure, not content)
+  // These take PRIORITY - if query asks for count/stats/folders, it's structural even with thematic terms
+  const strongStructuralPatterns = [
+    /\b(quanti|how many|numero di|count)\b/i,
+    /\b(quali cartelle|which folders|folder names|cartelle presenti)\b/i,
+    /\b(tipi di file|file types|formati|formats)\b/i,
+    /\b(statistiche|statistics|stats)\b/i,
+  ]
+  
+  // Check if query has strong structural indicators
+  for (const pattern of strongStructuralPatterns) {
+    if (pattern.test(query)) {
+      console.log('[mastra/agent] Strong structural indicator found, treating as structural query')
+      return false // Structural takes priority
+    }
+  }
+  
+  // Thematic indicators (search by content/topic)
+  const thematicPatterns = [
+    /\b(tratta(no)?|parla(no)?|riguarda(no)?|su|about|on|concerning|regarding)\s+(di\s+)?[a-zàèéìòù\s]+/i,
+    /\b(che tratta(no)?|che parla(no)?|che riguarda(no)?|related to|about)\b/i,
+    /\b(tema|topic|argomento|subject|materia)\b/i,
+    /\b(in materia di|on the topic of|regarding)\b/i,
+  ]
+  
+  // If query has thematic indicators, it's thematic
+  for (const pattern of thematicPatterns) {
+    if (pattern.test(query)) {
+      console.log('[mastra/agent] Detected thematic meta query:', query.substring(0, 80))
+      return true
+    }
+  }
+  
+  // Special case: "documenti nella cartella X" is structural (filters by folder)
+  // But "documenti su X" is thematic (filters by content)
+  if (queryLower.includes('nella cartella') || queryLower.includes('in folder') || queryLower.includes('nella ')) {
+    return false
+  }
+  
+  // Default: if asking for "documenti"/"norme" without structural filters, check for topics
+  // If query has specific domain terms (not folder/file names), it's likely thematic
+  const hasDomainTerms = /\b(gdpr|espr|sostenibilità|ambiente|salute|sicurezza|privacy|compliance|esg|gri|csrd)\b/i.test(query)
+  
+  return hasDomainTerms
+}
+
 async function metaQueryTool({ query }: { query: string }) {
   if (!query || query.trim().length === 0) {
     throw new Error('Query cannot be empty')
@@ -295,185 +358,314 @@ async function metaQueryTool({ query }: { query: string }) {
     
     if ((metaType === 'list' || queryLower.includes('elenca') || queryLower.includes('lista') || queryLower.includes('list') || queryLower.includes('quali') || queryLower.includes('che norme') || queryLower.includes('che documenti')) && !toolOutput) {
       // List documents query
-      // Try to extract filters from query
-      let folder: string | null | undefined
-      let fileType: string | undefined
-      let limit = 50
       
-      // IMPROVED: Extract folder filter with better patterns
-      let folderQuery: string | null = null
+      // CRITICAL: Check if this is a THEMATIC query (searches by content) vs STRUCTURAL query (searches by metadata)
+      const isThematic = isThematicMetaQuery(query)
       
-      // Pattern 1: "cartella X" or "folder X"
-      const folderPattern1 = query.match(/(?:cartella|folder)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
-      if (folderPattern1) {
-        folderQuery = normalizeFolderQuery(folderPattern1[1])
-      }
-      
-      // Pattern 2: "nella X" or "nella cartella X" (more flexible)
-      if (!folderQuery) {
-        const folderPattern2 = query.match(/(?:nella|nella cartella|nel|nel folder|in|in the|in folder|in cartella)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
-        if (folderPattern2) {
-          folderQuery = normalizeFolderQuery(folderPattern2[1])
-        }
-      }
-      
-      // Pattern 3: "contenuti nella X" or "che sono in X"
-      if (!folderQuery) {
-        const folderPattern3 = query.match(/(?:contenuti|che sono|presenti|salvati)\s+(?:nella|nel|in)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
-        if (folderPattern3) {
-          folderQuery = normalizeFolderQuery(folderPattern3[1])
-        }
-      }
-      
-      console.log('[mastra/agent] Extracted folder query:', folderQuery)
-      
-      let folderNeedsInference = false
-
-      // If we found a folder query, use fuzzy matching to find the best match
-      if (folderQuery) {
-        const matchedFolder = await findBestMatchingFolder(folderQuery, 0.6)
-        if (matchedFolder) {
-          folder = matchedFolder
-          console.log('[mastra/agent] Using matched folder:', folder)
+      if (isThematic) {
+        console.log('[mastra/agent] Detected THEMATIC meta query - using vector search')
+        
+        // Use vector search to find documents by semantic content
+        const { generateEmbedding } = await import('@/lib/embeddings/openai')
+        const { hybridSearch } = await import('@/lib/supabase/vector-operations')
+        const { getChunksByDocumentIds } = await import('@/lib/supabase/vector-operations')
+        
+        // Generate embedding for the query
+        const queryEmbedding = await generateEmbedding(query)
+        
+        // Perform vector search to find relevant chunks
+        const searchResults = await hybridSearch(
+          queryEmbedding,
+          query,
+          0.30, // Lower threshold to get more results for listing
+          50 // Get more results to extract unique documents
+        )
+        
+        console.log('[mastra/agent] Vector search found chunks:', searchResults.length)
+        
+        // Extract unique document IDs from search results
+        const uniqueDocIds = [...new Set(searchResults.map(chunk => chunk.document_id))]
+        
+        console.log('[mastra/agent] Unique documents found:', uniqueDocIds.length)
+        
+        if (uniqueDocIds.length === 0) {
+          toolOutput = {
+            isMeta: true,
+            metaType: 'list',
+            data: {
+              documents: [],
+              count: 0,
+              message: 'Nessun documento trovato con questo tema.',
+              isThematic: true,
+            },
+          }
         } else {
-          folderNeedsInference = true
-          // No good match found, try using the raw query as-is (might be exact)
-          folder = folderQuery
-          console.log('[mastra/agent] No fuzzy match found, using raw folder query:', folder)
+          // Fetch metadata for these documents
+          const { supabaseAdmin } = await import('@/lib/supabase/admin')
+          const { data: documentsData, error: docsError } = await supabaseAdmin
+            .from('documents')
+            .select('id, filename, file_type, folder, file_size, processing_status, chunks_count, created_at, updated_at')
+            .in('id', uniqueDocIds)
+          
+          if (docsError) {
+            console.error('[mastra/agent] Failed to fetch document metadata:', docsError)
+            throw new Error(`Failed to fetch documents: ${docsError.message}`)
+          }
+          
+          // Get chunks for these documents (for content preview)
+          const chunksPerDocument = 5
+          const documentChunks = await getChunksByDocumentIds(uniqueDocIds, chunksPerDocument)
+          
+          // Organize chunks by document
+          const chunksByDocument = new Map<string, SearchResult[]>()
+          documentChunks.forEach((chunk) => {
+            const current = chunksByDocument.get(chunk.document_id) || []
+            current.push(chunk)
+            chunksByDocument.set(chunk.document_id, current)
+          })
+          
+          // Build detailed document info with previews
+          const documentsDetailed = (documentsData || []).map((doc, idx) => {
+            const docChunks = (chunksByDocument.get(doc.id) || [])
+              .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
+              .slice(0, chunksPerDocument)
+
+            const chunkPreviews = docChunks.map((chunk) => ({
+              chunkIndex: chunk.chunk_index ?? 0,
+              content: truncateText(chunk.content, CHUNK_PREVIEW_MAX_LENGTH),
+            }))
+
+            const combinedPreview = chunkPreviews.length > 0
+              ? chunkPreviews
+                  .map((preview) => `[#${preview.chunkIndex}] ${preview.content}`)
+                  .join('\n\n')
+              : ''
+
+            return {
+              id: doc.id,
+              filename: doc.filename,
+              folder: doc.folder || null,
+              index: idx + 1,
+              chunkCount: doc.chunks_count ?? docChunks.length,
+              chunkPreviews,
+              contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
+              fileType: doc.file_type,
+              createdAt: doc.created_at,
+              updatedAt: doc.updated_at,
+              processingStatus: doc.processing_status,
+            }
+          })
+          
+          // Save to context for citations
+          const context = getAgentContext()
+          if (context) {
+            context.metaQueryDocuments = documentsDetailed
+            context.metaQueryChunks = documentChunks
+          }
+          
+          console.log('[mastra/agent] Thematic meta query completed:', {
+            documentsFound: documentsDetailed.length,
+            chunksCount: documentChunks.length,
+          })
+          
+          toolOutput = {
+            isMeta: true,
+            metaType: 'list',
+            data: {
+              documents: documentsDetailed,
+              count: documentsDetailed.length,
+              isThematic: true,
+              filters: {
+                searchMethod: 'vector-search',
+                query: query.substring(0, 100),
+              },
+            },
+          }
         }
       } else {
-        folderNeedsInference = true
-      }
-      
-      if (folder && folder.trim().length > 0 && folder.trim().length <= 2) {
-        folderNeedsInference = true
-        console.log('[mastra/agent] Folder candidate too short, triggering LLM inference', { folder })
-      }
+        // STRUCTURAL meta query - use traditional metadata filtering
+        console.log('[mastra/agent] Detected STRUCTURAL meta query - using metadata filters')
+        
+        // Try to extract filters from query
+        let folder: string | null | undefined
+        let fileType: string | undefined
+        let limit = 50
+        
+        // IMPROVED: Extract folder filter with better patterns
+        let folderQuery: string | null = null
+        
+        // Pattern 1: "cartella X" or "folder X"
+        const folderPattern1 = query.match(/(?:cartella|folder)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+        if (folderPattern1) {
+          folderQuery = normalizeFolderQuery(folderPattern1[1])
+        }
+        
+        // Pattern 2: "nella X" or "nella cartella X" (more flexible)
+        if (!folderQuery) {
+          const folderPattern2 = query.match(/(?:nella|nella cartella|nel|nel folder|in|in the|in folder|in cartella)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+          if (folderPattern2) {
+            folderQuery = normalizeFolderQuery(folderPattern2[1])
+          }
+        }
+        
+        // Pattern 3: "contenuti nella X" or "che sono in X"
+        if (!folderQuery) {
+          const folderPattern3 = query.match(/(?:contenuti|che sono|presenti|salvati)\s+(?:nella|nel|in)\s+["']?([^"'.!?]+?)["']?(?:\s|$|,|\.|!|\?)/i)
+          if (folderPattern3) {
+            folderQuery = normalizeFolderQuery(folderPattern3[1])
+          }
+        }
+        
+        console.log('[mastra/agent] Extracted folder query:', folderQuery)
+        
+        let folderNeedsInference = false
 
-      if (folderNeedsInference) {
-        const folderMetaList = await listFoldersMeta()
-        const folderNames = folderMetaList.map((meta) => meta.name)
-        console.log('[mastra/agent] Running LLM folder inference', {
-          querySnippet: query.slice(0, 80),
-          availableFolders: folderNames.length,
-          foldersSample: folderNames.slice(0, 10),
+        // If we found a folder query, use fuzzy matching to find the best match
+        if (folderQuery) {
+          const matchedFolder = await findBestMatchingFolder(folderQuery, 0.6)
+          if (matchedFolder) {
+            folder = matchedFolder
+            console.log('[mastra/agent] Using matched folder:', folder)
+          } else {
+            folderNeedsInference = true
+            // No good match found, try using the raw query as-is (might be exact)
+            folder = folderQuery
+            console.log('[mastra/agent] No fuzzy match found, using raw folder query:', folder)
+          }
+        } else {
+          folderNeedsInference = true
+        }
+        
+        if (folder && folder.trim().length > 0 && folder.trim().length <= 2) {
+          folderNeedsInference = true
+          console.log('[mastra/agent] Folder candidate too short, triggering LLM inference', { folder })
+        }
+
+        if (folderNeedsInference) {
+          const folderMetaList = await listFoldersMeta()
+          const folderNames = folderMetaList.map((meta) => meta.name)
+          console.log('[mastra/agent] Running LLM folder inference', {
+            querySnippet: query.slice(0, 80),
+            availableFolders: folderNames.length,
+            foldersSample: folderNames.slice(0, 10),
+          })
+
+          const inference = await inferMetaQueryFolder(query, folderNames)
+
+          if (inference.folder) {
+            folder = inference.folder
+            console.log('[mastra/agent] LLM inferred folder:', {
+              folder,
+              confidence: inference.confidence.toFixed(2),
+              reasoning: inference.reasoning,
+              raw: inference.rawFolder,
+            })
+          } else {
+            console.log('[mastra/agent] LLM folder inference returned no match', {
+              reasoning: inference.reasoning,
+              raw: inference.rawFolder,
+            })
+            folder = undefined
+          }
+        }
+        
+        // Extract file type filter
+        const typeMatch = query.match(/(?:tipo|type|formato|format)\s+["']?([^"']+)["']?/i)
+        if (typeMatch) {
+          fileType = typeMatch[1]
+        }
+        
+        // Extract limit
+        const limitMatch = query.match(/(?:primi|first|top|limite|limit)\s+(\d+)/i)
+        if (limitMatch) {
+          limit = parseInt(limitMatch[1], 10)
+        }
+        
+        const documents = await listDocumentsMeta({
+          folder,
+          file_type: fileType,
+          limit,
+        })
+        
+        // IMPORTANT: Recupera i chunks dei documenti trovati
+        // Questo permette all'LLM di avere il CONTENUTO effettivo, non solo i nomi
+        const { getChunksByDocumentIds } = await import('@/lib/supabase/vector-operations')
+        const documentIds = documents.map(doc => doc.id)
+        const chunksPerDocument = 5 // Primi 5 chunks per documento per avere overview
+        const documentChunks = await getChunksByDocumentIds(documentIds, chunksPerDocument)
+        
+        console.log('[mastra/agent] Retrieved chunks for meta query documents:', {
+          documentsCount: documents.length,
+          chunksCount: documentChunks.length,
+          avgChunksPerDoc: documents.length > 0 ? (documentChunks.length / documents.length).toFixed(1) : '0.0',
         })
 
-        const inference = await inferMetaQueryFolder(query, folderNames)
+        // Organizza i chunks per documento
+        const chunksByDocument = new Map<string, SearchResult[]>()
+        documentChunks.forEach((chunk) => {
+          const current = chunksByDocument.get(chunk.document_id) || []
+          current.push(chunk)
+          chunksByDocument.set(chunk.document_id, current)
+        })
 
-        if (inference.folder) {
-          folder = inference.folder
-          console.log('[mastra/agent] LLM inferred folder:', {
-            folder,
-            confidence: inference.confidence.toFixed(2),
-            reasoning: inference.reasoning,
-            raw: inference.rawFolder,
-          })
-        } else {
-          console.log('[mastra/agent] LLM folder inference returned no match', {
-            reasoning: inference.reasoning,
-            raw: inference.rawFolder,
-          })
-          folder = undefined
+        const documentsDetailed = documents.map((doc, idx) => {
+          const docChunks = (chunksByDocument.get(doc.id) || [])
+            .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
+            .slice(0, chunksPerDocument)
+
+          const chunkPreviews = docChunks.map((chunk) => ({
+            chunkIndex: chunk.chunk_index ?? 0,
+            content: truncateText(chunk.content, CHUNK_PREVIEW_MAX_LENGTH),
+          }))
+
+          const combinedPreview = chunkPreviews.length > 0
+            ? chunkPreviews
+                .map((preview) => `[#${preview.chunkIndex}] ${preview.content}`)
+                .join('\n\n')
+            : ''
+
+          return {
+            id: doc.id,
+            filename: doc.filename,
+            folder: doc.folder || null,
+            index: idx + 1, // Indici partono da 1 per le citazioni
+            chunkCount: doc.chunks_count ?? docChunks.length,
+            chunkPreviews,
+            contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
+            fileType: doc.file_type,
+            createdAt: doc.created_at,
+            updatedAt: doc.updated_at,
+            processingStatus: doc.processing_status,
+          }
+        })
+        
+        // Salva i documenti E i chunks nel contesto locale (senza race conditions)
+        const context = getAgentContext()
+        
+        if (context) {
+          context.metaQueryDocuments = documentsDetailed
+          // CRITICAL: Salva anche i chunks per passarli come contesto RAG
+          context.metaQueryChunks = documentChunks
         }
-      }
-      
-      // Extract file type filter
-      const typeMatch = query.match(/(?:tipo|type|formato|format)\s+["']?([^"']+)["']?/i)
-      if (typeMatch) {
-        fileType = typeMatch[1]
-      }
-      
-      // Extract limit
-      const limitMatch = query.match(/(?:primi|first|top|limite|limit)\s+(\d+)/i)
-      if (limitMatch) {
-        limit = parseInt(limitMatch[1], 10)
-      }
-      
-      const documents = await listDocumentsMeta({
-        folder,
-        file_type: fileType,
-        limit,
-      })
-      
-      // IMPORTANT: Recupera i chunks dei documenti trovati
-      // Questo permette all'LLM di avere il CONTENUTO effettivo, non solo i nomi
-      const { getChunksByDocumentIds } = await import('@/lib/supabase/vector-operations')
-      const documentIds = documents.map(doc => doc.id)
-      const chunksPerDocument = 5 // Primi 5 chunks per documento per avere overview
-      const documentChunks = await getChunksByDocumentIds(documentIds, chunksPerDocument)
-      
-      console.log('[mastra/agent] Retrieved chunks for meta query documents:', {
-        documentsCount: documents.length,
-        chunksCount: documentChunks.length,
-        avgChunksPerDoc: documents.length > 0 ? (documentChunks.length / documents.length).toFixed(1) : '0.0',
-      })
-
-      // Organizza i chunks per documento
-      const chunksByDocument = new Map<string, SearchResult[]>()
-      documentChunks.forEach((chunk) => {
-        const current = chunksByDocument.get(chunk.document_id) || []
-        current.push(chunk)
-        chunksByDocument.set(chunk.document_id, current)
-      })
-
-      const documentsDetailed = documents.map((doc, idx) => {
-        const docChunks = (chunksByDocument.get(doc.id) || [])
-          .sort((a, b) => (a.chunk_index ?? 0) - (b.chunk_index ?? 0))
-          .slice(0, chunksPerDocument)
-
-        const chunkPreviews = docChunks.map((chunk) => ({
-          chunkIndex: chunk.chunk_index ?? 0,
-          content: truncateText(chunk.content, CHUNK_PREVIEW_MAX_LENGTH),
-        }))
-
-        const combinedPreview = chunkPreviews.length > 0
-          ? chunkPreviews
-              .map((preview) => `[#${preview.chunkIndex}] ${preview.content}`)
-              .join('\n\n')
-          : ''
-
-        return {
-          id: doc.id,
-          filename: doc.filename,
-          folder: doc.folder || null,
-          index: idx + 1, // Indici partono da 1 per le citazioni
-          chunkCount: doc.chunks_count ?? docChunks.length,
-          chunkPreviews,
-          contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
-          fileType: doc.file_type,
-          createdAt: doc.created_at,
-          updatedAt: doc.updated_at,
-          processingStatus: doc.processing_status,
-        }
-      })
-      
-      // Salva i documenti E i chunks nel contesto locale (senza race conditions)
-      const context = getAgentContext()
-      
-      if (context) {
-        context.metaQueryDocuments = documentsDetailed
-        // CRITICAL: Salva anche i chunks per passarli come contesto RAG
-        context.metaQueryChunks = documentChunks
-      }
-      
-      console.log('[mastra/agent] Meta query documents saved to context:', {
-        documentsCount: documentsDetailed.length,
-        chunksCount: documentChunks.length,
-      })
-      
-      toolOutput = {
-        isMeta: true,
-        metaType: 'list',
-        data: {
-          documents: documentsDetailed,
-          count: documents.length,
-          filters: {
-            folder,
-            file_type: fileType,
-            limit,
+        
+        console.log('[mastra/agent] Meta query documents saved to context:', {
+          documentsCount: documentsDetailed.length,
+          chunksCount: documentChunks.length,
+        })
+        
+        toolOutput = {
+          isMeta: true,
+          metaType: 'list',
+          data: {
+            documents: documentsDetailed,
+            count: documents.length,
+            filters: {
+              folder,
+              file_type: fileType,
+              limit,
+            },
           },
-        },
+        }
       }
     } else {
       // Default: return general stats

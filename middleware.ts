@@ -41,8 +41,12 @@ export async function middleware(request: NextRequest) {
     error: authError,
   } = await supabase.auth.getUser()
 
-  // Only log unexpected auth errors (not the normal "no token found" case)
-  if (authError && !authError.message.includes('Refresh Token not found')) {
+  // Only log unexpected auth errors (not the normal "no token found" or "session missing" cases)
+  if (
+    authError && 
+    !authError.message.includes('Refresh Token not found') &&
+    authError.name !== 'AuthSessionMissingError'
+  ) {
     console.error('[middleware] Unexpected auth error:', authError)
   }
 
@@ -50,6 +54,9 @@ export async function middleware(request: NextRequest) {
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
+    !request.nextUrl.pathname.startsWith('/forgot-password') &&
+    !request.nextUrl.pathname.startsWith('/reset-password') &&
+    !request.nextUrl.pathname.startsWith('/error') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     !request.nextUrl.pathname.startsWith('/api') &&
     !request.nextUrl.pathname.startsWith('/_next') &&
@@ -60,8 +67,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Redirect to chat if already logged in and trying to access login
-  if (user && request.nextUrl.pathname === '/login') {
+  // Redirect to chat if already logged in and trying to access public auth pages
+  if (user && (
+    request.nextUrl.pathname === '/login' ||
+    request.nextUrl.pathname === '/forgot-password'
+  )) {
     const url = request.nextUrl.clone()
     url.pathname = '/chat'
     return NextResponse.redirect(url)

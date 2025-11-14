@@ -174,9 +174,21 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-900 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-900">
+                  Password
+                </label>
+                {isLogin && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/forgot-password')}
+                    className="text-xs text-gray-500 hover:text-gray-900 transition-colors"
+                    disabled={loading}
+                  >
+                    Password dimenticata?
+                  </button>
+                )}
+              </div>
               <input
                 id="password"
                 name="password"

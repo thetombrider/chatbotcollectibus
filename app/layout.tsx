@@ -20,7 +20,8 @@ export default async function RootLayout({
     error,
   } = await supabase.auth.getUser()
 
-  if (error) {
+  // Only log unexpected errors (AuthSessionMissingError is normal for public pages)
+  if (error && error.name !== 'AuthSessionMissingError') {
     console.error('[layout] Failed to load Supabase user session:', error)
   }
 
