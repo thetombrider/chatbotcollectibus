@@ -7,17 +7,51 @@
 import type { SearchResult } from '@/lib/supabase/database.types'
 
 /**
+ * Deduplica i risultati per document_id, mantenendo solo il chunk con similarity più alta per ogni documento
+ * 
+ * @param searchResults - Risultati della ricerca vettoriale
+ * @returns Array di SearchResult con un solo chunk per documento (quello con similarity più alta)
+ */
+export function deduplicateByDocument(searchResults: SearchResult[]): SearchResult[] {
+  if (searchResults.length === 0) {
+    return []
+  }
+
+  // Raggruppa per document_id e mantieni solo il chunk con similarity più alta
+  const bestChunkPerDocument = new Map<string, SearchResult>()
+  
+  searchResults.forEach((result) => {
+    const existing = bestChunkPerDocument.get(result.document_id)
+    
+    // Mantieni il chunk con similarity più alta (o il primo se non c'è già uno salvato)
+    if (!existing || result.similarity > existing.similarity) {
+      bestChunkPerDocument.set(result.document_id, result)
+    }
+  })
+  
+  // Ritorna l'array dei migliori chunk, mantenendo l'ordine di similarity
+  return Array.from(bestChunkPerDocument.values())
+    .sort((a, b) => b.similarity - a.similarity)
+}
+
+/**
  * Costruisce il contesto formattato per l'LLM dai risultati di ricerca
  * 
  * @param searchResults - Risultati della ricerca vettoriale
+ * @param deduplicateDocuments - Se true, deduplica per document_id (utile per query "list")
  * @returns Contesto formattato con documenti numerati
  */
-export function buildContext(searchResults: SearchResult[]): string {
+export function buildContext(searchResults: SearchResult[], deduplicateDocuments: boolean = false): string {
   if (searchResults.length === 0) {
     return ''
   }
 
-  return searchResults
+  // Se richiesto, deduplica per documento
+  const resultsToUse = deduplicateDocuments 
+    ? deduplicateByDocument(searchResults)
+    : searchResults
+
+  return resultsToUse
     .map((r, index) => {
       const docNumber = index + 1
       const filename = r.document_filename || 'Documento sconosciuto'

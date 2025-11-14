@@ -192,11 +192,32 @@ async function handleChatRequest(
       threshold: RELEVANCE_THRESHOLD,
     })
     
-    // Costruisci contesto
-    context = buildContext(relevantResults)
+    // CRITICAL: Determina se è una query "list-like" che richiede deduplicazione documenti
+    // Query list-like: utente chiede lista/nomi di documenti (es. "che documenti parlano di X?")
+    // In questi casi, vogliamo mostrare ogni documento UNA SOLA VOLTA, anche se abbiamo più chunk
+    const isListLikeQuery = analysis.isMeta && analysis.metaType === 'list' ||
+      /\b(che|quali|quanti|elenco|lista|list|indicami|mostrami|dammi|nomi dei|titoli dei)\s+(documenti|norme|file)\b/i.test(message) ||
+      /\b(documenti|norme|file)\s+(che|su|riguard|parlano|tratta)/i.test(message)
     
-    // Crea sources KB
-    kbSources = createKBSources(relevantResults)
+    if (isListLikeQuery) {
+      console.log('[api/chat] List-like query detected - deduplicating documents:', {
+        originalChunks: relevantResults.length,
+        query: message.substring(0, 80),
+      })
+    }
+    
+    // Costruisci contesto (deduplica se è query list-like)
+    context = buildContext(relevantResults, isListLikeQuery)
+    
+    // Crea sources KB (deduplica se è query list-like)
+    kbSources = createKBSources(relevantResults, isListLikeQuery)
+    
+    if (isListLikeQuery) {
+      console.log('[api/chat] After deduplication:', {
+        uniqueDocuments: kbSources.length,
+        documentNames: kbSources.map(s => s.filename),
+      })
+    }
     
     endSpan(searchSpan, {
       totalResults: searchResults.length,

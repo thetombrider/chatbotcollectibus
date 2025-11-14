@@ -6,6 +6,7 @@
 
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { Source } from '@/lib/services/citation-service'
+import { deduplicateByDocument } from './context-builder'
 
 export interface WebSearchResult {
   index: number
@@ -30,9 +31,17 @@ export interface MetaDocument {
 
 /**
  * Converte SearchResult in Source per KB
+ * 
+ * @param searchResults - Risultati della ricerca vettoriale
+ * @param deduplicateDocuments - Se true, deduplica per document_id (utile per query "list")
  */
-export function createKBSources(searchResults: SearchResult[]): Source[] {
-  return searchResults.map((r, index) => ({
+export function createKBSources(searchResults: SearchResult[], deduplicateDocuments: boolean = false): Source[] {
+  // Se richiesto, deduplica per documento (mantiene solo il chunk con similarity più alta per documento)
+  const resultsToUse = deduplicateDocuments 
+    ? deduplicateByDocument(searchResults)
+    : searchResults
+
+  return resultsToUse.map((r, index) => ({
     index: index + 1,
     documentId: r.document_id,
     filename: r.document_filename || 'Documento sconosciuto',
