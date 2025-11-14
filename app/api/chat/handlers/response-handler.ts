@@ -4,7 +4,9 @@
  * Gestisce la costruzione e formattazione della risposta finale
  */
 
-import { getRagAgentForModel, runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults } from '@/lib/mastra/agent'
+import { getRagAgentForModel } from '@/lib/mastra/agent'
+// TODO: runWithAgentContext, getMetaQueryDocuments, getMetaQueryChunks, getWebSearchResults
+// will be removed in Step 1.2.2 (complete AsyncLocalStorage refactoring)
 import { buildSystemPrompt } from '@/lib/llm/system-prompt'
 import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'

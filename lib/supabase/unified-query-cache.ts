@@ -84,7 +84,7 @@ export async function findUnifiedCache(
           hitCount: data.hit_count + 1 
         })
       })
-      .catch((err) => {
+      .catch((err: Error) => {
         console.warn('[unified-cache] Failed to update hit count:', err)
       })
     
