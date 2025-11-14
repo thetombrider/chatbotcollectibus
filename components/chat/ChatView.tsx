@@ -11,6 +11,7 @@ import { TextLoop } from '@/components/ui/TextLoop'
 import { useToast } from '@/components/ui/Toast'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { useChat } from '@/hooks/useChat'
+import { useCredits } from '@/hooks/useCredits'
 import type { Message, SourceDetail } from '@/types/chat'
 
 interface ChatViewProps {
@@ -33,6 +34,7 @@ export function ChatView({
   const [isSourcesPanelOpen, setIsSourcesPanelOpen] = useState(false)
   const [selectedSourcesForPanel, setSelectedSourcesForPanel] = useState<SourceDetail[]>([])
   const [conversationId, setConversationId] = useState<string | null>(initialConversationId)
+  const { credits, loading: creditsLoading, refetch: refetchCredits } = useCredits()
 
   const {
     messages,
@@ -49,6 +51,7 @@ export function ChatView({
     conversationId,
     onConversationCreated: (id) => setConversationId(id),
     initialMessages,
+    onMessageComplete: refetchCredits,
   })
 
   const handleSend = useCallback(
@@ -277,6 +280,8 @@ export function ChatView({
           statusMessage={statusMessage}
           webSearchEnabled={webSearchEnabled}
           onWebSearchToggle={setWebSearchEnabled}
+          credits={credits}
+          creditsLoading={creditsLoading}
         />
       </div>
     </div>

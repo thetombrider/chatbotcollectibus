@@ -2,6 +2,12 @@
 
 import { PromptInputBox } from '@/components/chat/PromptInputBox'
 
+interface CreditsData {
+  totalCredits: number
+  totalUsage: number
+  remaining: number
+}
+
 interface ChatInputProps {
   input: string
   setInput: (value: string) => void
@@ -11,6 +17,8 @@ interface ChatInputProps {
   statusMessage?: string | null
   webSearchEnabled?: boolean
   onWebSearchToggle?: (enabled: boolean) => void
+  credits?: CreditsData | null
+  creditsLoading?: boolean
 }
 
 export function ChatInput({
@@ -22,6 +30,8 @@ export function ChatInput({
   statusMessage: _statusMessage,
   webSearchEnabled = false,
   onWebSearchToggle,
+  credits,
+  creditsLoading = false,
 }: ChatInputProps) {
   return (
     <PromptInputBox
@@ -33,6 +43,8 @@ export function ChatInput({
       placeholder="Scrivi un messaggio..."
       webSearchEnabled={webSearchEnabled}
       onWebSearchToggle={onWebSearchToggle}
+      credits={credits}
+      creditsLoading={creditsLoading}
     />
   )
 }

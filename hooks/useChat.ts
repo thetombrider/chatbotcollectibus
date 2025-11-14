@@ -6,6 +6,7 @@ interface UseChatOptions {
   onConversationCreated?: (id: string) => void
   webSearchEnabled?: boolean
   initialMessages?: Message[]
+  onMessageComplete?: () => void
 }
 
 interface UseChatReturn {
@@ -82,6 +83,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     onConversationCreated,
     webSearchEnabled: initialWebSearchEnabled = false,
     initialMessages = [],
+    onMessageComplete,
   } = options
 
   const initialStateRef = useRef<ChatState>({
@@ -96,6 +98,7 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [state, dispatch] = useReducer(chatReducer, initialStateRef.current)
   const stateRef = useRef(state)
   const onConversationCreatedRef = useRef(onConversationCreated)
+  const onMessageCompleteRef = useRef(onMessageComplete)
 
   useEffect(() => {
     stateRef.current = state
@@ -104,6 +107,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   useEffect(() => {
     onConversationCreatedRef.current = onConversationCreated
   }, [onConversationCreated])
+
+  useEffect(() => {
+    onMessageCompleteRef.current = onMessageComplete
+  }, [onMessageComplete])
 
   useEffect(() => {
     if (
@@ -316,6 +323,9 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
                 if (wasNewConversation && conversationId) {
                   window.history.replaceState(null, '', `/chat/${conversationId}`)
                 }
+                
+                // Chiamare onMessageComplete dopo che il messaggio è completato
+                onMessageCompleteRef.current?.()
                 break
               }
               case 'error':

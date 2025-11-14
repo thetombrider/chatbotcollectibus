@@ -6,7 +6,6 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { ArrowUp, Square, X, Globe } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { useCredits } from '@/hooks/useCredits'
 
 // Textarea Component
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -365,6 +364,8 @@ interface PromptInputBoxProps {
   className?: string
   webSearchEnabled?: boolean
   onWebSearchToggle?: (enabled: boolean) => void
+  credits?: { totalCredits: number; totalUsage: number; remaining: number } | null
+  creditsLoading?: boolean
 }
 
 export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxProps>(
@@ -379,6 +380,8 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
       className,
       webSearchEnabled = false,
       onWebSearchToggle,
+      credits,
+      creditsLoading = false,
     },
     ref
   ) => {
@@ -386,7 +389,6 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
     const [filePreviews, setFilePreviews] = React.useState<Record<string, string>>({})
     const [selectedImage, setSelectedImage] = React.useState<string | null>(null)
     const [showSearch, setShowSearch] = React.useState(webSearchEnabled)
-    const { credits, loading: creditsLoading, refetch: refetchCredits } = useCredits()
     const promptBoxRef = React.useRef<HTMLDivElement | null>(null)
     const [containerEl, setContainerEl] = React.useState<HTMLDivElement | null>(null)
 
@@ -498,9 +500,6 @@ export const PromptInputBox = React.forwardRef<HTMLDivElement, PromptInputBoxPro
         // Clear state after sending
         setFiles([])
         setFilePreviews({})
-        
-        // Aggiorna i crediti dopo l'invio del messaggio
-        refetchCredits()
       }
     }
 
