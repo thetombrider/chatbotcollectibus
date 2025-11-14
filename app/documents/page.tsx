@@ -51,9 +51,9 @@ export default function DocumentsPage() {
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {currentView === 'upload' && (
           <div className="flex-1 overflow-y-auto bg-white">
-            <div className="max-w-7xl mx-auto px-8 py-8">
+            <div className="px-6 py-6">
               <div className="mb-8">
-                <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+                <h1 className="text-2xl font-semibold text-gray-900 mb-2">
                   Carica Documenti
                 </h1>
                 <p className="text-gray-600">
