@@ -7,6 +7,7 @@ import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument, checkDuplicateFilename, deleteDocument, getDocumentVersions } from '@/lib/supabase/document-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { generateAndSaveSummary } from '@/lib/processing/summary-generation'
 
 export const maxDuration = 300 // 5 minuti per upload e processing
 
@@ -327,6 +328,15 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', document.id)
 
+          // Dispatch async summary generation (non-blocking)
+          generateAndSaveSummary(document.id).catch(error => {
+            console.error('[upload] Background summary generation failed:', {
+              documentId: document.id,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            })
+            // Don't fail the upload, just log the error
+          })
+
           // Invio risultato finale
           const finalResult = JSON.stringify({
             stage: 'completed',
@@ -576,6 +586,15 @@ export async function POST(req: NextRequest) {
         .eq('id', document.id)
 
       console.log(`[api/upload] Successfully processed document ${document.id}`)
+
+      // Dispatch async summary generation (non-blocking)
+      generateAndSaveSummary(document.id).catch(error => {
+        console.error('[upload] Background summary generation failed:', {
+          documentId: document.id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        })
+        // Don't fail the upload, just log the error
+      })
 
       return NextResponse.json({
         success: true,

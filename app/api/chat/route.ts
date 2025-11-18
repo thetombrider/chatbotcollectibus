@@ -20,6 +20,7 @@ import { createKBSources, combineSources } from './services/source-service'
 import { getConversationHistory } from './services/message-service'
 import { saveUserMessageAsync, saveAssistantMessageAsync } from '@/lib/async/message-operations'
 import { saveUnifiedCacheAsync } from '@/lib/async/cache-operations'
+import { searchDocumentsBySummary } from '@/lib/supabase/document-search'
 import { 
   createChatTrace, 
   createSpan,
@@ -157,14 +158,15 @@ async function handleChatRequest(
 
   // STEP 6: Vector search
   const isMetaQuery = analysis.isMeta && analysis.metaType === 'list'
+  const isExploratoryQuery = analysis.intent === 'exploratory'
   
   let searchResults: Awaited<ReturnType<typeof performSearch>> = []
   let relevantResults: Awaited<ReturnType<typeof performSearch>> = []
   let context: string | null = null
   let kbSources: ReturnType<typeof createKBSources> = []
 
-  if (!isMetaQuery) {
-    // Query normale: esegui ricerca vettoriale
+  if (!isMetaQuery && !isExploratoryQuery) {
+    // Query normale: esegui ricerca vettoriale sui chunk
     if (analysis.comparativeTerms && analysis.comparativeTerms.length >= 2) {
       streamController.sendStatus(`Analisi comparativa tra ${analysis.comparativeTerms.join(' e ')}...`)
     } else {
@@ -228,6 +230,63 @@ async function handleChatRequest(
       avgSimilarity: avgSimilarity.toFixed(3),
       threshold: RELEVANCE_THRESHOLD,
     })
+  } else if (isExploratoryQuery) {
+    // Query esplorativa: ricerca per similarity sui summary dei documenti
+    streamController.sendStatus('Ricerca documenti per argomento...')
+    
+    const exploratorySpan = traceContext ? createSpan(traceContext.trace, 'exploratory-search', { 
+      query: queryToEmbed,
+    }) : null
+    
+    try {
+      const documents = await searchDocumentsBySummary(queryToEmbed, {
+        threshold: 0.6, // Lower threshold for broader matches
+        limit: 50,
+        includeWithoutSummary: false // Solo documenti con summary generato
+      })
+      
+      console.log('[api/chat] Exploratory search results:', {
+        query: queryToEmbed,
+        documentsFound: documents.length,
+      })
+      
+      // Costruisci contesto da documenti (non da chunk)
+      // Format: filename + summary per ogni documento
+      if (documents.length > 0) {
+        context = documents.map((doc, idx) => 
+          `[Documento ${idx + 1}: ${doc.filename}]\n${doc.summary || 'Nessun riassunto disponibile'}`
+        ).join('\n\n---\n\n')
+        
+        // Crea sources da documenti (non chunk-based)
+        kbSources = documents.map(doc => ({
+          type: 'kb' as const,
+          filename: doc.filename,
+          similarity: doc.similarity,
+          content: doc.summary || '',
+          folderPath: doc.folder_path || undefined,
+          documentId: doc.id,
+          // No chunk-specific fields for document-level search
+        }))
+      }
+      
+      endSpan(exploratorySpan, {
+        documentsFound: documents.length,
+        avgSimilarity: documents.length > 0 
+          ? (documents.reduce((sum, d) => sum + d.similarity, 0) / documents.length).toFixed(3)
+          : '0.000'
+      })
+    } catch (error) {
+      console.error('[api/chat] Exploratory search failed:', error)
+      endSpan(exploratorySpan, { error: String(error) })
+      
+      // Fallback: usa ricerca normale
+      streamController.sendStatus('Ricerca documenti nella knowledge base...')
+      searchResults = await performSearch(queryToEmbed, queryEmbedding, analysis, articleNumber, traceContext)
+      const RELEVANCE_THRESHOLD = 0.35
+      relevantResults = filterRelevantResults(searchResults, RELEVANCE_THRESHOLD)
+      context = buildContext(relevantResults, false)
+      kbSources = createKBSources(relevantResults, false)
+    }
   } else {
     // Query meta: salta ricerca vettoriale
     streamController.sendStatus('Recupero documenti dal database...')

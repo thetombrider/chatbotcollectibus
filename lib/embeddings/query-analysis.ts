@@ -43,6 +43,7 @@ export type QueryIntent =
   | 'procedure'
   | 'article_lookup'
   | 'meta'
+  | 'exploratory' // NEW: Document discovery queries about topics/themes
   | 'timeline'
   | 'causes_effects'
   | 'general'
@@ -349,6 +350,7 @@ async function analyzeWithLLM(
       'procedure',
       'article_lookup',
       'meta',
+      'exploratory', // NEW: Document discovery intent
       'timeline',
       'causes_effects',
       'general',
@@ -444,6 +446,8 @@ Devi rilevare:
    - "procedure": Procedure/processi (es: "come implementare GDPR", "processo per compliance")
    - "article_lookup": Ricerca articolo specifico (es: "articolo 28 GDPR", "art. 5")
    - "meta": Query sul database stesso (es: "quanti documenti ci sono", "che norme ci sono")
+   - "exploratory": Document discovery su topic/tema (es: "documenti che parlano di sostenibilità", "cosa abbiamo su privacy", "argomenti relativi a ESG")
+     IMPORTANTE: Si cerca QUALI documenti trattano un argomento, NON i dettagli dell'argomento
    - "timeline": Scadenze/timeline (es: "quando scade GDPR", "scadenze compliance")
    - "causes_effects": Cause/effetti (es: "perché serve GDPR", "conseguenze non compliance")
    - "general": Spiegazione generale/descrizione completa (es: "spiegami X", "descrivimi X", "raccontami di X", "parlami di X")
@@ -464,6 +468,9 @@ IMPORTANTE:
 - Se la query è comparativa, intent DEVE essere "comparison"
 - Se la query è meta, intent DEVE essere "meta"
 - Se la query menziona un articolo specifico, intent DEVE essere "article_lookup" (a meno che non sia anche comparativa o meta)
+- DISTINGUI tra "exploratory" e "general":
+  * "exploratory": Ricerca QUALI documenti parlano di un topic ("documenti su X", "cosa abbiamo su Y", "temi relativi a Z")
+  * "general": Richiesta di spiegazione/informazioni su un topic ("spiegami X", "cos'è Y", "informazioni su Z")
 - DISTINGUI tra "definition" e "general":
   * "definition": SOLO per richieste di definizione breve/formale ("cos'è", "definizione di", "che cosa significa")
   * "general": per richieste di spiegazione/descrizione completa ("spiegami", "descrivimi", "raccontami", "parlami di")
@@ -471,7 +478,7 @@ IMPORTANTE:
 
 Rispondi SOLO in JSON valido, senza altro testo:
 {
-  "intent": "comparison" | "definition" | "requirements" | "procedure" | "article_lookup" | "meta" | "timeline" | "causes_effects" | "general",
+  "intent": "comparison" | "definition" | "requirements" | "procedure" | "article_lookup" | "meta" | "exploratory" | "timeline" | "causes_effects" | "general",
   "is_comparative": true/false,
   "comparative_terms": ["term1", "term2", ...] o null,
   "comparison_type": "differences" | "similarities" | "general_comparison" | null,
