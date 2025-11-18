@@ -1,3 +1,8 @@
+// IMPORTANT: Load environment variables FIRST before any other imports
+import { config } from 'dotenv'
+import { resolve } from 'path'
+config({ path: resolve(process.cwd(), '.env.local') })
+
 /**
  * Generate summaries for documents that don't have one
  * 
@@ -13,11 +18,6 @@
  * --document-id    Process a specific document by ID
  * --all            Process all documents (removes limit)
  */
-
-// Load environment variables from .env.local
-import { config } from 'dotenv'
-import { resolve } from 'path'
-config({ path: resolve(process.cwd(), '.env.local') })
 
 import { supabaseAdmin } from '../lib/supabase/admin'
 import { generateAndSaveSummary } from '../lib/processing/summary-generation'

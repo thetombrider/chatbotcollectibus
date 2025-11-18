@@ -1,3 +1,8 @@
+// IMPORTANT: Load environment variables FIRST before any other imports
+import { config } from 'dotenv'
+import { resolve } from 'path'
+config({ path: resolve(process.cwd(), '.env.local') })
+
 /**
  * Test script for summary generation
  * 
@@ -6,11 +11,6 @@
  * Usage:
  * npx tsx scripts/test-summary-generation.ts <document-id>
  */
-
-// Load environment variables from .env.local
-import { config } from 'dotenv'
-import { resolve } from 'path'
-config({ path: resolve(process.cwd(), '.env.local') })
 
 import { generateDocumentSummary, saveSummary } from '../lib/processing/summary-generation'
 import { supabaseAdmin } from '../lib/supabase/admin'
