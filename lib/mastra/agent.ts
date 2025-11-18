@@ -485,7 +485,7 @@ async function metaQueryTool({ query }: { query: string }) {
         // Try to extract filters from query
         let folder: string | null | undefined
         let fileType: string | undefined
-        let limit = 50
+        let limit = 1000 // Default: show all documents (increased from 50)
         
         // IMPROVED: Extract folder filter with better patterns
         let folderQuery: string | null = null

@@ -147,7 +147,7 @@ export async function listDocumentsMeta(
     const {
       folder,
       file_type,
-      limit = 100,
+      limit = 1000, // Default: show all documents (increased from 100)
       offset = 0,
       search,
     } = options
