@@ -89,6 +89,7 @@ interface ToolResultsCache {
     chunkCount?: number
     chunkPreviews?: Array<{ chunkIndex: number; content: string }>
     contentPreview?: string
+    summary?: string | null
   }>
   metaQueryChunks: SearchResult[]
 }
@@ -127,6 +128,7 @@ export function getMetaQueryDocuments(): Array<{
   chunkCount?: number
   chunkPreviews?: Array<{ chunkIndex: number; content: string }>
   contentPreview?: string
+  summary?: string | null
 }> {
   return [...toolResultsCache.metaQueryDocuments]
 }
@@ -399,11 +401,11 @@ async function metaQueryTool({ query }: { query: string }) {
             },
           }
         } else {
-          // Fetch metadata for these documents
+          // Fetch metadata for these documents (include summary for preview)
           const { supabaseAdmin } = await import('@/lib/supabase/admin')
           const { data: documentsData, error: docsError } = await supabaseAdmin
             .from('documents')
-            .select('id, filename, file_type, folder, file_size, processing_status, chunks_count, created_at, updated_at')
+            .select('id, filename, file_type, folder, file_size, processing_status, chunks_count, summary, created_at, updated_at')
             .in('id', uniqueDocIds)
           
           if (docsError) {
@@ -411,7 +413,7 @@ async function metaQueryTool({ query }: { query: string }) {
             throw new Error(`Failed to fetch documents: ${docsError.message}`)
           }
           
-          // Get chunks for these documents (for content preview)
+          // Get chunks for these documents (for content preview fallback)
           const chunksPerDocument = 5
           const documentChunks = await getChunksByDocumentIds(uniqueDocIds, chunksPerDocument)
           
@@ -447,7 +449,9 @@ async function metaQueryTool({ query }: { query: string }) {
               index: idx + 1,
               chunkCount: doc.chunks_count ?? docChunks.length,
               chunkPreviews,
-              contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
+              summary: doc.summary || null,
+              // Preferisci summary se disponibile, altrimenti fallback ai chunk previews
+              contentPreview: doc.summary || (combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : ''),
               fileType: doc.file_type,
               createdAt: doc.created_at,
               updatedAt: doc.updated_at,
@@ -627,7 +631,9 @@ async function metaQueryTool({ query }: { query: string }) {
             index: idx + 1, // Indici partono da 1 per le citazioni
             chunkCount: doc.chunks_count ?? docChunks.length,
             chunkPreviews,
-            contentPreview: combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : '',
+            summary: doc.summary || null,
+            // Preferisci summary se disponibile, altrimenti fallback ai chunk previews
+            contentPreview: doc.summary || (combinedPreview ? truncateText(combinedPreview, DOCUMENT_PREVIEW_MAX_LENGTH) : ''),
             fileType: doc.file_type,
             createdAt: doc.created_at,
             updatedAt: doc.updated_at,

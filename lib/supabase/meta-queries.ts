@@ -26,6 +26,7 @@ export interface DocumentMeta {
   chunks_count: number
   file_size: number
   processing_status?: string
+  summary?: string | null // Summary del documento
   created_at: string
   updated_at: string
 }
@@ -154,7 +155,7 @@ export async function listDocumentsMeta(
 
     let query = supabaseAdmin
       .from('documents')
-      .select('id, filename, file_type, folder, file_size, processing_status, chunks_count, created_at, updated_at')
+      .select('id, filename, file_type, folder, file_size, processing_status, chunks_count, summary, created_at, updated_at')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -190,6 +191,7 @@ export async function listDocumentsMeta(
       chunks_count: doc.chunks_count || 0,
       file_size: doc.file_size,
       processing_status: doc.processing_status,
+      summary: doc.summary || null,
       created_at: doc.created_at,
       updated_at: doc.updated_at,
     }))

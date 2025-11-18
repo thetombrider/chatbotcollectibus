@@ -23,6 +23,7 @@ export interface MetaDocument {
   chunkCount?: number
   contentPreview?: string
   chunkPreviews?: Array<{ chunkIndex: number; content: string }>
+  summary?: string | null // Summary del documento per preview
   fileType?: string
   createdAt?: string
   updatedAt?: string
@@ -96,7 +97,8 @@ export function createMetaSources(metaDocuments: MetaDocument[]): Source[] {
       type: 'kb' as const,
       // Per query meta, non abbiamo similarity o chunkIndex perché il riferimento è all'intero documento
       similarity: 1.0, // Similarity fittizia per query meta (non usata)
-      content: '', // Content vuoto perché il riferimento è all'intero documento, non a un chunk specifico
+      // Usa il summary come preview se disponibile, altrimenti fallback a contentPreview (chunks) o vuoto
+      content: doc.summary || doc.contentPreview || '',
       chunkIndex: 0, // ChunkIndex fittizio per query meta (non usato)
     }))
 }
