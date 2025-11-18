@@ -266,6 +266,7 @@ async function handleChatRequest(
           content: doc.summary || '',
           folderPath: doc.folder_path || undefined,
           documentId: doc.id,
+          chunkIndex: 0, // Document-level search, not chunk-based
           // No chunk-specific fields for document-level search
         }))
       }

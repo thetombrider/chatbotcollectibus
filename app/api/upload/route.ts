@@ -329,13 +329,15 @@ export async function POST(req: NextRequest) {
             .eq('id', document.id)
 
           // Dispatch async summary generation (non-blocking)
-          generateAndSaveSummary(document.id).catch(error => {
-            console.error('[upload] Background summary generation failed:', {
-              documentId: document.id,
-              error: error instanceof Error ? error.message : 'Unknown error'
+          if (document?.id) {
+            generateAndSaveSummary(document.id).catch(error => {
+              console.error('[upload] Background summary generation failed:', {
+                documentId: document.id,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              })
+              // Don't fail the upload, just log the error
             })
-            // Don't fail the upload, just log the error
-          })
+          }
 
           // Invio risultato finale
           const finalResult = JSON.stringify({
