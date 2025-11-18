@@ -1,6 +1,12 @@
 import OpenAI from 'openai'
 import type { QueryAnalysisResult, QueryIntent } from './query-analysis'
 import { PROMPTS, compilePrompt } from '@/lib/observability/prompt-manager'
+import { 
+  formatConversationContext, 
+  buildConversationContextSection,
+  summarizeConversationHistory,
+  type ConversationMessage 
+} from '@/lib/context/conversation-context'
 // TODO: Re-implement tracing with new Langfuse patterns (createGeneration, etc.)
 // import { logLLMCall } from '@/lib/observability/langfuse'
 
@@ -115,7 +121,7 @@ const EXPANSION_STRATEGIES = new Map<QueryIntent, ExpansionStrategy>([
 export async function expandQueryByIntent(
   query: string,
   analysis: QueryAnalysisResult,
-  conversationHistory?: Array<{ role: 'user' | 'assistant', content: string }>
+  conversationHistory?: ConversationMessage[]
 ): Promise<string> {
   try {
     const strategy = EXPANSION_STRATEGIES.get(analysis.intent)
@@ -184,7 +190,7 @@ async function expandWithLLM(
   query: string,
   intent: QueryIntent,
   baseTerms: string[],
-  conversationHistory?: Array<{ role: 'user' | 'assistant', content: string }>
+  conversationHistory?: ConversationMessage[]
 ): Promise<string> {
   try {
     const intentContext = getIntentContext(intent)
@@ -192,27 +198,22 @@ async function expandWithLLM(
       ? `5. Include these intent-specific terms: ${baseTerms.join(', ')}`
       : ''
 
-    // Build conversation context from last 2-3 messages (if available)
-    // Only include the most recent messages to avoid token overflow
-    console.log('[intent-based-expansion] Conversation history received:', {
-      hasHistory: !!conversationHistory,
-      historyLength: conversationHistory?.length || 0,
-      lastMessages: conversationHistory?.slice(-3).map(m => ({ role: m.role, contentPreview: m.content.substring(0, 50) })) || []
+    // Build conversation context using centralized module
+    console.log('[intent-based-expansion] Conversation history received:', 
+      summarizeConversationHistory(conversationHistory)
+    )
+    
+    const conversationSection = buildConversationContextSection(conversationHistory, {
+      maxMessages: 3,
+      maxCharsPerMessage: 200,
     })
     
-    const conversationContext = conversationHistory && conversationHistory.length > 0
-      ? conversationHistory
-          .slice(-3) // Last 3 messages max
-          .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content.substring(0, 200)}`)
-          .join('\n')
-      : ''
-
-    const conversationSection = conversationContext 
-      ? `Previous conversation context:\n${conversationContext}\n\n` 
-      : ''
-    
     if (conversationSection) {
-      console.log('[intent-based-expansion] Using conversation context:', conversationContext.substring(0, 150))
+      const contextPreview = formatConversationContext(conversationHistory, { 
+        maxMessages: 1, 
+        maxCharsPerMessage: 150 
+      })
+      console.log('[intent-based-expansion] Using conversation context:', contextPreview)
     }
 
     // Fetch prompt from Langfuse with fallback
@@ -227,7 +228,7 @@ async function expandWithLLM(
       },
       {
         // Fallback to hard-coded prompt if Langfuse fails
-        fallback: buildFallbackExpansionPrompt(query, intent, intentContext, baseTerms, conversationContext),
+        fallback: buildFallbackExpansionPrompt(query, intent, intentContext, baseTerms, conversationSection),
       }
     )
 

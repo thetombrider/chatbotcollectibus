@@ -16,6 +16,7 @@ import { DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL } from '@/lib/llm/models'
 import type { SearchResult } from '@/lib/supabase/database.types'
 import type { QueryAnalysisResult } from '@/lib/embeddings/query-analysis'
 import { extractUniqueDocumentNames, calculateAverageSimilarity } from '../services/context-builder'
+import { evaluateWebSearchNeed, formatDecisionForLog } from '@/lib/decisions/web-search-strategy'
 import { 
   normalizeWebCitations,
   normalizeUnicodeCitations, 
@@ -87,47 +88,23 @@ export async function generateResponse(
   const isMetaQuery = analysis.isMeta
   const avgSimilarity = calculateAverageSimilarity(relevantResults)
   
-  // Logica migliorata per determinare se le fonti sono sufficienti:
-  // BASE LOGIC: Valuta la qualità semantica dei risultati
-  const baseSourcesTooWeak = relevantResults.length === 0 || 
-    (relevantResults.length < 3 && avgSimilarity < 0.55) ||
-    (relevantResults.length >= 3 && avgSimilarity < 0.50)
-  
-  // TEMPORAL OVERRIDE: Query temporali richiedono sempre ricerca web se abilitata
-  const needsWebForTemporal = webSearchEnabled && analysis.hasTemporal
-  
-  // EXPLICIT OVERRIDE: Utente ha chiesto esplicitamente ricerca web
-  const needsWebForExplicitRequest = webSearchEnabled && analysis.hasWebSearchRequest
-  
-  // USER PREFERENCE OVERRIDE: Utente ha attivato ricerca web e dovrebbe avere precedenza per query generiche
-  const userWantsWebSearch = webSearchEnabled && analysis.intent === 'general' && !contextText
-  
-  // FINAL DECISION: Fonti sono insufficienti se:
-  // 1. Qualità semantica troppo bassa (base logic), O
-  // 2. Query temporale con web search abilitato, O  
-  // 3. Richiesta esplicita di web search, O
-  // 4. Utente vuole web search per query generica senza contesto
-  const SOURCES_INSUFFICIENT = baseSourcesTooWeak || needsWebForTemporal || needsWebForExplicitRequest || userWantsWebSearch
-  
-  // Log per debugging
-  console.log('[response-handler] Sources evaluation:', {
-    resultsCount: relevantResults.length,
-    avgSimilarity: avgSimilarity.toFixed(3),
-    sourcesInsufficient: SOURCES_INSUFFICIENT,
-    hasContext: contextText !== null,
-    contextLength: contextText?.length || 0,
-    // New temporal and web search logic
-    hasTemporal: analysis.hasTemporal,
-    temporalTerms: analysis.temporalTerms,
-    hasWebSearchRequest: analysis.hasWebSearchRequest,
-    webSearchCommand: analysis.webSearchCommand,
+  // Evaluate if web search is needed using centralized decision logic
+  const webSearchDecision = evaluateWebSearchNeed({
+    analysis,
+    relevantResults,
+    avgSimilarity,
     webSearchEnabled,
-    // Decision factors
-    baseSourcesTooWeak,
-    needsWebForTemporal,
-    needsWebForExplicitRequest, 
-    userWantsWebSearch,
+    contextText,
   })
+  
+  const SOURCES_INSUFFICIENT = webSearchDecision.sourcesInsufficient
+  
+  // Log decision for debugging
+  console.log('[response-handler] Sources evaluation:', formatDecisionForLog(
+    webSearchDecision,
+    relevantResults.length,
+    avgSimilarity
+  ))
 
   // Calcola uniqueDocumentNames per query comparative
   const uniqueDocumentNames = contextText && analysis.comparativeTerms
