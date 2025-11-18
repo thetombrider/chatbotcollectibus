@@ -9,7 +9,7 @@ Fase 1 (Week 1)
  ✅ Step 1.1.6: Integration tests for unified cache (commit: 99a8f73)
  ✅ Step 1.2.1: Remove AsyncLocalStorage from agent.ts (commit: 79ecf65)
  ✅ Step 1.2.2: Remove AsyncLocalStorage completely - replaced with module-level cache
- ⏳ Step 1.2.3: E2E tests for web search flow
+ ⏳ Step 1.2.3: E2E tests for web search flow - riprendere da qui!
  ⏳ Step 1.3.1: Remove vectorSearchTool and semanticCacheTool
  ⏳ Step 1.3.2: Regression tests
 Fase 2 (Week 2)
