@@ -17,7 +17,7 @@ import { createSpan, endSpan, type TraceContext } from '@/lib/observability/lang
 export interface SummaryGenerationOptions {
   maxChunksPerBatch?: number  // Default: 10 (for chunk summarization)
   maxChunkSummaryTokens?: number  // Default: 150 per chunk
-  maxFinalSummaryTokens?: number  // Default: 500 for final summary
+  maxFinalSummaryTokens?: number  // Default: 1000 for final summary (500-750 words)
   language?: string  // Default: 'it'
   model?: string  // Default: from env
 }
@@ -98,14 +98,14 @@ async function generateFinalSummary(
   documentFilename: string,
   options: SummaryGenerationOptions = {}
 ): Promise<{ summary: string; tokensUsed: number }> {
-  const { maxFinalSummaryTokens = 500, language = 'it', model = 'google/gemini-2.5-flash' } = options
+  const { maxFinalSummaryTokens = 1000, language = 'it', model = 'google/gemini-2.5-flash' } = options
 
   // Combine all chunk summaries
   const combinedSummaries = chunkSummaries
     .map(cs => `[Parte ${cs.chunkIndex + 1}] ${cs.summary}`)
     .join('\n\n')
 
-  const prompt = `Analizza questi riassunti parziali di un documento e genera un riassunto completo e coerente del documento (200-500 parole).
+  const prompt = `Analizza questi riassunti parziali di un documento e genera un riassunto completo e coerente del documento (400-750 parole).
 
 Il riassunto finale deve catturare:
 1. TEMA PRINCIPALE: Argomento centrale del documento

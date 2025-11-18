@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Document, DocumentChunk } from '@/lib/supabase/database.types'
 
 interface DocumentPreviewProps {
@@ -142,7 +144,11 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
                   </button>
                   {showSummary && (
                     <div className="px-6 pb-6">
-                      <p className="text-sm text-gray-700 leading-relaxed">{document.summary}</p>
+                      <div className="prose prose-sm max-w-none text-gray-700">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {document.summary}
+                        </ReactMarkdown>
+                      </div>
                       {document.summary_generated_at && (
                         <p className="text-xs text-gray-500 mt-3">
                           Generato il {formatDate(document.summary_generated_at)}
@@ -246,7 +252,11 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
                     </button>
                     {showSummary && (
                       <div className="px-6 pb-6">
-                        <p className="text-base text-gray-700 leading-relaxed mb-3">{document.summary}</p>
+                        <div className="prose prose-base max-w-none text-gray-700">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {document.summary}
+                          </ReactMarkdown>
+                        </div>
                         {document.summary_generated_at && (
                           <p className="text-sm text-gray-500">
                             Generato il {formatDate(document.summary_generated_at)}
