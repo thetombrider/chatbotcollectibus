@@ -208,19 +208,16 @@ export async function generateDocumentSummary(
       throw docError
     }
 
-    // Step 3: Select chunks to summarize (sample if too many)
+    // Step 3: Select chunks to summarize (always use same strategy for consistency)
+    // Strategy: first 3 + random middle + last 3 = max 10 chunks total
     let selectedChunks = chunks
-    if (chunks.length > maxChunksPerBatch * 3) {
-      // For very long documents, sample strategically:
-      // - First 3 chunks (introduction)
-      // - Random middle chunks
-      // - Last 3 chunks (conclusion)
+    if (chunks.length > maxChunksPerBatch) {
       const firstChunks = chunks.slice(0, 3)
       const lastChunks = chunks.slice(-3)
       const middleChunks = chunks.slice(3, -3)
       
-      // Random sample from middle
-      const middleSampleSize = maxChunksPerBatch - 6
+      // Random sample from middle (max 4 chunks for total of 10)
+      const middleSampleSize = Math.min(middleChunks.length, maxChunksPerBatch - 6)
       const middleSample = middleChunks
         .sort(() => Math.random() - 0.5)
         .slice(0, middleSampleSize)
@@ -231,6 +228,10 @@ export async function generateDocumentSummary(
         total: chunks.length,
         selected: selectedChunks.length,
         strategy: 'first-3 + random-middle + last-3',
+      })
+    } else {
+      console.log('[summary-generation] Using all chunks (≤10):', {
+        total: chunks.length,
       })
     }
 
