@@ -13,7 +13,8 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
   const [chunks, setChunks] = useState<DocumentChunk[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showChunks, setShowChunks] = useState(true)
+  const [showChunks, setShowChunks] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
 
   useEffect(() => {
     if (isOpen && document.id) {
@@ -114,14 +115,52 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
 
         {/* Content */}
         <div className="flex-1 overflow-hidden flex">
-          {/* PDF Preview */}
+          {/* PDF Preview with Summary */}
           {pdfUrl && document.file_type === 'application/pdf' && (
-            <div className="flex-1 overflow-auto p-6">
-              <iframe
-                src={pdfUrl}
-                className="w-full h-full min-h-[600px] border border-gray-200 rounded-lg"
-                title="PDF Preview"
-              />
+            <div className="flex-1 overflow-auto">
+              {/* Summary Section */}
+              {document.summary && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
+                  <button
+                    onClick={() => setShowSummary(!showSummary)}
+                    className="w-full p-4 flex items-center justify-between hover:bg-blue-100/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <h3 className="text-sm font-semibold text-blue-900">Riepilogo del documento</h3>
+                    </div>
+                    <svg 
+                      className={`w-5 h-5 text-blue-600 transition-transform ${showSummary ? 'rotate-180' : ''}`}
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {showSummary && (
+                    <div className="px-6 pb-6">
+                      <p className="text-sm text-gray-700 leading-relaxed">{document.summary}</p>
+                      {document.summary_generated_at && (
+                        <p className="text-xs text-gray-500 mt-3">
+                          Generato il {formatDate(document.summary_generated_at)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* PDF Viewer */}
+              <div className="p-6">
+                <iframe
+                  src={pdfUrl}
+                  className="w-full h-full min-h-[600px] border border-gray-200 rounded-lg shadow-sm"
+                  title="PDF Preview"
+                />
+              </div>
             </div>
           )}
 
@@ -181,16 +220,55 @@ export function DocumentPreview({ document, isOpen, onClose }: DocumentPreviewPr
 
           {/* No PDF Preview Message */}
           {!pdfUrl && document.file_type !== 'application/pdf' && (
-            <div className="flex-1 flex items-center justify-center p-6">
-              <div className="text-center">
-                <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-gray-600 mb-2">Preview non disponibile</p>
-                <p className="text-sm text-gray-500">
-                  Il preview PDF è disponibile solo per file PDF.
-                </p>
-              </div>
+            <div className="flex-1 overflow-auto p-6">
+              {/* Summary for non-PDF files */}
+              {document.summary ? (
+                <div className="max-w-3xl mx-auto">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setShowSummary(!showSummary)}
+                      className="w-full p-6 flex items-center justify-between hover:bg-blue-100/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-blue-900">Riepilogo del documento</h3>
+                      </div>
+                      <svg 
+                        className={`w-6 h-6 text-blue-600 transition-transform ${showSummary ? 'rotate-180' : ''}`}
+                        fill="none" 
+                        stroke="currentColor" 
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {showSummary && (
+                      <div className="px-6 pb-6">
+                        <p className="text-base text-gray-700 leading-relaxed mb-3">{document.summary}</p>
+                        {document.summary_generated_at && (
+                          <p className="text-sm text-gray-500">
+                            Generato il {formatDate(document.summary_generated_at)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-gray-600 mb-2">Preview non disponibile</p>
+                    <p className="text-sm text-gray-500">
+                      Il preview PDF è disponibile solo per file PDF.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

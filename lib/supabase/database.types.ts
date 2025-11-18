@@ -17,6 +17,9 @@ export interface Document {
   folder?: string
   version?: number
   parent_version_id?: string
+  summary?: string | null
+  summary_embedding?: number[] | null
+  summary_generated_at?: string | null
   created_at: string
   updated_at: string
 }

@@ -343,6 +343,7 @@ function getIntentContext(intent: QueryIntent): string | null {
     meta: 'This is a meta query about the database - do not expand',
     timeline: 'This is a timeline query - expand with terms related to deadlines and dates',
     causes_effects: 'This is a causes/effects query - expand with terms related to consequences and impacts',
+    exploratory: 'This is an exploratory query - expand with terms related to document themes and topics',
     general: 'This is a general query - expand with synonyms and related terms',
   }
 
