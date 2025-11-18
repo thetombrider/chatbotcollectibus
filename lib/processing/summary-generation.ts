@@ -45,7 +45,7 @@ async function generateChunkSummary(
   chunkIndex: number,
   options: SummaryGenerationOptions = {}
 ): Promise<ChunkSummary> {
-  const { maxChunkSummaryTokens = 150, language = 'it', model = 'openai/gpt-4o-mini' } = options
+  const { maxChunkSummaryTokens = 150, model = 'openai/gpt-4o-mini' } = options
 
   const prompt = `Riassumi questo estratto di documento in modo conciso (max ${maxChunkSummaryTokens} parole).
 Focus su: concetti chiave, argomenti principali, informazioni rilevanti.
@@ -98,7 +98,7 @@ async function generateFinalSummary(
   documentFilename: string,
   options: SummaryGenerationOptions = {}
 ): Promise<{ summary: string; tokensUsed: number }> {
-  const { maxFinalSummaryTokens = 1000, language = 'it', model = 'openai/gpt-4o-mini' } = options
+  const { maxFinalSummaryTokens = 1000, model = 'openai/gpt-4o-mini' } = options
 
   // Combine all chunk summaries
   const combinedSummaries = chunkSummaries

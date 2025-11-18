@@ -330,9 +330,10 @@ export async function POST(req: NextRequest) {
 
           // Dispatch async summary generation (non-blocking)
           if (document?.id) {
-            generateAndSaveSummary(document.id).catch(error => {
+            const docId = document.id // Capture for closure
+            generateAndSaveSummary(docId).catch(error => {
               console.error('[upload] Background summary generation failed:', {
-                documentId: document.id,
+                documentId: docId,
                 error: error instanceof Error ? error.message : 'Unknown error'
               })
               // Don't fail the upload, just log the error

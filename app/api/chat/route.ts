@@ -19,7 +19,6 @@ import { buildContext, filterRelevantResults } from './services/context-builder'
 import { createKBSources, combineSources } from './services/source-service'
 import { getConversationHistory } from './services/message-service'
 import { saveUserMessageAsync, saveAssistantMessageAsync } from '@/lib/async/message-operations'
-import { saveUnifiedCacheAsync } from '@/lib/async/cache-operations'
 import { searchDocumentsBySummary } from '@/lib/supabase/document-search'
 import { 
   createChatTrace, 
