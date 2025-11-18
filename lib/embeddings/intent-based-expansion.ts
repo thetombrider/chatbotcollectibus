@@ -97,6 +97,14 @@ const EXPANSION_STRATEGIES = new Map<QueryIntent, ExpansionStrategy>([
     expansionMethod: 'add_terms', // No expansion for meta queries
   }],
   
+  // Exploratory: Document discovery queries about themes/topics
+  // Expand to improve semantic matching for document summaries
+  ['exploratory', {
+    intent: 'exploratory',
+    expansionTerms: ['argomenti', 'tematiche', 'contenuti', 'trattano', 'riguardano', 'parlano', 'relativi', 'documenti', 'topics', 'themes', 'content', 'related', 'documents', 'about', 'regarding'],
+    expansionMethod: 'llm_guided', // Use LLM for richer topical expansion
+  }],
+  
   // General: Use generic expansion (synonyms + related terms)
   // Per spiegazioni generali, usa termini più ampi invece di definizioni formali
   ['general', {
