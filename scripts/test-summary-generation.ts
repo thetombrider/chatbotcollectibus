@@ -4,8 +4,13 @@
  * Tests the summary-of-summaries generation process on a specific document
  * 
  * Usage:
- * tsx scripts/test-summary-generation.ts <document-id>
+ * npx tsx scripts/test-summary-generation.ts <document-id>
  */
+
+// Load environment variables from .env.local
+import { config } from 'dotenv'
+import { resolve } from 'path'
+config({ path: resolve(process.cwd(), '.env.local') })
 
 import { generateDocumentSummary, saveSummary } from '../lib/processing/summary-generation'
 import { supabaseAdmin } from '../lib/supabase/admin'

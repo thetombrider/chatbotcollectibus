@@ -2,8 +2,13 @@
  * Test script for exploratory document search
  * 
  * Usage:
- * tsx scripts/test-exploratory-search.ts
+ * npx tsx scripts/test-exploratory-search.ts
  */
+
+// Load environment variables from .env.local
+import { config } from 'dotenv'
+import { resolve } from 'path'
+config({ path: resolve(process.cwd(), '.env.local') })
 
 import { searchDocumentsBySummary, getDocumentSummaryStats } from '../lib/supabase/document-search'
 
