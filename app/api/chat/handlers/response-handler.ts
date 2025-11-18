@@ -188,19 +188,7 @@ export async function generateResponse(
       : undefined
 
   const fallbackModel = analysis.isComparative ? DEFAULT_PRO_MODEL : DEFAULT_FLASH_MODEL
-  let requestedModel = promptModel ?? fallbackModel
-  
-  // CRITICAL FIX: Override model when web search is required
-  // Some models (e.g., openai/gpt-oss-120b) don't reliably call tools even with explicit instructions
-  // Force Gemini Flash (known for excellent tool calling support) when sources are insufficient
-  if (SOURCES_INSUFFICIENT && webSearchEnabled && requestedModel !== DEFAULT_FLASH_MODEL && requestedModel !== DEFAULT_PRO_MODEL) {
-    console.log('[response-handler] Overriding model for reliable web search tool calling:', {
-      originalModel: requestedModel,
-      overrideModel: DEFAULT_FLASH_MODEL,
-      reason: 'sources_insufficient_requires_tool_calling'
-    })
-    requestedModel = DEFAULT_FLASH_MODEL
-  }
+  const requestedModel = promptModel ?? fallbackModel
   
   // CRITICAL: Per meta query, forza webSearchEnabled=true per usare agent predefinito
   // Gli agent creati dinamicamente senza web_search hanno problemi con i tool calls
