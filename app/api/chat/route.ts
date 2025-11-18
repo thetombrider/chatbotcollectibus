@@ -258,8 +258,9 @@ async function handleChatRequest(
         ).join('\n\n---\n\n')
         
         // Crea sources da documenti (non chunk-based)
-        kbSources = documents.map(doc => ({
+        kbSources = documents.map((doc, idx) => ({
           type: 'kb' as const,
+          index: idx + 1, // Add index for citation rendering
           filename: doc.filename,
           similarity: doc.similarity,
           content: doc.summary || '',

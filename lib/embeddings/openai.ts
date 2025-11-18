@@ -7,9 +7,17 @@ import {
 } from '@/lib/observability/langfuse'
 import type { LangfuseTraceClient, LangfuseSpanClient } from 'langfuse'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+// Lazy-load OpenAI client to ensure env vars are available
+let openaiInstance: OpenAI | null = null
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiInstance) {
+    openaiInstance = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+  return openaiInstance
+}
 
 /**
  * Genera embedding per un testo usando OpenAI
@@ -45,6 +53,7 @@ export async function generateEmbedding(
   ) : null
 
   try {
+    const openai = getOpenAIClient()
     const response = await openai.embeddings.create({
       model,
       input: normalizedText,
@@ -146,6 +155,7 @@ export async function generateEmbeddings(
   ) : null
 
   try {
+    const openai = getOpenAIClient()
     const response = await openai.embeddings.create({
       model,
       input: normalizedTexts,

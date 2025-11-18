@@ -180,10 +180,10 @@ export async function generateDocumentSummary(
   try {
     // Step 1: Load document chunks from database
     const { data: chunks, error: chunksError } = await supabaseAdmin
-      .from('chunks')
-      .select('id, content, position')
+      .from('document_chunks')
+      .select('id, content, chunk_index')
       .eq('document_id', documentId)
-      .order('position', { ascending: true })
+      .order('chunk_index', { ascending: true })
 
     if (chunksError) {
       console.error('[summary-generation] Failed to load chunks:', chunksError)
@@ -224,7 +224,7 @@ export async function generateDocumentSummary(
       const middleSample = middleChunks
         .sort(() => Math.random() - 0.5)
         .slice(0, middleSampleSize)
-        .sort((a, b) => a.position - b.position)
+        .sort((a, b) => a.chunk_index - b.chunk_index)
 
       selectedChunks = [...firstChunks, ...middleSample, ...lastChunks]
       console.log('[summary-generation] Sampled chunks:', {

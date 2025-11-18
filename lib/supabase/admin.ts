@@ -42,6 +42,11 @@ export function getAdminClient() {
   return adminClientInstance
 }
 
-// Default export for convenience
-export const supabaseAdmin = getAdminClient()
-
+// Getter property for convenience - lazy evaluation
+// This ensures env vars are loaded before creating the client
+export const supabaseAdmin = new Proxy({} as ReturnType<typeof createAdminClient>, {
+  get: (target, prop) => {
+    const client = getAdminClient()
+    return (client as any)[prop]
+  }
+})
