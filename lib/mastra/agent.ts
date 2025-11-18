@@ -138,46 +138,10 @@ export function getMetaQueryChunks(): SearchResult[] {
   return [...toolResultsCache.metaQueryChunks]
 }
 
-// Tool per vector search - DEPRECATED: Vector search is done in search-handler.ts
-// This tool is redundant and will be removed
-async function vectorSearchTool({ query }: { query: string }) {
-  if (!query || query.trim().length === 0) {
-    throw new Error('Query cannot be empty')
-  }
-
-  // Import dinamico per evitare problemi di SSR
-  const { generateEmbedding } = await import('@/lib/embeddings/openai')
-  const { hybridSearch } = await import('@/lib/supabase/vector-operations')
-
-  const queryEmbedding = await generateEmbedding(query)
-  const results = await hybridSearch(queryEmbedding, query, 5)
-
-  return {
-    chunks: results.map((r, index) => ({
-      index: index + 1,
-      content: r.content,
-      similarity: r.similarity,
-      documentId: r.document_id,
-      documentFilename: r.document_filename || 'Documento sconosciuto',
-      metadata: r.metadata,
-    })),
-  }
-}
-
-// Tool per semantic cache lookup
-async function semanticCacheTool({ query }: { query: string }) {
-  if (!query || query.trim().length === 0) {
-    throw new Error('Query cannot be empty')
-  }
-
-  const { generateEmbedding } = await import('@/lib/embeddings/openai')
-  const { findCachedResponse } = await import('@/lib/supabase/semantic-cache')
-
-  const queryEmbedding = await generateEmbedding(query)
-  const cached = await findCachedResponse(queryEmbedding)
-
-  return cached ? { cached: true, response: cached.response_text } : { cached: false }
-}
+// REMOVED: vectorSearchTool and semanticCacheTool
+// These tools were deprecated as they duplicate functionality:
+// - Vector search is done in search-handler.ts (called from route.ts)
+// - Semantic cache is done in unified-query-cache.ts (used by query-analysis and query-enhancement)
 
 // Tool per ricerca web con Tavily
 async function webSearchTool({ query }: { query: string }) {
@@ -735,39 +699,8 @@ async function metaQueryTool({ query }: { query: string }) {
 // Questo prompt statico serve solo come fallback generico e non viene utilizzato nella pratica.
 
 // Tools configuration (shared between agents)
+// REMOVED: vector_search and semantic_cache (deprecated, see comment above)
 const agentTools = {
-  vector_search: {
-    id: 'vector_search',
-    name: 'vector_search',
-    description: 'Cerca informazioni rilevanti nei documenti caricati',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Query di ricerca',
-        },
-      },
-      required: ['query'],
-    },
-    execute: vectorSearchTool,
-  },
-  semantic_cache: {
-    id: 'semantic_cache',
-    name: 'semantic_cache',
-    description: 'Verifica se esiste una risposta cached per questa query',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Query da verificare',
-        },
-      },
-      required: ['query'],
-    },
-    execute: semanticCacheTool,
-  },
   web_search: {
     id: 'web_search',
     name: 'web_search',
