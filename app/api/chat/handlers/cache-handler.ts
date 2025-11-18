@@ -134,25 +134,29 @@ export async function lookupCache(
 }
 
 /**
- * Salva una risposta in cache
+ * Salva una risposta in cache (fire-and-forget)
+ * 
+ * Non blocca la risposta all'utente. Il salvataggio avviene in background.
  */
-export async function saveCache(
+export function saveCache(
   query: string,
   queryEmbedding: number[],
   response: string,
   sources: Source[]
-): Promise<void> {
+): void {
   // Check if conversation cache is disabled
   if (!isCacheEnabled('conversation')) {
     console.log('[cache-handler] Cache save disabled via DISABLE_CONVERSATION_CACHE')
     return
   }
 
-  try {
-    await saveCachedResponse(query, queryEmbedding, response, sources)
-  } catch (error) {
-    console.error('[cache-handler] Cache save failed:', error)
-    // Non bloccare la risposta se il salvataggio cache fallisce
-  }
+  // Fire-and-forget: Start save but don't wait for completion
+  saveCachedResponse(query, queryEmbedding, response, sources).catch((error) => {
+    console.error('[cache-handler] Fire-and-forget cache save failed:', {
+      queryPreview: query.substring(0, 50),
+      error: error.message || error,
+      stack: error.stack,
+    })
+  })
 }
 

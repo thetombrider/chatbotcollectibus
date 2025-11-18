@@ -17,7 +17,9 @@ import { performSearch } from './handlers/search-handler'
 import { generateResponse, processResponse, type ResponseContext } from './handlers/response-handler'
 import { buildContext, filterRelevantResults } from './services/context-builder'
 import { createKBSources, combineSources } from './services/source-service'
-import { saveUserMessage, getConversationHistory, saveAssistantMessage } from './services/message-service'
+import { getConversationHistory } from './services/message-service'
+import { saveUserMessageAsync, saveAssistantMessageAsync } from '@/lib/async/message-operations'
+import { saveUnifiedCacheAsync } from '@/lib/async/cache-operations'
 import { 
   createChatTrace, 
   createSpan,
@@ -76,8 +78,9 @@ async function handleChatRequest(
   })
 
   // STEP 2: Salva messaggio utente (DOPO aver recuperato la history)
+  // Fire-and-forget: Don't block on message save
   if (conversationId) {
-    await saveUserMessage(conversationId, message)
+    saveUserMessageAsync(conversationId, message)
   }
 
   // STEP 3: Analisi query
@@ -122,9 +125,9 @@ async function handleChatRequest(
     streamController.sendTextComplete(cached.response)
     streamController.sendDone(cached.sources)
     
-    // Salva messaggio assistant
+    // Salva messaggio assistant (fire-and-forget)
     if (conversationId) {
-      await saveAssistantMessage(conversationId, cached.response, {
+      saveAssistantMessageAsync(conversationId, cached.response, {
         sources: cached.sources,
         query_enhanced: enhancement.shouldEnhance,
         original_query: message,
@@ -303,9 +306,9 @@ async function handleChatRequest(
   // STEP 10: Combina sources
   const allSources = combineSources(processed.sources, processed.webSources)
 
-  // STEP 11: Salva messaggio assistant
+  // STEP 11: Salva messaggio assistant (fire-and-forget)
   if (conversationId) {
-    await saveAssistantMessage(conversationId, processed.content, {
+    saveAssistantMessageAsync(conversationId, processed.content, {
       chunks_used: searchResults.map((r) => ({
         id: r.id,
         similarity: r.similarity,
@@ -322,8 +325,8 @@ async function handleChatRequest(
   streamController.sendTextComplete(processed.content)
   streamController.sendDone(allSources, processed.model)
 
-  // STEP 13: Salva in cache
-  await saveCache(queryToEmbed, queryEmbedding, processed.content, processed.sources)
+  // STEP 13: Salva in cache (fire-and-forget)
+  saveCache(queryToEmbed, queryEmbedding, processed.content, processed.sources)
 
   // Pulisci cache tool results per la prossima request
   clearToolResults()
