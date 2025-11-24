@@ -313,12 +313,28 @@ export async function POST(req: NextRequest) {
             await insertDocumentChunks(batch)
           }
 
-          // Fase 8: Completamento (95-100%)
-          sendProgress(controller, 'processing', 95, 'Finalizing...')
+          // Fase 8: Generazione riassunto (95-98%)
+          sendProgress(controller, 'processing', 95, 'Generating document summary...')
           
           if (!document || !document.id) {
-            throw new Error('Document not found during finalization')
+            throw new Error('Document not found during summary generation')
           }
+          
+          // Generate summary synchronously as part of the upload workflow
+          try {
+            await generateAndSaveSummary(document.id)
+            console.log(`[upload/stream] Successfully generated summary for document ${document.id}`)
+          } catch (summaryError) {
+            // Log error but don't fail the upload - document is still usable without summary
+            console.error('[upload/stream] Summary generation failed:', {
+              documentId: document.id,
+              error: summaryError instanceof Error ? summaryError.message : 'Unknown error'
+            })
+            // Mark that summary generation failed but continue
+          }
+          
+          // Fase 9: Completamento (98-100%)
+          sendProgress(controller, 'processing', 98, 'Finalizing...')
           
           await supabaseAdmin
             .from('documents')
@@ -327,18 +343,6 @@ export async function POST(req: NextRequest) {
               chunks_count: chunks.length,
             })
             .eq('id', document.id)
-
-          // Dispatch async summary generation (non-blocking)
-          if (document?.id) {
-            const docId = document.id // Capture for closure
-            generateAndSaveSummary(docId).catch(error => {
-              console.error('[upload] Background summary generation failed:', {
-                documentId: docId,
-                error: error instanceof Error ? error.message : 'Unknown error'
-              })
-              // Don't fail the upload, just log the error
-            })
-          }
 
           // Invio risultato finale
           const finalResult = JSON.stringify({
@@ -579,6 +583,20 @@ export async function POST(req: NextRequest) {
       // Inserisci chunks nel database (batch di 1000)
       await insertDocumentChunks(chunksWithEmbeddings)
 
+      // Generate document summary synchronously as part of upload workflow
+      console.log(`[api/upload] Generating summary for document ${document.id}`)
+      try {
+        await generateAndSaveSummary(document.id)
+        console.log(`[api/upload] Successfully generated summary for document ${document.id}`)
+      } catch (summaryError) {
+        // Log error but don't fail the upload - document is still usable without summary
+        console.error('[api/upload] Summary generation failed:', {
+          documentId: document.id,
+          error: summaryError instanceof Error ? summaryError.message : 'Unknown error'
+        })
+        // Continue to mark document as completed even without summary
+      }
+      
       // Aggiorna status a completed e chunks_count
       await supabaseAdmin
         .from('documents')
@@ -589,15 +607,6 @@ export async function POST(req: NextRequest) {
         .eq('id', document.id)
 
       console.log(`[api/upload] Successfully processed document ${document.id}`)
-
-      // Dispatch async summary generation (non-blocking)
-      generateAndSaveSummary(document.id).catch(error => {
-        console.error('[upload] Background summary generation failed:', {
-          documentId: document.id,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        })
-        // Don't fail the upload, just log the error
-      })
 
       return NextResponse.json({
         success: true,
