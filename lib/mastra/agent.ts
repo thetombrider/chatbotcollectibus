@@ -283,15 +283,30 @@ async function metaQueryTool({ query }: { query: string }) {
     // Use unified analysis (cached internally)
     const analysis = await analyzeQuery(query)
     
-    if (!analysis.isMeta) {
+    // IMPORTANT FIX: Handle exploratory queries that mention specific topics
+    // These should be treated as thematic meta queries (list documents about X)
+    // Example: "che documenti GRI abbiamo nel db?" → intent: exploratory, but should list docs
+    const queryLower = query.toLowerCase()
+    const isExploratoryWithList = analysis.intent === 'exploratory' && 
+      (queryLower.includes('che documenti') || queryLower.includes('che norme') || 
+       queryLower.includes('quali documenti') || queryLower.includes('quali norme') ||
+       queryLower.includes('documenti') || queryLower.includes('norme'))
+    
+    if (!analysis.isMeta && !isExploratoryWithList) {
       return {
         isMeta: false,
         message: 'Questa query non sembra essere una query meta sul database.',
       }
     }
+    
+    // If exploratory with list indicators, treat as meta list query
+    if (isExploratoryWithList && !analysis.isMeta) {
+      console.log('[mastra/agent] Converting exploratory query to meta list query')
+      analysis.isMeta = true
+      analysis.metaType = 'list'
+    }
 
     let metaType = analysis.metaType // Make it mutable so we can change it
-    const queryLower = query.toLowerCase()
 
     // Determine which function to call based on query content and metaType
     let toolOutput: unknown

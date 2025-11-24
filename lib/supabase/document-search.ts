@@ -64,6 +64,7 @@ export async function searchDocumentsBySummary(
     const embeddings = await generateEmbeddings([query], 'text-embedding-3-small')
     const queryEmbedding = embeddings[0]
     console.log(`[document-search] Generated query embedding in ${Date.now() - startEmbed}ms`)
+    console.log('[document-search] Query for embedding:', query.substring(0, 150))
 
     // Search using the Postgres function from migration
     const startSearch = Date.now()
@@ -80,6 +81,20 @@ export async function searchDocumentsBySummary(
 
     const searchTime = Date.now() - startSearch
     console.log(`[document-search] Found ${data?.length || 0} documents in ${searchTime}ms`)
+    
+    // Log top results for debugging
+    if (data && data.length > 0) {
+      console.log('[document-search] Top 5 results:')
+      data.slice(0, 5).forEach((doc: DocumentSearchResult, idx: number) => {
+        console.log(`  ${idx + 1}. ${doc.filename} (similarity: ${doc.similarity.toFixed(3)})`)
+        console.log(`     Summary preview: ${doc.summary?.substring(0, 100) || 'None'}...`)
+      })
+    } else {
+      console.log('[document-search] No documents found - possible reasons:')
+      console.log('  1. No documents have summaries generated')
+      console.log('  2. Similarity threshold too high')
+      console.log('  3. Query embedding does not match any summary embeddings')
+    }
 
     // Filter out documents without summaries if needed
     let results = data || []
