@@ -7,7 +7,6 @@ import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument, checkDuplicateFilename, deleteDocument, getDocumentVersions } from '@/lib/supabase/document-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { generateAndSaveSummary } from '@/lib/processing/summary-generation'
 
 export const maxDuration = 300 // 5 minuti per upload e processing
 
@@ -313,28 +312,12 @@ export async function POST(req: NextRequest) {
             await insertDocumentChunks(batch)
           }
 
-          // Fase 8: Generazione riassunto (95-98%)
-          sendProgress(controller, 'processing', 95, 'Generating document summary...')
+          // Fase 8: Completamento (95-100%)
+          sendProgress(controller, 'processing', 95, 'Finalizing...')
           
           if (!document || !document.id) {
-            throw new Error('Document not found during summary generation')
+            throw new Error('Document not found during finalization')
           }
-          
-          // Generate summary synchronously as part of the upload workflow
-          try {
-            await generateAndSaveSummary(document.id)
-            console.log(`[upload/stream] Successfully generated summary for document ${document.id}`)
-          } catch (summaryError) {
-            // Log error but don't fail the upload - document is still usable without summary
-            console.error('[upload/stream] Summary generation failed:', {
-              documentId: document.id,
-              error: summaryError instanceof Error ? summaryError.message : 'Unknown error'
-            })
-            // Mark that summary generation failed but continue
-          }
-          
-          // Fase 9: Completamento (98-100%)
-          sendProgress(controller, 'processing', 98, 'Finalizing...')
           
           await supabaseAdmin
             .from('documents')
@@ -583,20 +566,6 @@ export async function POST(req: NextRequest) {
       // Inserisci chunks nel database (batch di 1000)
       await insertDocumentChunks(chunksWithEmbeddings)
 
-      // Generate document summary synchronously as part of upload workflow
-      console.log(`[api/upload] Generating summary for document ${document.id}`)
-      try {
-        await generateAndSaveSummary(document.id)
-        console.log(`[api/upload] Successfully generated summary for document ${document.id}`)
-      } catch (summaryError) {
-        // Log error but don't fail the upload - document is still usable without summary
-        console.error('[api/upload] Summary generation failed:', {
-          documentId: document.id,
-          error: summaryError instanceof Error ? summaryError.message : 'Unknown error'
-        })
-        // Continue to mark document as completed even without summary
-      }
-      
       // Aggiorna status a completed e chunks_count
       await supabaseAdmin
         .from('documents')

@@ -7,6 +7,7 @@ import { generateEmbeddings } from '@/lib/embeddings/openai'
 import { insertDocumentChunks } from '@/lib/supabase/vector-operations'
 import { createDocument, checkDuplicateFilename, deleteDocument, getDocumentVersions } from '@/lib/supabase/document-operations'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { generateAndSaveSummary } from '@/lib/processing/summary-generation'
 
 export const maxDuration = 300 // 5 minuti per processing
 
@@ -310,8 +311,28 @@ export async function POST(req: NextRequest) {
             await insertDocumentChunks(batch)
           }
 
-          // Fase 10: Completamento (95-100%)
-          sendProgress(controller, 'processing', 95, 'Finalizing...')
+          // Fase 10: Generazione riassunto (95-98%)
+          sendProgress(controller, 'processing', 95, 'Generating document summary...')
+          
+          if (!document || !document.id) {
+            throw new Error('Document not found during summary generation')
+          }
+          
+          // Generate summary synchronously as part of the upload workflow
+          try {
+            await generateAndSaveSummary(document.id)
+            console.log(`[upload/process] Successfully generated summary for document ${document.id}`)
+          } catch (summaryError) {
+            // Log error but don't fail the upload - document is still usable without summary
+            console.error('[upload/process] Summary generation failed:', {
+              documentId: document.id,
+              error: summaryError instanceof Error ? summaryError.message : 'Unknown error'
+            })
+            // Mark that summary generation failed but continue
+          }
+          
+          // Fase 11: Completamento (98-100%)
+          sendProgress(controller, 'processing', 98, 'Finalizing...')
           
           await supabaseAdmin
             .from('documents')
