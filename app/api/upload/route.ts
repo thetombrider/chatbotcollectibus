@@ -268,7 +268,23 @@ export async function POST(req: NextRequest) {
           }
 
           // Fase 6: Preparazione chunks (80-85%)
-          sendProgress(controller, 'processing', 85, 'Preparing chunks with embeddings...')
+          sendProgress(controller, 'processing', 80, 'Extracting keywords with LLM...')
+          
+          // Estrai keywords per ogni chunk usando LLM
+          const { extractKeywordsBatch } = await import('@/lib/processing/keyword-extraction')
+          
+          const chunksForKeywords = chunks.map((chunk) => ({
+            content: chunk.content,
+            context: {
+              documentTitle: file.name,
+              articleNumber: chunk.metadata.articleNumber,
+              sectionTitle: chunk.metadata.sectionTitle,
+            },
+          }))
+          
+          const keywordResults = await extractKeywordsBatch(chunksForKeywords, 5) // 5 concurrent LLM calls
+          
+          sendProgress(controller, 'processing', 85, 'Preparing chunks with embeddings and keywords...')
           
           if (!document || !document.id) {
             throw new Error('Document not found during chunk preparation')
@@ -280,11 +296,13 @@ export async function POST(req: NextRequest) {
             content: preprocessChunkContent(chunk.content), // Preprocessa contenuto prima di salvare
             embedding: embeddings[index],
             chunk_index: chunk.chunkIndex,
+            keywords: keywordResults[index]?.keywords || [], // Add LLM-generated keywords
             metadata: {
               ...chunk.metadata,
               documentFilename: file.name,
               processingMethod: extracted.processingMethod,
               sourceFormat: format,
+              keywordModel: keywordResults[index]?.model || 'none', // Track which model generated keywords
               // Aggiungi metadata da OCR se disponibile
               ...extracted.metadata,
             },
@@ -547,17 +565,34 @@ export async function POST(req: NextRequest) {
 
       console.log(`[api/upload] Generated ${embeddings.length} embeddings for ${file.name}`)
 
-      // Prepara chunks con embeddings e metadata ricchi
+      // Estrai keywords per ogni chunk usando LLM
+      const { extractKeywordsBatch } = await import('@/lib/processing/keyword-extraction')
+      
+      const chunksForKeywords = chunks.map((chunk) => ({
+        content: chunk.content,
+        context: {
+          documentTitle: file.name,
+          articleNumber: chunk.metadata.articleNumber,
+          sectionTitle: chunk.metadata.sectionTitle,
+        },
+      }))
+      
+      console.log(`[api/upload] Extracting keywords for ${chunks.length} chunks`)
+      const keywordResults = await extractKeywordsBatch(chunksForKeywords, 5)
+
+      // Prepara chunks con embeddings, keywords e metadata ricchi
       const chunksWithEmbeddings = chunks.map((chunk, index) => ({
         document_id: document.id,
         content: preprocessChunkContent(chunk.content), // Preprocessa contenuto prima di salvare
         embedding: embeddings[index],
         chunk_index: chunk.chunkIndex,
+        keywords: keywordResults[index]?.keywords || [], // Add LLM-generated keywords
         metadata: {
           ...chunk.metadata,
           documentFilename: file.name,
           processingMethod: extracted.processingMethod,
           sourceFormat: format,
+          keywordModel: keywordResults[index]?.model || 'none', // Track which model generated keywords
           // Aggiungi metadata da OCR se disponibile
           ...extracted.metadata,
         },

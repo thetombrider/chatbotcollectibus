@@ -181,6 +181,7 @@ export async function insertDocumentChunks(
     content: string
     embedding: number[]
     chunk_index: number
+    keywords?: string[]
     metadata?: Record<string, unknown>
   }>
 ): Promise<void> {

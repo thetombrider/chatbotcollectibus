@@ -30,6 +30,9 @@ export const PROMPTS = {
 
   // Meta folder inference
   META_FOLDER_INFERENCE: 'meta-folder-inference',
+  
+  // Keyword extraction for BM25
+  KEYWORD_EXTRACTOR: 'keyword_extractor',
 } as const
 
 /**
