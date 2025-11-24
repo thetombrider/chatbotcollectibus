@@ -267,8 +267,24 @@ export async function POST(req: NextRequest) {
             embeddings.push(...batchEmbeddings)
           }
 
-          // Fase 8: Preparazione chunks (80-85%)
-          sendProgress(controller, 'processing', 85, 'Preparing chunks with embeddings...')
+          // Fase 8: Keyword extraction (80-82%)
+          sendProgress(controller, 'processing', 80, 'Extracting keywords with LLM...')
+          
+          const { extractKeywordsBatch } = await import('@/lib/processing/keyword-extraction')
+          
+          const chunksForKeywords = chunks.map((chunk) => ({
+            content: chunk.content,
+            context: {
+              documentTitle: filename,
+              articleNumber: chunk.metadata.articleNumber,
+              sectionTitle: chunk.metadata.sectionTitle,
+            },
+          }))
+          
+          const keywordResults = await extractKeywordsBatch(chunksForKeywords, 5)
+          
+          // Fase 9: Preparazione chunks (82-85%)
+          sendProgress(controller, 'processing', 85, 'Preparing chunks with embeddings and keywords...')
           
           if (!document || !document.id) {
             throw new Error('Document not found during chunk preparation')
@@ -280,11 +296,13 @@ export async function POST(req: NextRequest) {
             content: preprocessChunkContent(chunk.content),
             embedding: embeddings[index],
             chunk_index: chunk.chunkIndex,
+            keywords: keywordResults[index]?.keywords || [],
             metadata: {
               ...chunk.metadata,
               documentFilename: filename,
               processingMethod: extracted.processingMethod,
               sourceFormat: format,
+              keywordModel: keywordResults[index]?.model || 'none',
               ...extracted.metadata,
             },
           }))
