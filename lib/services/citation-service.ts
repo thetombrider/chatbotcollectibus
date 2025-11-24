@@ -115,6 +115,9 @@ export function normalizeWebCitations(content: string): string {
 export function normalizeUnicodeCitations(content: string): string {
   let normalized = content
   
+  // Converti {{CITE_KB_N}} (Gemini format) in [cit:N]
+  normalized = normalized.replace(/\{\{CITE_KB_(\d+)\}\}/g, '[cit:$1]')
+  
   // Converti 【cit:N】 o 【cit:N,M】 in [cit:N] o [cit:N,M]
   normalized = normalized.replace(/【(cit[\s:]+\d+(?:\s*,\s*\d+)*)】/g, '[$1]')
   
