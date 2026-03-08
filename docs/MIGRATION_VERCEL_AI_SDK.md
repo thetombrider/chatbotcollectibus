@@ -1,16 +1,44 @@
 # Piano di Migrazione e Semplificazione Radicale
 
-> **Obiettivo:** Rendere i risultati affidabili e testabili, eliminare l'accoppiamento fragile tra componenti, e semplificare lo stack (Mastra → Vercel AI SDK, prompt centralizzati in Langfuse, evaluation automatica).
+> **Obiettivo:** Rendere i risultati affidabili e testabili, eliminare l'accoppiamento fragile tra componenti, e semplificare lo stack (Mastra → Vercel AI SDK, prompt consolidati su Langfuse, evaluation automatica).
 
 ## Problemi che risolviamo
 
 | Problema | Causa | Soluzione |
 |---|---|---|
-| Risultati inaffidabili | ~10 prompt in ~10 file con istruzioni contraddittorie | Prompt centralizzati in Langfuse, system prompt unico |
-| Cambiare un pezzo ne rompe un altro | Catena fragile: analysis → prompt variant → LLM output → citation parsing | Prompt unico, citazioni post-hoc, evaluation suite |
+| Risultati inaffidabili | 5 system prompt separati + istruzioni citazione duplicate in 4 posti | Unificazione a 1 system prompt su Langfuse |
+| Cambiare un pezzo ne rompe un altro | Catena fragile: analysis → prompt variant → LLM output → citation parsing | Prompt unico su Langfuse, evaluation suite |
 | Race condition citazioni sbagliate | `toolResultsCache` globale condiviso tra request | Vercel AI SDK (tool results per-request) |
 | Impossibile testare le risposte | Nessun framework di valutazione | Langfuse Datasets + Experiments |
 | Type safety inesistente layer LLM | Mastra API opache, 7× `as any` | AI SDK con Zod schema |
+| ~300 righe di fallback potenzialmente stale | Fallback hardcoded che potrebbe non coincidere con i prompt live su Langfuse | Eliminare i fallback, fidarsi di Langfuse |
+
+## Stato Attuale dei Prompt
+
+I prompt **sono già su Langfuse** come fonte primaria. Il codice li recupera con `compilePromptWithConfig()` e usa fallback hardcoded solo se Langfuse è irraggiungibile.
+
+**9 prompt registrati in `prompt-manager.ts`:**
+
+| Nome Langfuse | Usato in | Problema |
+|---|---|---|
+| `system-rag-with-context` | system-prompt.ts | 1 di 5 varianti, dovrebbe essere unificato |
+| `system-rag-comparative` | system-prompt.ts | Variante separata, duplica 80% del contenuto |
+| `system-rag-no-context-web` | system-prompt.ts | Variante separata |
+| `system-rag-no-context` | system-prompt.ts | Variante separata |
+| `system-meta-query` | system-prompt.ts | Variante separata |
+| `query-analysis` | query-analysis.ts | ✅ OK, indipendente |
+| `query-expansion` | intent-based-expansion.ts | ✅ OK, indipendente |
+| `meta-folder-inference` | meta-folder-inference.ts | ✅ OK, indipendente |
+| `keyword_extractor` | keyword-extraction.ts | ✅ OK, indipendente |
+
+**Istruzioni citazione hardcoded nel codice (NON su Langfuse):**
+
+| File | Cosa contiene | Problema |
+|---|---|---|
+| `agent.ts:728` | `webSearchTool.description` con formato `[web:N]` | Hardcoded nel codice |
+| `agent.ts:744` | `metaQueryTool.description` | Hardcoded nel codice |
+| `agent.ts:184` | `citationFormat` nell'output di webSearchTool | Istruzioni inline nel tool result |
+| `system-prompt.ts:240-270` | `buildCitationsSection()` — regole citazione nel fallback | Duplica le regole su Langfuse |
 
 ---
 
@@ -32,128 +60,76 @@ Creare `lib/auth/require-user.ts` e aggiungere auth check a: `/api/documents`, `
 
 ### 0.3 Pulizia root
 
-```bash
-rm "1762893525394-lf-traces-export-*.json"
-rm "how 8ac6625 --format=*"
-rm "chatbotcollectibus"
-```
+Rimuovere file spazzatura dal root: export Langfuse `.json`, file `chatbotcollectibus`, file con nome git command.
 
 ---
 
-## Fase 1: Centralizzazione Prompt in Langfuse
+## Fase 1: Consolidamento Prompt su Langfuse
 
 **Tempo:** 2-3 ore — **Risolve il problema principale: "cambiare uno rompe gli altri"**
 
-### Situazione attuale: ~10 prompt in ~10 file
+### 1.1 Unificare i 5 system prompt in 1
 
-```
-system-prompt.ts        → 5 varianti system prompt (~300 righe di testo prompt)
-agent.ts                → BASE_AGENT_INSTRUCTIONS + citationFormat nell'output webSearchTool
-                          + description dei 2 tool con istruzioni citazione
-query-analysis.ts       → prompt per classificazione intent
-query-enhancement.ts    → prompt per espansione query
-meta-folder-inference.ts → prompt per inferire folder name
-keyword-extraction.ts   → prompt per keywords (upload)
-summary-generation.ts   → prompt per summary (upload)
-```
+**Su Langfuse Dashboard:**
 
-Le istruzioni di citazione sono ripetute in **4 posti** con formulazioni diverse → se cambi una, le altre 3 restano disallineate.
-
-### Target: tutti i prompt in Langfuse, zero testo prompt nel codice
-
-**Langfuse Prompts Dashboard:**
-
-| Nome Prompt | Usato in | Variabili |
-|---|---|---|
-| `system-rag` | chat route | `{{context}}`, `{{web_search_section}}`, `{{meta_query_section}}` |
-| `query-analysis` | query-analysis.ts | `{{query}}`, `{{valid_intents}}` |
-| `query-enhancement` | query-enhancement.ts | `{{query}}`, `{{analysis}}`, `{{history}}` |
-| `folder-inference` | meta-folder-inference.ts | `{{query}}`, `{{folders}}` |
-| `keyword-extraction` | keyword-extraction.ts | `{{chunk}}`, `{{document_title}}` |
-| `summary-generation` | summary-generation.ts | `{{chunks}}`, `{{filename}}` |
-
-### Implementazione
-
-1. **Creare i prompt su Langfuse Dashboard** — copia-incolla il testo attuale, poi semplifica
-2. **Creare `lib/prompts/index.ts`** — un modulo che recupera i prompt da Langfuse con cache locale
-
-```typescript
-import { getLangfusePrompt } from '@/lib/observability/prompt-manager'
-
-export async function getPrompt(name: string, variables: Record<string, string>) {
-  return getLangfusePrompt(name, variables)
-}
-```
-
-3. **Aggiornare ogni file** — sostituire il testo hardcoded con `getPrompt('nome', { variabili })`
-4. **Eliminare `buildFallbackComparativePrompt()` e le altre 4 funzioni** — un solo template, varianti gestite con variabili
-
-### Beneficio
-
-- Modificare un prompt = cambiarlo su Langfuse → effetto immediato senza deploy
-- Versioning automatico → rollback se qualcosa peggiora
-- **Un solo posto** per le regole di citazione
-
----
-
-## Fase 2: Unificazione System Prompt
-
-**Tempo:** 1-2 ore — **Riduce da 5 varianti a 1 template**
-
-### Da (oggi — `system-prompt.ts`, 461 righe)
-
-```
-buildFallbackMetaPrompt()
-buildFallbackComparativePrompt()
-buildFallbackWithContextPrompt()
-buildFallbackNoContextWebPrompt()
-buildFallbackNoContextPrompt()
-```
-
-5 funzioni che ripetono le stesse sezioni con variazioni minime.
-
-### A (target — prompt Langfuse `system-rag`)
+Creare un nuovo prompt `system-rag` che sostituisce i 5 esistenti, usando variabili condizionali:
 
 ```
 Sei un assistente per un team di consulenza.
 
 {{#if context}}
-CONTESTO DOCUMENTI:
+Usa il seguente contesto dai documenti per rispondere:
 {{context}}
 
-Cita le fonti con [cit:N] dove N corrisponde a [Documento N: filename].
-Non inventare citazioni. Cita solo documenti presenti nel contesto.
+Cita con [cit:N] dove N = numero documento del contesto.
+Non inventare citazioni.
 {{/if}}
 
-{{#if web_search_enabled}}
-Se le fonti non bastano, usa il tool web_search. Cita i risultati web con [web:N].
+{{#if web_search_section}}
+{{web_search_section}}
 {{/if}}
 
-Per informazioni sul database stesso (lista documenti, cartelle, statistiche), usa il tool meta_query.
+Per informazioni sul database stesso (lista documenti, statistiche), usa il tool meta_query.
+Quando elenchi documenti dal tool meta_query, includi [cit:N] per ogni documento.
 ```
 
-~20 righe invece di ~300. Meno istruzioni = LLM meno confuso = output più prevedibile.
+**~30 righe** invece di 5 prompt separati con contenuto sovrapposto.
 
-### File da modificare
+### 1.2 Semplificare `system-prompt.ts`
 
-- **[DELETE]** Le 5 funzioni `buildFallback*` in `system-prompt.ts`
-- **[SIMPLIFY]** `buildSystemPrompt()` → chiama `getPrompt('system-rag', variables)`
-- **[REMOVE]** `citationFormat` dall'output di `webSearchTool` (istruzioni già nel system prompt)
-- **[REMOVE]** Istruzioni citazione ridondanti nelle `description` dei tool
+```diff
+# Da:
+- 461 righe con 5 funzioni buildFallback* + routing a 5 prompt Langfuse
+
+# A:
+- ~60 righe con 1 chiamata a compilePromptWithConfig('system-rag', variables)
+- 1 fallback minimale (20 righe) invece di 5
+```
+
+**File da modificare:**
+- **[SIMPLIFY]** `lib/llm/system-prompt.ts` — da 461 righe a ~80
+- **[DEPRECATE su Langfuse]** I 5 prompt separati, sostituiti dal singolo `system-rag`
+
+### 1.3 Eliminare istruzioni citazione duplicate
+
+Le regole di citazione devono stare in **un solo posto** (il system prompt su Langfuse). Rimuovere:
+
+- `agent.ts:184` — `citationFormat` dall'output di webSearchTool
+- Istruzioni ridondanti nelle `description` dei tool (mantenere solo la descrizione funzionale, senza regole di formato)
 
 ---
 
-## Fase 3: Migrazione a Vercel AI SDK
+## Fase 2: Migrazione a Vercel AI SDK
 
 **Tempo:** 4-6 ore — **Elimina race condition, dà type safety e token usage**
 
-### 3.1 Installa dipendenze
+### 2.1 Installa dipendenze
 
 ```bash
 npm install ai @ai-sdk/openai @ai-sdk/react
 ```
 
-### 3.2 Provider OpenRouter
+### 2.2 Provider OpenRouter
 
 **[NEW] `lib/ai/provider.ts`**
 
@@ -166,7 +142,7 @@ export const openrouter = createOpenAI({
 })
 ```
 
-### 3.3 Tool con Zod
+### 2.3 Tool con Zod
 
 **[NEW] `lib/ai/tools.ts`**
 
@@ -177,27 +153,41 @@ import { z } from 'zod'
 export const webSearchTool = tool({
   description: 'Cerca informazioni sul web quando le fonti nella knowledge base non bastano.',
   parameters: z.object({ query: z.string() }),
-  execute: async ({ query }) => { /* logica da lib/tavily/web-search */ },
+  execute: async ({ query }) => {
+    const { searchWeb } = await import('@/lib/tavily/web-search')
+    const results = await searchWeb(query, 5)
+    return {
+      results: results.results.map((r, i) => ({
+        index: i + 1,
+        title: r.title || 'Senza titolo',
+        url: r.url || '',
+        content: r.content || '',
+      })),
+    }
+  },
 })
 
 export const metaQueryTool = tool({
   description: 'Ottieni info sul database (lista documenti, cartelle, statistiche).',
   parameters: z.object({ query: z.string() }),
-  execute: async ({ query }) => { /* logica estratta da agent.ts */ },
+  execute: async ({ query }) => {
+    const { handleMetaQuery } = await import('@/lib/ai/handlers/meta-query-handler')
+    return handleMetaQuery(query)
+  },
 })
 ```
 
-### 3.4 Estrarre business logic metaQueryTool
+### 2.4 Estrarre business logic metaQueryTool
 
 **[NEW] `lib/ai/handlers/meta-query-handler.ts`**
 
 Spostare le ~450 righe di logica da `agent.ts:metaQueryTool` in una funzione pura `handleMetaQuery(query)`. Questa funzione:
 - Non dipende da Mastra
 - Non scrive in `toolResultsCache` (eliminato — AI SDK espone tool results nel response)
-- Ritorna un tipo strutturato
+- Ritorna un tipo strutturato `MetaQueryResult`
 - È testabile in isolamento
 
-### 3.5 Nuova chat route
+### 2.5 Nuova chat route
 
 **[REWRITE] `app/api/chat/route.ts`**
 
@@ -223,12 +213,12 @@ export async function POST(req: Request) {
 
   const searchResults = await performSearch(enhancement.enhanced, embedding, analysis)
   const context = buildContext(searchResults)
-  const systemPrompt = await getPrompt('system-rag', { context, ... })
+  const systemPrompt = await buildSystemPrompt({ context, analysis, webSearchEnabled })
 
   // Step 5: LLM con AI SDK
   const result = streamText({
     model: openrouter(analysis.isComparative ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash'),
-    system: systemPrompt,
+    system: systemPrompt.text,
     messages,
     tools: {
       ...(webSearchEnabled ? { web_search: webSearchTool } : {}),
@@ -237,7 +227,6 @@ export async function POST(req: Request) {
     maxSteps: 3,
     experimental_telemetry: { isEnabled: true, functionId: 'chat' },
     onFinish: async ({ text, usage, toolResults }) => {
-      // Post-processing + save (fire-and-forget)
       const processed = processResponse(text, searchResults, toolResults)
       saveAssistantMessage(conversationId, processed.content, { usage, sources: processed.sources })
       saveCache(enhancement.enhanced, embedding, processed.content, processed.sources)
@@ -250,9 +239,7 @@ export async function POST(req: Request) {
 
 **Da 489 righe a ~80 righe.**
 
-### 3.6 Frontend con `useChat`
-
-**[MODIFY]** Componente chat:
+### 2.6 Frontend con `useChat`
 
 ```typescript
 import { useChat } from '@ai-sdk/react'
@@ -263,9 +250,9 @@ const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat(
 })
 ```
 
-Elimina tutto il parsing SSE manuale.
+Elimina il parsing SSE manuale.
 
-### Cosa elimina questa fase
+### 2.7 File da eliminare
 
 | File | Righe | Azione |
 |---|---|---|
@@ -283,103 +270,52 @@ npm uninstall @mastra/core
 
 ---
 
-## Fase 4: Evaluation Suite con Langfuse
+## Fase 3: Evaluation Suite con Langfuse
 
 **Tempo:** 3-4 ore — **Dà regression testing sulle risposte**
 
-### 4.1 Creare Dataset su Langfuse
+### 3.1 Creare Dataset su Langfuse
 
 Creare un dataset `golden-queries` con 15-20 query rappresentative:
 
 | Query | Tipo | Aspettative |
 |---|---|---|
 | "che documenti GRI abbiamo?" | meta/list | Lista ≥5 documenti, tutti GRI |
-| "confronta CSRD e ESPR" | comparative | Menziona entrambi, tabella/struttura |
+| "confronta CSRD e ESPR" | comparative | Menziona entrambi, struttura comparativa |
 | "articolo 5 del GDPR" | factual/article | Testo articolo specifico |
 | "quanti documenti ci sono?" | meta/stats | Numero corretto |
 | "documenti su sostenibilità" | exploratory | Lista documenti tematici |
 | "cosa dice la norma ISO 14001?" | factual | Contenuto dalla KB |
 | "documenti nella cartella GRI" | meta/folder | Solo documenti in quella cartella |
 
-### 4.2 Script di valutazione automatica
+### 3.2 Script di valutazione automatica
 
 **[NEW] `scripts/run-evaluation.ts`**
 
-```typescript
-import Langfuse from 'langfuse'
+Esegue tutte le golden query, calcola score automatici (ha citazioni? ha sources? risposta non vuota? nessuna allucinazione?), e pubblica i risultati su Langfuse come score.
 
-const langfuse = new Langfuse()
-
-async function runEvaluation() {
-  const dataset = await langfuse.getDataset('golden-queries')
-
-  for (const item of dataset.items) {
-    // Esegui la query tramite l'API
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      body: JSON.stringify({ messages: [{ role: 'user', content: item.input }] }),
-    })
-
-    const result = await response.json()
-
-    // Scoring automatico
-    const scores = {
-      has_citations: result.content.includes('[cit:') ? 1 : 0,
-      has_sources: result.sources?.length > 0 ? 1 : 0,
-      response_length: result.content.length > 50 ? 1 : 0,
-      no_hallucination: !result.content.includes('non ho informazioni') || item.expectNoResults ? 1 : 0,
-    }
-
-    // Pubblica risultati su Langfuse
-    await langfuse.score({
-      traceId: result.traceId,
-      name: 'evaluation',
-      value: Object.values(scores).reduce((a, b) => a + b, 0) / Object.keys(scores).length,
-      comment: JSON.stringify(scores),
-    })
-  }
-}
-```
-
-### 4.3 Workflow di valutazione
+### 3.3 Workflow di valutazione
 
 ```
 1. Modifica un prompt su Langfuse
 2. npm run evaluate  →  esegue golden queries
 3. Confronta score su Langfuse dashboard con versione precedente
-4. Se migliorano → pubblica prompt. Se peggiorano → rollback versione.
-```
-
-Aggiungere a `package.json`:
-```json
-"evaluate": "tsx scripts/run-evaluation.ts"
+4. Se migliorano → pubblica prompt. Se peggiorano → rollback versione prompt.
 ```
 
 ---
 
-## Fase 5: Citazioni Post-hoc (Opzionale)
+## Fase 4: Citazioni Post-hoc (Opzionale)
 
 **Tempo:** 2-3 ore — **Elimina la fragilità della catena di citazioni**
 
 ### Problema
 
-Oggi l'LLM deve produrre `[cit:N]` inline → 4 normalizzatori diversi → citation-service parsa → se il formato è sbagliato, sources vuote.
+Oggi l'LLM deve produrre `[cit:N]` inline → 4 normalizzatori diversi (Unicode, Gemini, web, standard) → citation-service parsa. Se il modello sbaglia formato → sources vuote o sbagliate.
 
 ### Soluzione
 
-Rimuovere istruzioni di citazione dal prompt. Nel callback `onFinish` di `streamText`, fare matching automatico:
-
-```typescript
-onFinish: async ({ text }) => {
-  // Per ogni frase della risposta, trova il chunk più simile
-  const sentences = text.split(/[.!?]+/)
-  const citations = await matchSentencesToChunks(sentences, searchResults)
-  // Inserisci citazioni nel testo
-  const citedText = insertCitations(text, citations)
-}
-```
-
-**Beneficio:** Il prompt diventa più corto, l'LLM si concentra sulla qualità della risposta, le citazioni sono sempre corrette perché basate su similarità reale.
+Rimuovere istruzioni di citazione dal prompt. Nel callback `onFinish`, fare matching automatico tra frasi della risposta e chunks del contesto usando similarità coseno. Citazioni sempre corrette perché basate su dati, non sull'output LLM.
 
 ---
 
@@ -388,21 +324,21 @@ onFinish: async ({ text }) => {
 | Fase | Tempo | Cosa risolve |
 |---|---|---|
 | **0. Fix sicurezza** | 30 min | CORS + API auth |
-| **1. Prompt in Langfuse** | 2-3 ore | "Cambiare uno rompe gli altri" |
-| **2. System prompt unico** | 1-2 ore | Risultati imprevedibili |
-| **3. AI SDK** | 4-6 ore | Race condition, type safety, token usage |
-| **4. Evaluation suite** | 3-4 ore | Testabilità dei risultati |
-| **5. Citazioni post-hoc** | 2-3 ore | Fragilità catena citazioni |
+| **1. Consolidamento prompt** | 2-3 ore | Da 5 system prompt a 1 + eliminazione duplicati |
+| **2. AI SDK** | 4-6 ore | Race condition, type safety, token usage, -1650 righe |
+| **3. Evaluation suite** | 3-4 ore | Regression testing risposte |
+| **4. Citazioni post-hoc** | 2-3 ore | Fragilità catena citazioni (opzionale) |
 | **Totale** | **~2-3 giorni** | |
 
 ### Impatto finale
 
 | Metrica | Prima | Dopo |
 |---|---|---|
-| Prompt nel codice | ~10, in ~10 file | 0 (tutti in Langfuse) |
+| System prompt su Langfuse | 5 separati | 1 unificato |
+| Fallback hardcoded nel codice | ~300 righe (5 funzioni) | ~20 righe (1 fallback minimale) |
+| Istruzioni citazione | In 4 posti diversi | In 1 posto (system prompt Langfuse) |
 | Righe flusso chat | ~3500 | ~1800 |
-| Varianti system prompt | 5 | 1 template |
 | `as any` cast | 7 | 0 |
 | Race conditions | 1 (critica) | 0 |
 | Test risultati | 0 | 15-20 golden queries |
-| Tempo per iterare su un prompt | Deploy completo | Modifica su Langfuse (istantaneo) |
+| Iterazione prompt | Modifica Langfuse (già istantaneo) | Stessa velocità, ma 1 prompt invece di 5 |
